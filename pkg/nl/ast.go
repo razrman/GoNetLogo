@@ -25,6 +25,8 @@ type Program struct {
 	Extensions    []string
 	Procedures    []*Procedure
 	procs         map[string]*Procedure
+	// compiled is set once procedure bodies have been turned into closures.
+	compiled bool
 }
 
 type BreedDecl struct {
@@ -44,6 +46,10 @@ type Procedure struct {
 	Body       []Stmt
 	IsReporter bool
 	Pos        Pos
+	// cmdFn is the body compiled to a Go closure. nil means not compiled.
+	cmdFn func(*VM)
+	// needsScope is true when parameters, let, or a task need a lexical map.
+	needsScope bool
 }
 
 func (p *Program) Proc(name string) *Procedure {

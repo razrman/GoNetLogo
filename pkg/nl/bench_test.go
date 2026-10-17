@@ -26,6 +26,11 @@ func TestWolfSheepBenchDeterministic(t *testing.T) {
 	if a.Points[0].Sheep == 0 || a.Points[0].Wolves == 0 {
 		t.Fatalf("empty population %+v", a.Points[0])
 	}
+	// Seed 1 on the bundled 101×101 world. Locked so a compiler change that
+	// reorders random draws fails here.
+	if a.Points[0].Sheep != 1881 || a.Points[0].Wolves != 3 || a.Points[0].Turtles != 1884 {
+		t.Fatalf("seed 1 tick 20 = sheep %d wolves %d turtles %d", a.Points[0].Sheep, a.Points[0].Wolves, a.Points[0].Turtles)
+	}
 }
 
 func BenchmarkWolfSheep101(b *testing.B) {
