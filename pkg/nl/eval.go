@@ -264,12 +264,18 @@ func (vm *VM) callCmd(proc *Procedure, args []Value) (stopped bool, err error) {
 	if len(args) != len(proc.Params) {
 		return false, fmt.Errorf("%s expected %d inputs", proc.Name, len(proc.Params))
 	}
+	vm.ensureCompiled()
 	defer vm.recover(&err, &stopped)
 	saved := vm.scope
-	sc := vm.allocScope(nil)
-	vm.scope = sc
-	for i, name := range proc.Params {
-		vm.scope.vars[name] = args[i]
+	var sc *scope
+	if proc.cmdFn != nil && !proc.needsScope {
+		vm.scope = nil
+	} else {
+		sc = vm.allocScope(nil)
+		vm.scope = sc
+		for i, name := range proc.Params {
+			vm.scope.vars[name] = args[i]
+		}
 	}
 	defer func() {
 		vm.scope = saved
@@ -284,7 +290,11 @@ func (vm *VM) callCmd(proc *Procedure, args []Value) (stopped bool, err error) {
 			panic(r)
 		}
 	}()
-	vm.execStmts(proc.Body)
+	if proc.cmdFn != nil {
+		proc.cmdFn(vm)
+	} else {
+		vm.execStmts(proc.Body)
+	}
 	return false, nil
 }
 
@@ -292,12 +302,18 @@ func (vm *VM) callRep(proc *Procedure, args []Value) (v Value, err error) {
 	if len(args) != len(proc.Params) {
 		return Value{}, fmt.Errorf("%s expected %d inputs", proc.Name, len(proc.Params))
 	}
+	vm.ensureCompiled()
 	defer vm.recover(&err, nil)
 	saved := vm.scope
-	sc := vm.allocScope(nil)
-	vm.scope = sc
-	for i, name := range proc.Params {
-		vm.scope.vars[name] = args[i]
+	var sc *scope
+	if proc.cmdFn != nil && !proc.needsScope {
+		vm.scope = nil
+	} else {
+		sc = vm.allocScope(nil)
+		vm.scope = sc
+		for i, name := range proc.Params {
+			vm.scope.vars[name] = args[i]
+		}
 	}
 	defer func() {
 		vm.scope = saved
@@ -312,7 +328,11 @@ func (vm *VM) callRep(proc *Procedure, args []Value) (v Value, err error) {
 			panic(r)
 		}
 	}()
-	vm.execStmts(proc.Body)
+	if proc.cmdFn != nil {
+		proc.cmdFn(vm)
+	} else {
+		vm.execStmts(proc.Body)
+	}
 	return Value{}, errorAt(proc.Pos, "%s is a reporter and didn't report a value", proc.Name)
 }
 
