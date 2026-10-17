@@ -167,11 +167,24 @@ func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-
 		defer cancel()
 		defer close(out)
 		send := func() bool {
+			select {
+			case <-ctx.Done():
+				return false
+			default:
+			}
 			frame := s.Frame()
+			// Keep at most one pending frame. A client that is behind
+			// loses the older payload instead of stalling the model.
+			select {
+			case <-out:
+			default:
+			}
 			select {
 			case <-ctx.Done():
 				return false
 			case out <- frame:
+				return true
+			default:
 				return true
 			}
 		}
