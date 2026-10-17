@@ -41,22 +41,28 @@ type snapTurtle struct {
 	shape               string
 }
 
-// CurrentView returns the last frame published by a model command.
-// The first call copies the world under its lock.
+// CurrentView returns the last frame a painter asked for. A model command
+// only marks the frame dirty; this copies the world if that flag is set
+// or no frame has been stored yet.
 func (w *World) CurrentView() *ViewSnap {
 	if w == nil {
 		return &ViewSnap{Width: 1, Height: 1}
 	}
-	if s := w.view.Load(); s != nil {
-		return s
+	if !w.dirty.Load() {
+		if s := w.view.Load(); s != nil {
+			return s
+		}
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if s := w.view.Load(); s != nil {
-		return s
+	if !w.dirty.Load() {
+		if s := w.view.Load(); s != nil {
+			return s
+		}
 	}
 	s := w.captureView()
 	w.view.Store(s)
+	w.dirty.Store(false)
 	return s
 }
 

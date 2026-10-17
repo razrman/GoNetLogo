@@ -56,6 +56,9 @@ type World struct {
 	// one command, then publish.
 	mu   sync.Mutex
 	view atomic.Pointer[ViewSnap]
+	// dirty means the published view is behind the world. Commands set it
+	// instead of copying the grid, and the painter copies once per frame.
+	dirty atomic.Bool
 }
 
 type colorRGBA struct{ R, G, B, A uint8 }
@@ -247,11 +250,13 @@ func (w *World) ApplyView(minPx, maxPx, minPy, maxPy int, patchSize float64, wra
 	return nil
 }
 
-// unlockPublish stores an immutable frame and releases mu.
-// The caller must hold mu.
+// unlockPublish marks the published frame stale and releases mu.
+// The caller must hold mu. The copy happens in CurrentView, so a headless
+// run and a batch of steps inside one animation frame do not each clone
+// the grid.
 func (w *World) unlockPublish() {
 	defer w.mu.Unlock()
-	w.view.Store(w.captureView())
+	w.dirty.Store(true)
 }
 
 // Resize rebuilds the patch grid and removes every turtle and link.

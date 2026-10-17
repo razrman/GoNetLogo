@@ -638,13 +638,13 @@ func (s *session) pressLocked(i int) {
 		return
 	}
 	s.stepLocked(c)
+	s.presentLocked()
 }
 
-// stepLocked runs one button. Caller holds s.mu. The world lock inside
-// RunCompiled keeps a concurrent RenderWorld off the live maps, and the
-// published frame is what the draw thread paints.
+// stepLocked runs one button. Caller holds s.mu. It does not paint: the
+// animation frame paints once, and a single click paints after the step.
+// RunCompiled keeps a concurrent RenderWorld off the live maps.
 func (s *session) stepLocked(c *control) {
-	defer s.publishViewLocked()
 	if c.disableTicks() && !s.vm.World.TicksStarted() {
 		s.logf("%s is disabled until ticks start", c.widget.Display)
 		return
@@ -665,8 +665,19 @@ func (s *session) stepLocked(c *control) {
 			}
 		}
 	}
-	s.raster.Refresh()
+}
+
+// presentLocked publishes one frame and refreshes monitors. Caller holds s.mu.
+// The speed slider changes how many steps run per call, not how often this runs.
+func (s *session) presentLocked() {
+	if s.vm == nil {
+		return
+	}
 	s.refreshReadouts()
+	s.publishViewLocked()
+	if s.vm.DisplayOn {
+		s.raster.Refresh()
+	}
 }
 
 func (c *control) disableTicks() bool { return c.widget.DisableUntilTicks }
@@ -687,11 +698,7 @@ func (s *session) tick() {
 			}
 		}
 	}
-	s.refreshReadouts()
-	s.publishViewLocked()
-	if s.vm != nil && s.vm.DisplayOn {
-		s.raster.Refresh()
-	}
+	s.presentLocked()
 }
 
 func stepsFor(speed float64, frame int) int {

@@ -149,20 +149,27 @@ func (s *Session) loop() {
 				s.mu.Unlock()
 				return
 			}
-			if s.running >= 0 && s.running < len(s.model.Widgets) {
-				s.frame++
-				n := stepsFor(s.speed, s.frame)
-				for i := 0; i < n; i++ {
-					if _, err := s.runIndexLocked(s.running); err != nil || s.running < 0 {
-						break
-					}
-				}
-				if n > 0 {
-					s.broadcastLocked()
-				}
-			}
+			s.frameTickLocked()
 			s.mu.Unlock()
 		}
+	}
+}
+
+// frameTickLocked runs one animation frame: several model steps at the
+// current speed, then a single subscriber wake. Caller holds s.mu.
+func (s *Session) frameTickLocked() {
+	if s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
+		return
+	}
+	s.frame++
+	n := stepsFor(s.speed, s.frame)
+	for i := 0; i < n; i++ {
+		if _, err := s.runIndexLocked(s.running); err != nil || s.running < 0 {
+			break
+		}
+	}
+	if n > 0 {
+		s.broadcastLocked()
 	}
 }
 
@@ -590,6 +597,10 @@ func (s *Session) appendLogLocked(line string) {
 	}
 }
 
+// broadcastLocked wakes subscribers at most once each. The loop calls this
+// once per animation frame, after every speed-slider step in that frame.
+// A subscriber that has not read the previous wake is left as-is, so a
+// slow client skips intermediate frames.
 func (s *Session) broadcastLocked() {
 	for _, ch := range s.listeners {
 		select {
