@@ -1,5 +1,6 @@
 // Command server is the GraphQL API for GoNetLogo.
 // It owns the interpreter, the world, and one session per client.
+// Built with -tags web, it also serves the React UI on the same port.
 package main
 
 import (
@@ -21,15 +22,29 @@ import (
 
 func main() {
 	addr := flag.String("addr", "0.0.0.0:43131", "listen address")
+	webDir := flag.String("web", "", "directory of a built frontend (overrides files embedded with -tags web)")
 	flag.Parse()
 
 	store := session.NewStore()
 	srv := newHandler(store)
 
+	ui, err := openUI(*webDir)
+	if err != nil {
+		log.Fatalf("web UI: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", srv)
-	mux.Handle("/", playground.Handler("GoNetLogo GraphQL", "/graphql"))
-
+	if ui != nil {
+		// The app owns /. The playground stays available beside it.
+		mux.Handle("/", spaHandler(ui))
+		mux.Handle("/playground", playground.Handler("GoNetLogo GraphQL", "/graphql"))
+		log.Printf("web UI at http://%s/", *addr)
+		log.Printf("GraphQL playground at http://%s/playground", *addr)
+	} else {
+		mux.Handle("/", playground.Handler("GoNetLogo GraphQL", "/graphql"))
+		log.Printf("GraphQL playground at http://%s/", *addr)
+	}
 	log.Printf("GraphQL at http://%s/graphql", *addr)
 	log.Fatal(http.ListenAndServe(*addr, cors(mux)))
 }

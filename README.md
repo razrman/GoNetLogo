@@ -28,6 +28,35 @@ https://github.com/NetLogo/NetLogo
 
 Commercial licenses of NetLogo remain available from Uri Wilensky. This port does not change that.
 
+## Ubuntu native install
+
+These scripts install, build, and run GoNetLogo on Ubuntu 22.04 or 24.04 without containers. `setup.sh` uses apt for the C toolchain and the Fyne headers (`gcc`, `libgl1-mesa-dev`, `xorg-dev`). Go comes from the official tarball when the copy on `PATH` is older than `go.mod`. Node.js 22 comes from nodejs.org when the installed Node is older than Vite needs. Anything already new enough is skipped, and sudo is used only for apt and for writing under `/usr/local`.
+
+```bash
+./setup.sh
+./build.sh
+./startup.sh
+```
+
+Open http://localhost:8080 . One process serves the web UI and `/graphql`, including websocket subscriptions. The GraphQL playground is at http://localhost:8080/playground .
+
+`PORT` and `HOST` change the listen address. The default is `127.0.0.1:8080`.
+
+```bash
+PORT=9090 ./startup.sh
+HOST=0.0.0.0 PORT=8080 ./startup.sh
+```
+
+Foreground is the default; Ctrl-C stops the process. Background mode writes `run/gonetlogo-server.pid` and `run/gonetlogo-server.log`:
+
+```bash
+./startup.sh --background
+./startup.sh status
+./startup.sh stop
+```
+
+`./build.sh --desktop` also builds the Fyne window at `bin/gonetlogo`. Run that binary when you want the local window. The scripts do not use Docker. `docker-compose.yml` is still there as an optional extra.
+
 ## Run both
 
 Go 1.22 or newer, and Node 22. From the repo root:
@@ -87,7 +116,7 @@ The Fyne window is an optional client of `pkg/nl`. It does not speak GraphQL. A 
 
 ```
 schema/schema.graphqls     shared contract
-backend/cmd/server         gqlgen HTTP + websocket API
+backend/cmd/server         gqlgen HTTP + websocket API; embedded web UI in the native build
 backend/session            one interpreter and world per client
 backend/graph              generated schema and resolvers
 pkg/nl                     lexer, parser, interpreter, world, file loader
@@ -115,7 +144,7 @@ The schema lives in `schema/schema.graphqls`. Operations:
 
 `Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, and monitors, plus notes and a placeholder for plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor` and the agents needed to paint the view.
 
-The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). A playground is served at `/` on the API port.
+The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` and the Docker image serve a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
 
 Regenerate the Go types from `backend/` with:
 
