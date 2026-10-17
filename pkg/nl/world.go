@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -616,13 +617,21 @@ func (w *World) rebuildWhoSeq() {
 		}
 	}
 	// insertion sort, n is modest
-	for i := 1; i < len(w.whoSeq); i++ {
-		j := i
-		for j > 0 && w.whoSeq[j] < w.whoSeq[j-1] {
-			w.whoSeq[j], w.whoSeq[j-1] = w.whoSeq[j-1], w.whoSeq[j]
-			j--
-		}
+	sort.Ints(w.whoSeq)
+}
+
+// dropWho removes one who from the ordered id list. Creating a turtle
+// appends its who, which is always the new maximum, so the list stays
+// sorted without a full rebuild on every death.
+func (w *World) dropWho(id int) {
+	seq := w.whoSeq
+	i := sort.SearchInts(seq, id)
+	if i < len(seq) && seq[i] == id {
+		copy(seq[i:], seq[i+1:])
+		w.whoSeq = seq[:len(seq)-1]
+		return
 	}
+	w.rebuildWhoSeq()
 }
 
 func (w *World) Turtles() *AgentSet {
@@ -662,7 +671,11 @@ func (w *World) Patches() *AgentSet {
 }
 
 func (w *World) initTurtleVars(t *Turtle) {
-	t.Vars = map[string]Value{}
+	n := len(w.turtlesOwn)
+	if t.Breed != "" {
+		n += len(w.breedOwn[t.Breed])
+	}
+	t.Vars = make(map[string]Value, n)
 	for _, name := range w.turtlesOwn {
 		t.Vars[name] = Num(0)
 	}
@@ -686,6 +699,7 @@ func (w *World) detach(t *Turtle) {
 	if p == nil {
 		return
 	}
+	// removeWho keeps who order and slides the bucket down in place.
 	p.turtles = removeWho(p.turtles, t)
 	t.patch = nil
 }
@@ -744,7 +758,7 @@ func (w *World) Hatch(parent *Turtle, breed string) *Turtle {
 		PenSize: parent.PenSize,
 		world:   w,
 	}
-	t.Vars = map[string]Value{}
+	t.Vars = make(map[string]Value, len(parent.Vars))
 	for k, v := range parent.Vars {
 		t.Vars[k] = v
 	}
@@ -788,7 +802,7 @@ func (w *World) Die(a Agent) {
 			kept = append(kept, l)
 		}
 		w.links = kept
-		w.rebuildWhoSeq()
+		w.dropWho(t.Who)
 	case *Link:
 		if t.dead {
 			return
