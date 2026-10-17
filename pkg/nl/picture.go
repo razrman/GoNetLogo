@@ -84,8 +84,12 @@ func (w *World) captureView() *ViewSnap {
 		}
 		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color)})
 	}
-	for _, t := range w.liveTurtles() {
-		if t.Hidden {
+	if len(w.whoSeq) != len(w.turtles) {
+		w.rebuildWhoSeq()
+	}
+	for _, id := range w.whoSeq {
+		t := w.turtles[id]
+		if t == nil || t.dead || t.Hidden {
 			continue
 		}
 		shape := t.Shape
