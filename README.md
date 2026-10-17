@@ -41,6 +41,14 @@ The window opens on the forest-fire demo. Use the model menu for Game of Life, T
 
 Open a `.nlogo` or `.nlogox` file with **Open**. The code section, the view, and basic widgets are loaded. Plots are skipped and named in the status line.
 
+Browser preview of the same interpreter (the desktop window cannot be embedded in a browser pane):
+
+```bash
+./gonetlogo -web 127.0.0.1:43127
+```
+
+Then open that address. Setup runs when a model loads, and go starts on the first model.
+
 Headless still of the interface, after `setup` and 30 `go` steps:
 
 ```bash

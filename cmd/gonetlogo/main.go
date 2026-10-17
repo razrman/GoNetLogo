@@ -10,6 +10,7 @@ import (
 
 	"gonetlogo/internal/gui"
 	"gonetlogo/internal/nl"
+	"gonetlogo/internal/preview"
 	"gonetlogo/models"
 )
 
@@ -18,8 +19,16 @@ func main() {
 	model := flag.String("model", "fire.nlogo", "built-in model name or path to a .nlogo/.nlogox file")
 	steps := flag.Int("steps", 30, "forever-button steps to run before -snapshot")
 	seed := flag.Int64("seed", 1, "random seed used with -snapshot (0 keeps the clock seed)")
+	web := flag.String("web", "", "serve a browser preview on this address, for example 127.0.0.1:43127")
 	flag.Parse()
 
+	if *web != "" {
+		if err := preview.Serve(*web, models.FS); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *snapshot != "" {
 		if err := writeSnapshot(*model, *snapshot, *steps, *seed); err != nil {
 			fmt.Fprintln(os.Stderr, err)
