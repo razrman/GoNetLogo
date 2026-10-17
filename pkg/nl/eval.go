@@ -12,6 +12,9 @@ import (
 type scope struct {
 	vars   map[string]Value
 	parent *scope
+	// born is VM.tasks at allocation. A task that closes over this scope
+	// bumps tasks, and the scope is then not reused.
+	born int
 }
 
 func (s *scope) get(name string) (Value, bool) {
@@ -46,6 +49,33 @@ func (s *scope) let(name string, v Value) error {
 	return nil
 }
 
+func (vm *VM) allocScope(parent *scope) *scope {
+	var s *scope
+	if n := len(vm.scopePool); n > 0 {
+		s = vm.scopePool[n-1]
+		vm.scopePool = vm.scopePool[:n-1]
+		for k := range s.vars {
+			delete(s.vars, k)
+		}
+		if s.vars == nil {
+			s.vars = map[string]Value{}
+		}
+	} else {
+		s = &scope{vars: map[string]Value{}}
+	}
+	s.parent = parent
+	s.born = vm.tasks
+	return s
+}
+
+func (vm *VM) freeScope(s *scope) {
+	if s == nil || s.born != vm.tasks {
+		return
+	}
+	s.parent = nil
+	vm.scopePool = append(vm.scopePool, s)
+}
+
 type stopPanic struct{}
 type diePanic struct{}
 type reportPanic struct{ v Value }
@@ -63,6 +93,8 @@ type VM struct {
 	// DisplayOn mirrors no-display / display. The GUI may skip frames when false.
 	DisplayOn bool
 	timer     time.Time
+	scopePool []*scope
+	tasks     int
 }
 
 // NewVM builds a VM for a program. The world is resized only when spec is non-nil.
@@ -234,11 +266,15 @@ func (vm *VM) callCmd(proc *Procedure, args []Value) (stopped bool, err error) {
 	}
 	defer vm.recover(&err, &stopped)
 	saved := vm.scope
-	vm.scope = &scope{vars: map[string]Value{}}
+	sc := vm.allocScope(nil)
+	vm.scope = sc
 	for i, name := range proc.Params {
 		vm.scope.vars[name] = args[i]
 	}
-	defer func() { vm.scope = saved }()
+	defer func() {
+		vm.scope = saved
+		vm.freeScope(sc)
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(stopPanic); ok {
@@ -258,11 +294,15 @@ func (vm *VM) callRep(proc *Procedure, args []Value) (v Value, err error) {
 	}
 	defer vm.recover(&err, nil)
 	saved := vm.scope
-	vm.scope = &scope{vars: map[string]Value{}}
+	sc := vm.allocScope(nil)
+	vm.scope = sc
 	for i, name := range proc.Params {
 		vm.scope.vars[name] = args[i]
 	}
-	defer func() { vm.scope = saved }()
+	defer func() {
+		vm.scope = saved
+		vm.freeScope(sc)
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			if rp, ok := r.(reportPanic); ok {
@@ -376,9 +416,12 @@ func (vm *VM) execStmt(s Stmt) {
 // block runs commands in a fresh let-scope that can see the enclosing lets.
 func (vm *VM) block(stmts []Stmt) {
 	saved := vm.scope
-	parent := saved
-	vm.scope = &scope{vars: map[string]Value{}, parent: parent}
-	defer func() { vm.scope = saved }()
+	sc := vm.allocScope(saved)
+	vm.scope = sc
+	defer func() {
+		vm.scope = saved
+		vm.freeScope(sc)
+	}()
 	vm.execStmts(stmts)
 }
 
@@ -457,10 +500,12 @@ func (vm *VM) execAgentBlock(a Agent, body []Stmt) {
 	}
 	vm.pushAgent(a)
 	saved := vm.scope
-	vm.scope = &scope{vars: map[string]Value{}, parent: saved}
+	sc := vm.allocScope(saved)
+	vm.scope = sc
 	defer func() {
 		vm.scope = saved
 		vm.popAgent()
+		vm.freeScope(sc)
 	}()
 	defer func() {
 		if r := recover(); r != nil {
@@ -630,13 +675,17 @@ func (vm *VM) callTaskCmd(t *Task, args []Value, pos Pos) {
 		args = []Value{args[0]}
 	}
 	saved := vm.scope
-	vm.scope = &scope{vars: map[string]Value{}, parent: t.Scope}
+	sc := vm.allocScope(t.Scope)
+	vm.scope = sc
 	for i, name := range t.Params {
 		if i < len(args) {
 			vm.scope.vars[name] = args[i]
 		}
 	}
-	defer func() { vm.scope = saved }()
+	defer func() {
+		vm.scope = saved
+		vm.freeScope(sc)
+	}()
 	vm.execStmts(t.CmdBody)
 }
 
@@ -648,11 +697,15 @@ func (vm *VM) callTaskRep(t *Task, args []Value, pos Pos) Value {
 		vm.fail(pos, "task expected %d inputs", len(t.Params))
 	}
 	saved := vm.scope
-	vm.scope = &scope{vars: map[string]Value{}, parent: t.Scope}
+	sc := vm.allocScope(t.Scope)
+	vm.scope = sc
 	for i, name := range t.Params {
 		vm.scope.vars[name] = args[i]
 	}
-	defer func() { vm.scope = saved }()
+	defer func() {
+		vm.scope = saved
+		vm.freeScope(sc)
+	}()
 	if t.RepBody == nil {
 		vm.fail(pos, "reporter task has no body")
 	}
@@ -779,6 +832,7 @@ func (vm *VM) eval(e Expr) (Value, error) {
 		}
 		return Value{}, errorAt(e.Pos, "unknown operator %s", e.Op)
 	case *lambdaExpr:
+		vm.tasks++
 		return Value{K: KindTask, Task: &Task{
 			Params:    e.Params,
 			CmdBody:   e.Body,
