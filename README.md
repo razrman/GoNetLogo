@@ -102,6 +102,14 @@ Headless still of that window, after `setup` and 30 `go` steps:
 
 `-model` is a built-in name (`fire`, `life`, `termites`, `wolfsheep`) or a path. `-seed 0` keeps a clock seed.
 
+Headless Wolf Sheep benchmark (the model's world, fixed seed, samples every 100 ticks, optional CPU profile):
+
+```bash
+./gonetlogo -bench -ticks 1000 -seed 1 -cpuprofile wolf.pprof
+go tool pprof -top wolf.pprof
+go test -bench=BenchmarkWolfSheep101 -benchtime=1x ./pkg/nl
+```
+
 ![Forest fire in the web UI](docs/gonetlogo-web.png)
 
 ## Why the web client is React

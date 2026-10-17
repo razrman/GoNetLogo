@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func loadModel(t *testing.T, name string) *FileModel {
+func loadModel(t testing.TB, name string) *FileModel {
 	t.Helper()
 	m, err := LoadFile(filepath.Join("..", "..", "models", name))
 	if err != nil {

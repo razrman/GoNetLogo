@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"strings"
+	"time"
 
 	"gonetlogo/internal/gui"
 	"gonetlogo/models"
@@ -17,8 +19,24 @@ func main() {
 	snapshot := flag.String("snapshot", "", "write a PNG of the interface after running and exit")
 	model := flag.String("model", "fire.nlogo", "built-in model name or path to a .nlogo/.nlogox file")
 	steps := flag.Int("steps", 30, "forever-button steps to run before -snapshot")
-	seed := flag.Int64("seed", 1, "random seed used with -snapshot (0 keeps the clock seed)")
+	seed := flag.Int64("seed", 1, "random seed used with -snapshot or -bench (0 keeps a clock seed for -snapshot only)")
+	bench := flag.Bool("bench", false, "run a headless Wolf Sheep-style benchmark and exit")
+	ticks := flag.Int("ticks", 1000, "go ticks to run with -bench")
+	sampleEvery := flag.Int("sample", 100, "record a benchmark sample every N ticks")
+	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile while -bench runs")
 	flag.Parse()
+
+	if *bench {
+		name := *model
+		if name == "fire.nlogo" {
+			name = "wolfsheep.nlogo"
+		}
+		if err := runBench(name, *ticks, *seed, *sampleEvery, *cpuprofile); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *snapshot != "" {
 		if err := writeSnapshot(*model, *snapshot, *steps, *seed); err != nil {
@@ -28,6 +46,41 @@ func main() {
 		return
 	}
 	gui.Run(models.FS)
+}
+
+func runBench(model string, ticks int, seed int64, sampleEvery int, cpuprofile string) error {
+	if seed == 0 {
+		seed = 1
+	}
+	content, name, err := readModel(model)
+	if err != nil {
+		return err
+	}
+	m, err := nl.ParseModel(name, content)
+	if err != nil {
+		return err
+	}
+	if cpuprofile != "" {
+		f, err := os.Create(cpuprofile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			return err
+		}
+		defer pprof.StopCPUProfile()
+	}
+	fmt.Printf("world pending  seed %d  ticks %d\n", seed, ticks)
+	result, err := nl.BenchWolfSheepProgress(m, ticks, seed, sampleEvery, func(p nl.BenchPoint) {
+		fmt.Printf("tick %d  sheep %d  wolves %d  turtles %d  window %s  %.2f ticks/sec\n",
+			p.Tick, p.Sheep, p.Wolves, p.Turtles, p.Window.Round(time.Millisecond), p.TicksPerSec)
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Print(nl.FormatBench(result))
+	return nil
 }
 
 func writeSnapshot(model, path string, steps int, seed int64) error {
