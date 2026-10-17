@@ -34,11 +34,13 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; }
 
 .app {
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   padding: 14px;
   gap: 12px;
+  overflow: hidden;
 }
 
 .topbar {
@@ -133,8 +135,9 @@ button.act:disabled {
 .stage {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 12px;
 }
 
@@ -147,7 +150,8 @@ button.act:disabled {
 .view {
   display: flex;
   flex-direction: column;
-  min-height: 420px;
+  min-height: 0;
+  min-width: 0;
   padding: 12px;
   gap: 8px;
 }
@@ -173,7 +177,7 @@ button.act:disabled {
 
 .canvas-wrap {
   flex: 1;
-  min-height: 320px;
+  min-height: 0;
   background: #0c0e0a;
   border-radius: 10px;
   overflow: hidden;
@@ -186,76 +190,94 @@ button.act:disabled {
 }
 
 .side {
-  padding: 14px;
-  overflow: auto;
-  max-height: calc(100vh - 220px);
+  padding: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .world-settings {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 8px;
-  padding-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--line);
 }
 
 .world-settings h2 {
-  grid-column: 1 / -1;
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.world-settings label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 0.75rem;
+.world-settings .axes {
+  display: grid;
+  grid-template-columns: auto 5.2ch 5.2ch;
+  gap: 3px 6px;
+  align-items: center;
+}
+
+.world-settings .col,
+.world-settings .axis {
+  font-size: 0.72rem;
   color: var(--muted);
 }
 
-.world-settings input[type="text"],
+.world-settings .col { text-align: center; }
+
 .world-settings input:not([type="checkbox"]) {
+  width: 5.2ch;
+  min-width: 0;
+  max-width: 5.2ch;
+  box-sizing: border-box;
   border: 1px solid var(--line);
   background: white;
-  border-radius: 6px;
-  padding: 5px 6px;
+  border-radius: 4px;
+  padding: 2px 3px;
   color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
 }
 
-.world-settings .checks {
-  grid-column: 1 / -1;
+.world-settings .extras {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  max-width: 100%;
 }
 
+.world-settings .patch,
 .world-settings .check {
+  display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
+  gap: 5px;
+  font-size: 0.78rem;
   color: var(--ink);
 }
 
 .world-settings button.iface {
-  grid-column: 1 / -1;
   text-align: left;
   background: white;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 3px 10px;
   cursor: pointer;
+  font-size: 0.82rem;
 }
 
 .world-settings button.iface:disabled { opacity: 0.45; cursor: not-allowed; }
-.world-settings .hint, .world-settings .err { grid-column: 1 / -1; margin: 0; font-size: 0.75rem; }
-.world-settings .hint { color: var(--muted); }
-.world-settings .err { color: var(--danger); }
+.world-settings .err { margin: 0; font-size: 0.75rem; color: var(--danger); max-width: 100%; }
 
 canvas.world {
   width: 100%;
@@ -263,7 +285,13 @@ canvas.world {
   display: block;
 }
 
-.widget { display: flex; flex-direction: column; gap: 4px; }
+.widget {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
 .widget .label { font-size: 0.82rem; color: var(--muted); }
 .widget .readout {
   font-variant-numeric: tabular-nums;
@@ -284,7 +312,7 @@ canvas.world {
 .widget button.iface.live { background: var(--danger); color: white; border-color: var(--danger); }
 .widget button.iface:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.widget input[type="range"] { width: 100%; accent-color: var(--ember); }
+.widget input[type="range"] { width: 100%; min-width: 0; accent-color: var(--ember); }
 .widget .slider-val { font-variant-numeric: tabular-nums; font-size: 0.85rem; }
 
 .switch {
@@ -335,7 +363,8 @@ canvas.world {
   grid-template-columns: 1fr 280px;
   gap: 10px;
   padding: 12px;
-  min-height: 140px;
+  min-height: 0;
+  flex-shrink: 0;
 }
 
 .command pre {

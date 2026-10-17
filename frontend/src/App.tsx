@@ -422,27 +422,22 @@ function WorldSettingsForm({
   return (
     <form className="world-settings" onSubmit={(e) => void apply(e)}>
       <h2>World</h2>
-      <label>
-        min pxcor
-        <input aria-label="min pxcor" inputMode="numeric" value={draft.minPxcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPxcor: e.target.value })} />
-      </label>
-      <label>
-        max pxcor
-        <input aria-label="max pxcor" inputMode="numeric" value={draft.maxPxcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPxcor: e.target.value })} />
-      </label>
-      <label>
-        min pycor
-        <input aria-label="min pycor" inputMode="numeric" value={draft.minPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPycor: e.target.value })} />
-      </label>
-      <label>
-        max pycor
-        <input aria-label="max pycor" inputMode="numeric" value={draft.maxPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPycor: e.target.value })} />
-      </label>
-      <label>
-        patch size
-        <input aria-label="patch size" inputMode="decimal" value={draft.patchSize} disabled={disabled} onChange={(e) => setDraft({ ...draft, patchSize: e.target.value })} />
-      </label>
-      <div className="checks">
+      <div className="axes">
+        <span />
+        <span className="col">min</span>
+        <span className="col">max</span>
+        <span className="axis">pxcor</span>
+        <input aria-label="min pxcor" size={4} inputMode="numeric" value={draft.minPxcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPxcor: e.target.value })} />
+        <input aria-label="max pxcor" size={4} inputMode="numeric" value={draft.maxPxcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPxcor: e.target.value })} />
+        <span className="axis">pycor</span>
+        <input aria-label="min pycor" size={4} inputMode="numeric" value={draft.minPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPycor: e.target.value })} />
+        <input aria-label="max pycor" size={4} inputMode="numeric" value={draft.maxPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPycor: e.target.value })} />
+      </div>
+      <div className="extras">
+        <label className="patch">
+          patch
+          <input aria-label="patch size" size={4} inputMode="decimal" value={draft.patchSize} disabled={disabled} onChange={(e) => setDraft({ ...draft, patchSize: e.target.value })} />
+        </label>
         <label className="check">
           <input type="checkbox" aria-label="wrap x" checked={draft.wrapX} disabled={disabled} onChange={(e) => setDraft({ ...draft, wrapX: e.target.checked })} />
           wrap x
@@ -452,8 +447,7 @@ function WorldSettingsForm({
           wrap y
         </label>
       </div>
-      <button className="iface" type="submit" disabled={disabled}>Apply world</button>
-      <p className="hint">100×100 is min 0, max 99 on both axes. Applying kills turtles and links and clears patches.</p>
+      <button className="iface" type="submit" disabled={disabled}>Apply</button>
       {error && <p className="err">{error}</p>}
     </form>
   )
