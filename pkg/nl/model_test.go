@@ -46,6 +46,12 @@ func TestLoadWidgets(t *testing.T) {
 		t.Fatal("life should wrap")
 	}
 	sheep := loadModel(t, "wolfsheep.nlogo")
+	if sheep.View.MinPxcor != -50 || sheep.View.MaxPxcor != 50 || sheep.View.MinPycor != -50 || sheep.View.MaxPycor != 50 || sheep.View.PatchSize != 5 {
+		t.Fatalf("wolf sheep view %+v", sheep.View)
+	}
+	if sheep.View.MaxPxcor-sheep.View.MinPxcor+1 != 101 || sheep.View.MaxPycor-sheep.View.MinPycor+1 != 101 {
+		t.Fatalf("wolf sheep side %d %d", sheep.View.MaxPxcor-sheep.View.MinPxcor+1, sheep.View.MaxPycor-sheep.View.MinPycor+1)
+	}
 	var grass *Widget
 	for i := range sheep.Widgets {
 		if sheep.Widgets[i].Variable == "grass?" {
