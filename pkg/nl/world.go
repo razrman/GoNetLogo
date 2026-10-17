@@ -25,6 +25,9 @@ type World struct {
 	turtles map[int]*Turtle
 	whoSeq  []int // ascending who, including dead slots compacted lazily
 	nextWho int
+	// breedLive is each breed's turtles in who order. The empty key is the
+	// default turtle breed. Dead turtles are removed from these slices.
+	breedLive map[string][]*Turtle
 
 	links   []*Link
 	nextLID int
@@ -262,6 +265,7 @@ func (w *World) Resize(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) {
 	w.WrapX, w.WrapY = wrapX, wrapY
 	w.turtles = map[int]*Turtle{}
 	w.whoSeq = nil
+	w.breedLive = nil
 	w.links = nil
 	w.recreatePatches()
 }
@@ -569,6 +573,7 @@ func (w *World) ClearTurtles() {
 	}
 	w.turtles = map[int]*Turtle{}
 	w.whoSeq = nil
+	w.breedLive = nil
 	for _, p := range w.patches {
 		p.turtles = p.turtles[:0]
 	}
@@ -630,10 +635,10 @@ func (w *World) Turtles() *AgentSet {
 }
 
 func (w *World) TurtlesOfBreed(plural string) *AgentSet {
-	live := w.liveTurtles()
-	ags := make([]Agent, 0, len(live))
-	for _, t := range live {
-		if t.Breed == plural {
+	ts := w.breedLive[plural]
+	ags := make([]Agent, 0, len(ts))
+	for _, t := range ts {
+		if t != nil && !t.dead {
 			ags = append(ags, t)
 		}
 	}
@@ -672,7 +677,7 @@ func (w *World) attach(t *Turtle) {
 	p := w.PatchAt(t.X, t.Y)
 	t.patch = p
 	if p != nil {
-		p.turtles = append(p.turtles, t)
+		p.turtles = insertWho(p.turtles, t)
 	}
 }
 
@@ -681,13 +686,7 @@ func (w *World) detach(t *Turtle) {
 	if p == nil {
 		return
 	}
-	ts := p.turtles
-	for i, o := range ts {
-		if o == t {
-			p.turtles = append(ts[:i], ts[i+1:]...)
-			break
-		}
-	}
+	p.turtles = removeWho(p.turtles, t)
 	t.patch = nil
 }
 
@@ -712,6 +711,7 @@ func (w *World) CreateTurtle(breed string, x, y float64, colorN, heading int) *T
 	w.turtles[t.Who] = t
 	w.whoSeq = append(w.whoSeq, t.Who)
 	w.attach(t)
+	w.rememberTurtle(t)
 	return t
 }
 
@@ -760,6 +760,7 @@ func (w *World) Hatch(parent *Turtle, breed string) *Turtle {
 	w.turtles[t.Who] = t
 	w.whoSeq = append(w.whoSeq, t.Who)
 	w.attach(t)
+	w.rememberTurtle(t)
 	return t
 }
 
@@ -772,6 +773,7 @@ func (w *World) Die(a Agent) {
 		}
 		t.dead = true
 		w.detach(t)
+		w.forgetTurtle(t)
 		delete(w.turtles, t.Who)
 		// remove links
 		kept := w.links[:0]
@@ -866,14 +868,7 @@ func (w *World) TurtlesHere(p *Patch) []*Turtle {
 			out = append(out, t)
 		}
 	}
-	// who order
-	for i := 1; i < len(out); i++ {
-		j := i
-		for j > 0 && out[j].Who < out[j-1].Who {
-			out[j], out[j-1] = out[j-1], out[j]
-			j--
-		}
-	}
+	// p.turtles is kept in who order by attach and detach.
 	return out
 }
 
@@ -1251,6 +1246,7 @@ func (w *World) SetBreed(t *Turtle, plural string) error {
 			return fmt.Errorf("there is no breed called %s", plural)
 		}
 	}
+	w.forgetTurtle(t)
 	t.Breed = plural
 	if t.Vars == nil {
 		t.Vars = map[string]Value{}
@@ -1263,5 +1259,6 @@ func (w *World) SetBreed(t *Turtle, plural string) error {
 	if _, ok := w.defaultShape[plural]; ok && (t.Shape == "default" || t.Shape == w.defaultShape["turtles"]) {
 		t.Shape = w.defaultShape[plural]
 	}
+	w.rememberTurtle(t)
 	return nil
 }

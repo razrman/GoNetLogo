@@ -542,6 +542,11 @@ func (vm *VM) evalCall(c *callExpr) (Value, error) {
 			return v, err
 		}
 	}
+	if (c.Name == "any?" || c.Name == "count" || c.Name == "one-of") && len(c.Args) == 1 {
+		if v, ok, err := vm.fastAgentQuery(c.Name, c.Args[0]); ok || err != nil {
+			return v, err
+		}
+	}
 	args := vm.evalAll(c.Args, c.Pos)
 	v, err := vm.evalReporter(c.Name, args, c.Pos)
 	if err != nil {

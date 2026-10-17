@@ -476,6 +476,17 @@ func (vm *VM) execAgentBlock(a Agent, body []Stmt) {
 }
 
 func (vm *VM) execAsk(s *askStmt) {
+	if id, ok := s.Agents.(*identExpr); ok {
+		if list, ok := vm.askAgents(id.Name, s.Pos); ok {
+			for _, a := range list {
+				if a.IsDead() {
+					continue
+				}
+				vm.execAgentBlock(a, s.Body)
+			}
+			return
+		}
+	}
 	v, err := vm.eval(s.Agents)
 	if err != nil {
 		vm.fail(s.Pos, "%s", err.Error())
