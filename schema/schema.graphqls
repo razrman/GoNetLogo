@@ -5,6 +5,8 @@
 type Query {
   models: [String!]!
   session(id: ID!): Session
+  """Dimensions, patch size, and wrapping for one session."""
+  worldSettings(sessionId: ID!): WorldSettings!
 }
 
 type Mutation {
@@ -24,6 +26,20 @@ type Mutation {
   setSwitch(sessionId: ID!, index: Int!, on: Boolean!): Session!
   setChooser(sessionId: ID!, index: Int!, current: Int!): Session!
   setInput(sessionId: ID!, index: Int!, text: String!): Session!
+  """
+  Resize the world and set patch size and wrapping.
+  Turtles and links die and patches are reset, as with resize-world.
+  """
+  setWorld(
+    sessionId: ID!
+    minPxcor: Int!
+    maxPxcor: Int!
+    minPycor: Int!
+    maxPycor: Int!
+    patchSize: Float!
+    wrapX: Boolean!
+    wrapY: Boolean!
+  ): Session!
 }
 
 type Subscription {
@@ -88,6 +104,16 @@ type Widget {
   text: String
 }
 
+type WorldSettings {
+  minPxcor: Int!
+  maxPxcor: Int!
+  minPycor: Int!
+  maxPycor: Int!
+  patchSize: Float!
+  wrapX: Boolean!
+  wrapY: Boolean!
+}
+
 type World {
   minPxcor: Int!
   maxPxcor: Int!
@@ -95,17 +121,17 @@ type World {
   maxPycor: Int!
   width: Int!
   height: Int!
-  patches: [Patch!]!
+  patchSize: Float!
+  wrapX: Boolean!
+  wrapY: Boolean!
+  """
+  Base64 RGB bytes, one pixel per patch, row-major.
+  Row 0 is maxPycor and column 0 is minPxcor.
+  The decoded length is width * height * 3.
+  """
+  patchColors: String!
   turtles: [Turtle!]!
   links: [Link!]!
-}
-
-type Patch {
-  px: Int!
-  py: Int!
-  r: Int!
-  g: Int!
-  b: Int!
 }
 
 type Turtle {

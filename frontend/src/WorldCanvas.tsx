@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import type { World } from './types'
 
 // Draw the patch grid, links, and turtles. NetLogo y grows upward and
-// heading 0 points north, increasing clockwise.
+// heading 0 points north, increasing clockwise. Patch colors arrive as
+// one RGB image so a 100×100 world stays a single blit.
 export function WorldCanvas({ world }: { world: World | null }) {
   const ref = useRef<HTMLCanvasElement>(null)
 
@@ -25,6 +26,8 @@ export function WorldCanvas({ world }: { world: World | null }) {
   )
 }
 
+const scratch = document.createElement('canvas')
+
 function draw(canvas: HTMLCanvasElement, world: World | null) {
   const dpr = window.devicePixelRatio || 1
   const rect = canvas.getBoundingClientRect()
@@ -41,25 +44,41 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   ctx.fillRect(0, 0, w, h)
   if (!world || world.width === 0 || world.height === 0) return
 
-  // Keep patches square. Extra canvas space stays the well color.
-  const side = Math.min(w, h)
-  const ox = Math.floor((w - side) / 2)
-  const oy = Math.floor((h - side) / 2)
-  const pw = side / world.width
-  const ph = side / world.height
-  for (const p of world.patches) {
-    ctx.fillStyle = rgb(p.r, p.g, p.b)
-    const col = p.px - world.minPxcor
-    const row = world.maxPycor - p.py
-    ctx.fillRect(ox + Math.floor(col * pw), oy + Math.floor(row * ph), Math.ceil(pw) + 1, Math.ceil(ph) + 1)
+  // Square patches, letterboxed into the canvas. A wide world stays wide.
+  const scale = Math.min(w / world.width, h / world.height)
+  const dw = world.width * scale
+  const dh = world.height * scale
+  const ox = Math.floor((w - dw) / 2)
+  const oy = Math.floor((h - dh) / 2)
+
+  const rgb = decodeRGB(world.patchColors)
+  const need = world.width * world.height * 3
+  if (rgb && rgb.length === need) {
+    if (scratch.width !== world.width || scratch.height !== world.height) {
+      scratch.width = world.width
+      scratch.height = world.height
+    }
+    const sctx = scratch.getContext('2d')
+    if (sctx) {
+      const img = sctx.createImageData(world.width, world.height)
+      const data = img.data
+      for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+        data[j] = rgb[i]
+        data[j + 1] = rgb[i + 1]
+        data[j + 2] = rgb[i + 2]
+        data[j + 3] = 255
+      }
+      sctx.putImageData(img, 0, 0)
+      ctx.drawImage(scratch, ox, oy, dw, dh)
+    }
   }
 
-  const xOf = (x: number) => ox + (x - (world.minPxcor - 0.5)) * pw
-  const yOf = (y: number) => oy + (world.maxPycor + 0.5 - y) * ph
-  ctx.lineWidth = Math.max(1, Math.min(pw, ph) * 0.12)
+  const xOf = (x: number) => ox + (x - (world.minPxcor - 0.5)) * scale
+  const yOf = (y: number) => oy + (world.maxPycor + 0.5 - y) * scale
+  ctx.lineWidth = Math.max(1, scale * 0.12)
   for (const link of world.links) {
     if (link.hidden) continue
-    ctx.strokeStyle = rgb(link.r, link.g, link.b)
+    ctx.strokeStyle = rgbCss(link.r, link.g, link.b)
     ctx.beginPath()
     ctx.moveTo(xOf(link.x1), yOf(link.y1))
     ctx.lineTo(xOf(link.x2), yOf(link.y2))
@@ -68,11 +87,11 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
 
   for (const t of world.turtles) {
     if (t.hidden) continue
-    const rad = Math.max(Math.min(pw, ph) * 0.28, (t.size * Math.min(pw, ph)) / 2)
+    const rad = Math.max(scale * 0.28, (t.size * scale) / 2)
     ctx.save()
     ctx.translate(xOf(t.x), yOf(t.y))
     ctx.rotate((t.heading * Math.PI) / 180)
-    ctx.fillStyle = rgb(t.r, t.g, t.b)
+    ctx.fillStyle = rgbCss(t.r, t.g, t.b)
     const shape = t.shape.toLowerCase()
     if (shape === 'circle' || shape === 'dot') {
       ctx.beginPath()
@@ -92,6 +111,18 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   }
 }
 
-function rgb(r: number, g: number, b: number) {
+function decodeRGB(b64: string): Uint8Array | null {
+  if (!b64) return null
+  try {
+    const bin = atob(b64)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+    return out
+  } catch {
+    return null
+  }
+}
+
+function rgbCss(r: number, g: number, b: number) {
   return `rgb(${r},${g},${b})`
 }

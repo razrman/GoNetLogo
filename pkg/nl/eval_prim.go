@@ -174,8 +174,8 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		if a > 0 || b < 0 || c > 0 || d < 0 {
-			return fmt.Errorf("the world must contain the origin")
+		if err := ValidWorld(a, b, c, d); err != nil {
+			return err
 		}
 		w.Resize(a, b, c, d, w.WrapX, w.WrapY)
 	case "set-default-shape":

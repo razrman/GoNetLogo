@@ -8,6 +8,7 @@ package session
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"image/color"
@@ -364,6 +365,45 @@ func (s *Session) PressButton(index int) error {
 	return nil
 }
 
+// SetWorld resizes the patch grid and sets patch size and wrapping.
+// Turtles and links die and patches are reset, as with resize-world.
+func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
+	if err := nl.ValidWorld(minPx, maxPx, minPy, maxPy); err != nil {
+		return err
+	}
+	if patchSize <= 0 || patchSize > 100 {
+		return fmt.Errorf("patch size must be positive and at most 100")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vm == nil || s.vm.World == nil {
+		return fmt.Errorf("no world")
+	}
+	s.vm.World.Resize(minPx, maxPx, minPy, maxPy, wrapX, wrapY)
+	s.vm.World.PatchSize = patchSize
+	s.broadcastLocked()
+	return nil
+}
+
+// WorldSettings is the current size, patch size, and wrapping.
+func (s *Session) WorldSettings() (*model.WorldSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vm == nil || s.vm.World == nil {
+		return nil, fmt.Errorf("no world")
+	}
+	w := s.vm.World
+	return &model.WorldSettings{
+		MinPxcor:  w.MinPxcor,
+		MaxPxcor:  w.MaxPxcor,
+		MinPycor:  w.MinPycor,
+		MaxPycor:  w.MaxPycor,
+		PatchSize: w.PatchSize,
+		WrapX:     w.WrapX,
+		WrapY:     w.WrapY,
+	}, nil
+}
+
 // SetSpeed sets the forever-button speed. 0 is slowest, 100 is fastest.
 func (s *Session) SetSpeed(speed float64) {
 	if speed < 0 {
@@ -602,7 +642,7 @@ func (s *Session) sessionLocked() *model.Session {
 		Log:       append([]string(nil), s.log...),
 		Notes:     []string{},
 		Widgets:   []model.Widget{},
-		World:     model.World{Patches: []model.Patch{}, Turtles: []model.Turtle{}, Links: []model.Link{}},
+		World:     model.World{Turtles: []model.Turtle{}, Links: []model.Link{}},
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
@@ -694,26 +734,18 @@ func (s *Session) widgetsLocked() []model.Widget {
 
 func worldLocked(w *nl.World) model.World {
 	out := model.World{
-		MinPxcor: w.MinPxcor,
-		MaxPxcor: w.MaxPxcor,
-		MinPycor: w.MinPycor,
-		MaxPycor: w.MaxPycor,
-		Width:    w.Width(),
-		Height:   w.Height(),
-		Patches:  []model.Patch{},
-		Turtles:  []model.Turtle{},
-		Links:    []model.Link{},
-	}
-	if patches := w.Patches(); patches != nil {
-		out.Patches = make([]model.Patch, 0, len(patches.Agents))
-		for _, a := range patches.Agents {
-			p, ok := a.(*nl.Patch)
-			if !ok || p == nil || p.IsDead() {
-				continue
-			}
-			r, g, b := colorOf(p.HasRGB, p.RGB, p.PColor)
-			out.Patches = append(out.Patches, model.Patch{Px: p.PX, Py: p.PY, R: r, G: g, B: b})
-		}
+		MinPxcor:    w.MinPxcor,
+		MaxPxcor:    w.MaxPxcor,
+		MinPycor:    w.MinPycor,
+		MaxPycor:    w.MaxPycor,
+		Width:       w.Width(),
+		Height:      w.Height(),
+		PatchSize:   w.PatchSize,
+		WrapX:       w.WrapX,
+		WrapY:       w.WrapY,
+		PatchColors: patchColors(w),
+		Turtles:     []model.Turtle{},
+		Links:       []model.Link{},
 	}
 	if turtles := w.Turtles(); turtles != nil {
 		for _, a := range turtles.Alive() {
@@ -750,6 +782,32 @@ func worldLocked(w *nl.World) model.World {
 		}
 	}
 	return out
+}
+
+// patchColors packs one RGB pixel per patch. Row 0 is maxPycor so the
+// bytes can be drawn as an image without flipping.
+func patchColors(w *nl.World) string {
+	width, height := w.Width(), w.Height()
+	if width < 1 || height < 1 {
+		return ""
+	}
+	raw := make([]byte, width*height*3)
+	i := 0
+	for py := w.MaxPycor; py >= w.MinPycor; py-- {
+		for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
+			p := w.GetPatch(px, py)
+			if p == nil {
+				i += 3
+				continue
+			}
+			r, g, b := colorOf(p.HasRGB, p.RGB, p.PColor)
+			raw[i] = byte(r)
+			raw[i+1] = byte(g)
+			raw[i+2] = byte(b)
+			i += 3
+		}
+	}
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
 func colorOf(hasRGB bool, rgb color.RGBA, colorNum float64) (int, int, int) {

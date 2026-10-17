@@ -1,7 +1,9 @@
 package graph
 
 import (
+	"encoding/base64"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,6 +181,109 @@ func TestFramesSubscription(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("subscription did not observe setup")
 		}
+	}
+}
+
+func TestSetWorld(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+
+	var before struct {
+		WorldSettings struct {
+			MinPxcor  int
+			MaxPxcor  int
+			PatchSize float64
+			WrapX     bool
+			WrapY     bool
+		}
+	}
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) { minPxcor maxPxcor patchSize wrapX wrapY }
+	}`, &before, client.Var("id", s.ID))
+	if before.WorldSettings.MinPxcor != -12 || before.WorldSettings.MaxPxcor != 12 || before.WorldSettings.WrapX || before.WorldSettings.WrapY {
+		t.Fatalf("initial settings %+v", before.WorldSettings)
+	}
+
+	var resized struct {
+		SetWorld struct {
+			World struct {
+				Width       int
+				Height      int
+				MinPxcor    int
+				MaxPxcor    int
+				MinPycor    int
+				MaxPycor    int
+				PatchSize   float64
+				WrapX       bool
+				WrapY       bool
+				PatchColors string
+			}
+		}
+	}
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: 0, maxPxcor: 99, minPycor: 0, maxPycor: 99, patchSize: 8, wrapX: true, wrapY: false) {
+			world { width height minPxcor maxPxcor minPycor maxPycor patchSize wrapX wrapY patchColors }
+		}
+	}`, &resized, client.Var("id", s.ID))
+	w := resized.SetWorld.World
+	if w.Width != 100 || w.Height != 100 || w.MinPxcor != 0 || w.MaxPxcor != 99 || w.MinPycor != 0 || w.MaxPycor != 99 {
+		t.Fatalf("world size %+v", w)
+	}
+	if w.PatchSize != 8 || !w.WrapX || w.WrapY {
+		t.Fatalf("settings patchSize %v wrap %v %v", w.PatchSize, w.WrapX, w.WrapY)
+	}
+	raw, err := base64.StdEncoding.DecodeString(w.PatchColors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 100*100*3 {
+		t.Fatalf("patch colors = %d bytes, want %d", len(raw), 100*100*3)
+	}
+
+	var cmd struct {
+		RunCommand struct {
+			Ok     bool
+			Output *string
+			Error  *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!) { runCommand(sessionId: $id, text: "crt 20") { ok output error } }`, &cmd, client.Var("id", s.ID))
+	if !cmd.RunCommand.Ok {
+		t.Fatalf("crt: %v", cmd.RunCommand.Error)
+	}
+	var after struct {
+		Session struct {
+			World struct {
+				PatchColors string
+				Turtles     []struct{ Who int }
+			}
+		}
+	}
+	c.MustPost(`query ($id: ID!) {
+		session(id: $id) { world { patchColors turtles { who } } }
+	}`, &after, client.Var("id", s.ID))
+	if len(after.Session.World.Turtles) != 20 {
+		t.Fatalf("turtles = %d, want 20", len(after.Session.World.Turtles))
+	}
+	// A second resize kills the turtles and still streams the full grid.
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: 0, maxPxcor: 99, minPycor: 0, maxPycor: 99, patchSize: 8, wrapX: true, wrapY: false) {
+			world { width }
+		}
+	}`, &resized, client.Var("id", s.ID))
+	c.MustPost(`query ($id: ID!) { session(id: $id) { world { turtles { who } } } }`, &after, client.Var("id", s.ID))
+	if len(after.Session.World.Turtles) != 0 {
+		t.Fatalf("turtles survived resize: %d", len(after.Session.World.Turtles))
+	}
+
+	var rejected struct {
+		SetWorld struct{ ID string }
+	}
+	err = c.Post(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: 1, maxPxcor: 10, minPycor: 0, maxPycor: 10, patchSize: 8, wrapX: false, wrapY: false) { id }
+	}`, &rejected, client.Var("id", s.ID))
+	if err == nil || !strings.Contains(err.Error(), "origin") {
+		t.Fatalf("expected origin error, got %v", err)
 	}
 }
 

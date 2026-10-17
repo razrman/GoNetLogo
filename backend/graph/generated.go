@@ -96,22 +96,16 @@ type ComplexityRoot struct {
 		SetSlider     func(childComplexity int, sessionID string, index int, value float64) int
 		SetSpeed      func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch     func(childComplexity int, sessionID string, index int, on bool) int
+		SetWorld      func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool) int
 		Setup         func(childComplexity int, sessionID string) int
 		Step          func(childComplexity int, sessionID string) int
 		Stop          func(childComplexity int, sessionID string) int
 	}
 
-	Patch struct {
-		B  func(childComplexity int) int
-		G  func(childComplexity int) int
-		Px func(childComplexity int) int
-		Py func(childComplexity int) int
-		R  func(childComplexity int) int
-	}
-
 	Query struct {
-		Models  func(childComplexity int) int
-		Session func(childComplexity int, id string) int
+		Models        func(childComplexity int) int
+		Session       func(childComplexity int, id string) int
+		WorldSettings func(childComplexity int, sessionID string) int
 	}
 
 	Session struct {
@@ -165,15 +159,28 @@ type ComplexityRoot struct {
 	}
 
 	World struct {
-		Height   func(childComplexity int) int
-		Links    func(childComplexity int) int
-		MaxPxcor func(childComplexity int) int
-		MaxPycor func(childComplexity int) int
-		MinPxcor func(childComplexity int) int
-		MinPycor func(childComplexity int) int
-		Patches  func(childComplexity int) int
-		Turtles  func(childComplexity int) int
-		Width    func(childComplexity int) int
+		Height      func(childComplexity int) int
+		Links       func(childComplexity int) int
+		MaxPxcor    func(childComplexity int) int
+		MaxPycor    func(childComplexity int) int
+		MinPxcor    func(childComplexity int) int
+		MinPycor    func(childComplexity int) int
+		PatchColors func(childComplexity int) int
+		PatchSize   func(childComplexity int) int
+		Turtles     func(childComplexity int) int
+		Width       func(childComplexity int) int
+		WrapX       func(childComplexity int) int
+		WrapY       func(childComplexity int) int
+	}
+
+	WorldSettings struct {
+		MaxPxcor  func(childComplexity int) int
+		MaxPycor  func(childComplexity int) int
+		MinPxcor  func(childComplexity int) int
+		MinPycor  func(childComplexity int) int
+		PatchSize func(childComplexity int) int
+		WrapX     func(childComplexity int) int
+		WrapY     func(childComplexity int) int
 	}
 }
 
@@ -192,10 +199,12 @@ type MutationResolver interface {
 	SetSwitch(ctx context.Context, sessionID string, index int, on bool) (*model.Session, error)
 	SetChooser(ctx context.Context, sessionID string, index int, current int) (*model.Session, error)
 	SetInput(ctx context.Context, sessionID string, index int, text string) (*model.Session, error)
+	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool) (*model.Session, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]string, error)
 	Session(ctx context.Context, id string) (*model.Session, error)
+	WorldSettings(ctx context.Context, sessionID string) (*model.WorldSettings, error)
 }
 type SubscriptionResolver interface {
 	Frames(ctx context.Context, sessionID string) (<-chan *model.Frame, error)
@@ -513,6 +522,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.SetSwitch(childComplexity, args["sessionId"].(string), args["index"].(int), args["on"].(bool)), true
 
+	case "Mutation.setWorld":
+		if e.complexity.Mutation.SetWorld == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setWorld_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool)), true
+
 	case "Mutation.setup":
 		if e.complexity.Mutation.Setup == nil {
 			break
@@ -549,41 +570,6 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.Stop(childComplexity, args["sessionId"].(string)), true
 
-	case "Patch.b":
-		if e.complexity.Patch.B == nil {
-			break
-		}
-
-		return e.complexity.Patch.B(childComplexity), true
-
-	case "Patch.g":
-		if e.complexity.Patch.G == nil {
-			break
-		}
-
-		return e.complexity.Patch.G(childComplexity), true
-
-	case "Patch.px":
-		if e.complexity.Patch.Px == nil {
-			break
-		}
-
-		return e.complexity.Patch.Px(childComplexity), true
-
-	case "Patch.py":
-		if e.complexity.Patch.Py == nil {
-			break
-		}
-
-		return e.complexity.Patch.Py(childComplexity), true
-
-	case "Patch.r":
-		if e.complexity.Patch.R == nil {
-			break
-		}
-
-		return e.complexity.Patch.R(childComplexity), true
-
 	case "Query.models":
 		if e.complexity.Query.Models == nil {
 			break
@@ -602,6 +588,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Query.Session(childComplexity, args["id"].(string)), true
+
+	case "Query.worldSettings":
+		if e.complexity.Query.WorldSettings == nil {
+			break
+		}
+
+		args, err := ec.field_Query_worldSettings_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.WorldSettings(childComplexity, args["sessionId"].(string)), true
 
 	case "Session.code":
 		if e.complexity.Session.Code == nil {
@@ -916,12 +914,19 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.MinPycor(childComplexity), true
 
-	case "World.patches":
-		if e.complexity.World.Patches == nil {
+	case "World.patchColors":
+		if e.complexity.World.PatchColors == nil {
 			break
 		}
 
-		return e.complexity.World.Patches(childComplexity), true
+		return e.complexity.World.PatchColors(childComplexity), true
+
+	case "World.patchSize":
+		if e.complexity.World.PatchSize == nil {
+			break
+		}
+
+		return e.complexity.World.PatchSize(childComplexity), true
 
 	case "World.turtles":
 		if e.complexity.World.Turtles == nil {
@@ -936,6 +941,69 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.World.Width(childComplexity), true
+
+	case "World.wrapX":
+		if e.complexity.World.WrapX == nil {
+			break
+		}
+
+		return e.complexity.World.WrapX(childComplexity), true
+
+	case "World.wrapY":
+		if e.complexity.World.WrapY == nil {
+			break
+		}
+
+		return e.complexity.World.WrapY(childComplexity), true
+
+	case "WorldSettings.maxPxcor":
+		if e.complexity.WorldSettings.MaxPxcor == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.MaxPxcor(childComplexity), true
+
+	case "WorldSettings.maxPycor":
+		if e.complexity.WorldSettings.MaxPycor == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.MaxPycor(childComplexity), true
+
+	case "WorldSettings.minPxcor":
+		if e.complexity.WorldSettings.MinPxcor == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.MinPxcor(childComplexity), true
+
+	case "WorldSettings.minPycor":
+		if e.complexity.WorldSettings.MinPycor == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.MinPycor(childComplexity), true
+
+	case "WorldSettings.patchSize":
+		if e.complexity.WorldSettings.PatchSize == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.PatchSize(childComplexity), true
+
+	case "WorldSettings.wrapX":
+		if e.complexity.WorldSettings.WrapX == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.WrapX(childComplexity), true
+
+	case "WorldSettings.wrapY":
+		if e.complexity.WorldSettings.WrapY == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.WrapY(childComplexity), true
 
 	}
 	return 0, false
@@ -1065,6 +1133,8 @@ var sources = []*ast.Source{
 type Query {
   models: [String!]!
   session(id: ID!): Session
+  """Dimensions, patch size, and wrapping for one session."""
+  worldSettings(sessionId: ID!): WorldSettings!
 }
 
 type Mutation {
@@ -1084,6 +1154,20 @@ type Mutation {
   setSwitch(sessionId: ID!, index: Int!, on: Boolean!): Session!
   setChooser(sessionId: ID!, index: Int!, current: Int!): Session!
   setInput(sessionId: ID!, index: Int!, text: String!): Session!
+  """
+  Resize the world and set patch size and wrapping.
+  Turtles and links die and patches are reset, as with resize-world.
+  """
+  setWorld(
+    sessionId: ID!
+    minPxcor: Int!
+    maxPxcor: Int!
+    minPycor: Int!
+    maxPycor: Int!
+    patchSize: Float!
+    wrapX: Boolean!
+    wrapY: Boolean!
+  ): Session!
 }
 
 type Subscription {
@@ -1148,6 +1232,16 @@ type Widget {
   text: String
 }
 
+type WorldSettings {
+  minPxcor: Int!
+  maxPxcor: Int!
+  minPycor: Int!
+  maxPycor: Int!
+  patchSize: Float!
+  wrapX: Boolean!
+  wrapY: Boolean!
+}
+
 type World {
   minPxcor: Int!
   maxPxcor: Int!
@@ -1155,17 +1249,17 @@ type World {
   maxPycor: Int!
   width: Int!
   height: Int!
-  patches: [Patch!]!
+  patchSize: Float!
+  wrapX: Boolean!
+  wrapY: Boolean!
+  """
+  Base64 RGB bytes, one pixel per patch, row-major.
+  Row 0 is maxPycor and column 0 is minPxcor.
+  The decoded length is width * height * 3.
+  """
+  patchColors: String!
   turtles: [Turtle!]!
   links: [Link!]!
-}
-
-type Patch {
-  px: Int!
-  py: Int!
-  r: Int!
-  g: Int!
-  b: Int!
 }
 
 type Turtle {
@@ -1481,6 +1575,84 @@ func (ec *executionContext) field_Mutation_setSwitch_args(ctx context.Context, r
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setWorld_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 int
+	if tmp, ok := rawArgs["minPxcor"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minPxcor"))
+		arg1, err = ec.unmarshalNInt2int(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["minPxcor"] = arg1
+	var arg2 int
+	if tmp, ok := rawArgs["maxPxcor"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxPxcor"))
+		arg2, err = ec.unmarshalNInt2int(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["maxPxcor"] = arg2
+	var arg3 int
+	if tmp, ok := rawArgs["minPycor"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minPycor"))
+		arg3, err = ec.unmarshalNInt2int(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["minPycor"] = arg3
+	var arg4 int
+	if tmp, ok := rawArgs["maxPycor"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxPycor"))
+		arg4, err = ec.unmarshalNInt2int(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["maxPycor"] = arg4
+	var arg5 float64
+	if tmp, ok := rawArgs["patchSize"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("patchSize"))
+		arg5, err = ec.unmarshalNFloat2float64(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["patchSize"] = arg5
+	var arg6 bool
+	if tmp, ok := rawArgs["wrapX"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("wrapX"))
+		arg6, err = ec.unmarshalNBoolean2bool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["wrapX"] = arg6
+	var arg7 bool
+	if tmp, ok := rawArgs["wrapY"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("wrapY"))
+		arg7, err = ec.unmarshalNBoolean2bool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["wrapY"] = arg7
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_setup_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
 	var err error
 	args := map[string]interface{}{}
@@ -1553,6 +1725,21 @@ func (ec *executionContext) field_Query_session_args(ctx context.Context, rawArg
 		}
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_worldSettings_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
 	return args, nil
 }
 
@@ -2346,8 +2533,14 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_width(ctx, field)
 			case "height":
 				return ec.fieldContext_World_height(ctx, field)
-			case "patches":
-				return ec.fieldContext_World_patches(ctx, field)
+			case "patchSize":
+				return ec.fieldContext_World_patchSize(ctx, field)
+			case "wrapX":
+				return ec.fieldContext_World_wrapX(ctx, field)
+			case "wrapY":
+				return ec.fieldContext_World_wrapY(ctx, field)
+			case "patchColors":
+				return ec.fieldContext_World_patchColors(ctx, field)
 			case "turtles":
 				return ec.fieldContext_World_turtles(ctx, field)
 			case "links":
@@ -3787,8 +3980,8 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _Patch_px(ctx context.Context, field graphql.CollectedField, obj *model.Patch) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Patch_px(ctx, field)
+func (ec *executionContext) _Mutation_setWorld(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setWorld(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3801,7 +3994,7 @@ func (ec *executionContext) _Patch_px(ctx context.Context, field graphql.Collect
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Px, nil
+		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3813,196 +4006,55 @@ func (ec *executionContext) _Patch_px(ctx context.Context, field graphql.Collect
 		}
 		return graphql.Null
 	}
-	res := resTmp.(int)
+	res := resTmp.(*model.Session)
 	fc.Result = res
-	return ec.marshalNInt2int(ctx, field.Selections, res)
+	return ec.marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_Patch_px(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "Patch",
+		Object:     "Mutation",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
 	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Patch_py(ctx context.Context, field graphql.CollectedField, obj *model.Patch) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Patch_py(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
 	defer func() {
 		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
 		}
 	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Py, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(int)
-	fc.Result = res
-	return ec.marshalNInt2int(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Patch_py(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Patch",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Patch_r(ctx context.Context, field graphql.CollectedField, obj *model.Patch) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Patch_r(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
 	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.R, nil
-	})
-	if err != nil {
+	if fc.Args, err = ec.field_Mutation_setWorld_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(int)
-	fc.Result = res
-	return ec.marshalNInt2int(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Patch_r(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Patch",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Patch_g(ctx context.Context, field graphql.CollectedField, obj *model.Patch) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Patch_g(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.G, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(int)
-	fc.Result = res
-	return ec.marshalNInt2int(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Patch_g(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Patch",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Patch_b(ctx context.Context, field graphql.CollectedField, obj *model.Patch) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Patch_b(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.B, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(int)
-	fc.Result = res
-	return ec.marshalNInt2int(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Patch_b(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Patch",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
+		return fc, err
 	}
 	return fc, nil
 }
@@ -4121,6 +4173,77 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_session_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_worldSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_worldSettings(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().WorldSettings(rctx, fc.Args["sessionId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.WorldSettings)
+	fc.Result = res
+	return ec.marshalNWorldSettings2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐWorldSettings(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "minPxcor":
+				return ec.fieldContext_WorldSettings_minPxcor(ctx, field)
+			case "maxPxcor":
+				return ec.fieldContext_WorldSettings_maxPxcor(ctx, field)
+			case "minPycor":
+				return ec.fieldContext_WorldSettings_minPycor(ctx, field)
+			case "maxPycor":
+				return ec.fieldContext_WorldSettings_maxPycor(ctx, field)
+			case "patchSize":
+				return ec.fieldContext_WorldSettings_patchSize(ctx, field)
+			case "wrapX":
+				return ec.fieldContext_WorldSettings_wrapX(ctx, field)
+			case "wrapY":
+				return ec.fieldContext_WorldSettings_wrapY(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type WorldSettings", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_worldSettings_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -4778,8 +4901,14 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_width(ctx, field)
 			case "height":
 				return ec.fieldContext_World_height(ctx, field)
-			case "patches":
-				return ec.fieldContext_World_patches(ctx, field)
+			case "patchSize":
+				return ec.fieldContext_World_patchSize(ctx, field)
+			case "wrapX":
+				return ec.fieldContext_World_wrapX(ctx, field)
+			case "wrapY":
+				return ec.fieldContext_World_wrapY(ctx, field)
+			case "patchColors":
+				return ec.fieldContext_World_patchColors(ctx, field)
 			case "turtles":
 				return ec.fieldContext_World_turtles(ctx, field)
 			case "links":
@@ -6253,8 +6382,8 @@ func (ec *executionContext) fieldContext_World_height(_ context.Context, field g
 	return fc, nil
 }
 
-func (ec *executionContext) _World_patches(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_World_patches(ctx, field)
+func (ec *executionContext) _World_patchSize(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_patchSize(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -6267,7 +6396,7 @@ func (ec *executionContext) _World_patches(ctx context.Context, field graphql.Co
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Patches, nil
+		return obj.PatchSize, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -6279,31 +6408,151 @@ func (ec *executionContext) _World_patches(ctx context.Context, field graphql.Co
 		}
 		return graphql.Null
 	}
-	res := resTmp.([]model.Patch)
+	res := resTmp.(float64)
 	fc.Result = res
-	return ec.marshalNPatch2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPatchᚄ(ctx, field.Selections, res)
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_World_patches(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_World_patchSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "World",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "px":
-				return ec.fieldContext_Patch_px(ctx, field)
-			case "py":
-				return ec.fieldContext_Patch_py(ctx, field)
-			case "r":
-				return ec.fieldContext_Patch_r(ctx, field)
-			case "g":
-				return ec.fieldContext_Patch_g(ctx, field)
-			case "b":
-				return ec.fieldContext_Patch_b(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Patch", field.Name)
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_wrapX(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_wrapX(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.WrapX, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_wrapX(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_wrapY(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_wrapY(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.WrapY, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_wrapY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_patchColors(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_patchColors(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PatchColors, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_patchColors(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -6432,6 +6681,314 @@ func (ec *executionContext) fieldContext_World_links(_ context.Context, field gr
 				return ec.fieldContext_Link_b(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Link", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_minPxcor(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_minPxcor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MinPxcor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_minPxcor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_maxPxcor(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_maxPxcor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MaxPxcor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_maxPxcor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_minPycor(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_minPycor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MinPycor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_minPycor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_maxPycor(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_maxPycor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MaxPycor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_maxPycor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_patchSize(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_patchSize(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PatchSize, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_patchSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_wrapX(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_wrapX(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.WrapX, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_wrapX(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_wrapY(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_wrapY(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.WrapY, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_wrapY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -8574,62 +9131,10 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
-
-	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
-			Label:    label,
-			Path:     graphql.GetPath(ctx),
-			FieldSet: dfs,
-			Context:  ctx,
-		})
-	}
-
-	return out
-}
-
-var patchImplementors = []string{"Patch"}
-
-func (ec *executionContext) _Patch(ctx context.Context, sel ast.SelectionSet, obj *model.Patch) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, patchImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := make(map[string]*graphql.FieldSet)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("Patch")
-		case "px":
-			out.Values[i] = ec._Patch_px(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "py":
-			out.Values[i] = ec._Patch_py(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "r":
-			out.Values[i] = ec._Patch_r(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "g":
-			out.Values[i] = ec._Patch_g(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "b":
-			out.Values[i] = ec._Patch_b(ctx, field, obj)
+		case "setWorld":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setWorld(ctx, field)
+			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -8707,6 +9212,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_session(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "worldSettings":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_worldSettings(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -9059,8 +9586,23 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "patches":
-			out.Values[i] = ec._World_patches(ctx, field, obj)
+		case "patchSize":
+			out.Values[i] = ec._World_patchSize(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "wrapX":
+			out.Values[i] = ec._World_wrapX(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "wrapY":
+			out.Values[i] = ec._World_wrapY(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "patchColors":
+			out.Values[i] = ec._World_patchColors(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -9071,6 +9613,75 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "links":
 			out.Values[i] = ec._World_links(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var worldSettingsImplementors = []string{"WorldSettings"}
+
+func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.SelectionSet, obj *model.WorldSettings) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, worldSettingsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("WorldSettings")
+		case "minPxcor":
+			out.Values[i] = ec._WorldSettings_minPxcor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxPxcor":
+			out.Values[i] = ec._WorldSettings_maxPxcor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "minPycor":
+			out.Values[i] = ec._WorldSettings_minPycor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxPycor":
+			out.Values[i] = ec._WorldSettings_maxPycor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "patchSize":
+			out.Values[i] = ec._WorldSettings_patchSize(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "wrapX":
+			out.Values[i] = ec._WorldSettings_wrapX(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "wrapY":
+			out.Values[i] = ec._WorldSettings_wrapY(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -9573,54 +10184,6 @@ func (ec *executionContext) marshalNLink2ᚕgonetlogoᚋbackendᚋgraphᚋmodel�
 	return ret
 }
 
-func (ec *executionContext) marshalNPatch2gonetlogoᚋbackendᚋgraphᚋmodelᚐPatch(ctx context.Context, sel ast.SelectionSet, v model.Patch) graphql.Marshaler {
-	return ec._Patch(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNPatch2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPatchᚄ(ctx context.Context, sel ast.SelectionSet, v []model.Patch) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNPatch2gonetlogoᚋbackendᚋgraphᚋmodelᚐPatch(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
 func (ec *executionContext) marshalNSession2gonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx context.Context, sel ast.SelectionSet, v model.Session) graphql.Marshaler {
 	return ec._Session(ctx, sel, &v)
 }
@@ -9780,6 +10343,20 @@ func (ec *executionContext) marshalNWidget2ᚕgonetlogoᚋbackendᚋgraphᚋmode
 
 func (ec *executionContext) marshalNWorld2gonetlogoᚋbackendᚋgraphᚋmodelᚐWorld(ctx context.Context, sel ast.SelectionSet, v model.World) graphql.Marshaler {
 	return ec._World(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNWorldSettings2gonetlogoᚋbackendᚋgraphᚋmodelᚐWorldSettings(ctx context.Context, sel ast.SelectionSet, v model.WorldSettings) graphql.Marshaler {
+	return ec._WorldSettings(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNWorldSettings2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐWorldSettings(ctx context.Context, sel ast.SelectionSet, v *model.WorldSettings) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._WorldSettings(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx context.Context, sel ast.SelectionSet, v introspection.Directive) graphql.Marshaler {

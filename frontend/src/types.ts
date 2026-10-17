@@ -17,7 +17,6 @@ export type Widget = {
   text: string | null
 }
 
-export type Patch = { px: number; py: number; r: number; g: number; b: number }
 export type Turtle = {
   who: number
   x: number
@@ -41,14 +40,20 @@ export type Link = {
   b: number
 }
 
-export type World = {
+export type WorldView = {
   minPxcor: number
   maxPxcor: number
   minPycor: number
   maxPycor: number
+  patchSize: number
+  wrapX: boolean
+  wrapY: boolean
+}
+
+export type World = WorldView & {
   width: number
   height: number
-  patches: Patch[]
+  patchColors: string
   turtles: Turtle[]
   links: Link[]
 }

@@ -322,3 +322,46 @@ end
 	}
 	_ = math.NaN
 }
+
+func TestResizeWorld100(t *testing.T) {
+	vm := newTestVM(t, "", -2, 2, true, 1)
+	if _, err := vm.ExecuteLine("crt 5"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vm.ExecuteLine("ask patches [ set pcolor red ]"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vm.ExecuteLine("resize-world 0 99 0 99"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustEval(t, vm, "count patches"); got != "10000" {
+		t.Fatalf("count patches = %s, want 10000", got)
+	}
+	if got := mustEval(t, vm, "count turtles"); got != "0" {
+		t.Fatalf("count turtles = %s, want 0", got)
+	}
+	if got := mustEval(t, vm, "count links"); got != "0" {
+		t.Fatalf("count links = %s, want 0", got)
+	}
+	if got := mustEval(t, vm, "count patches with [ pcolor = black ]"); got != "10000" {
+		t.Fatalf("patches were not reset: %s", got)
+	}
+	checks := map[string]string{
+		"min-pxcor": "0", "max-pxcor": "99", "min-pycor": "0", "max-pycor": "99",
+		"world-width": "100", "world-height": "100",
+	}
+	for expr, want := range checks {
+		if got := mustEval(t, vm, expr); got != want {
+			t.Fatalf("%s = %s, want %s", expr, got, want)
+		}
+	}
+	if _, err := vm.ExecuteLine("set-patch-size 4.5"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustEval(t, vm, "patch-size"); got != "4.5" {
+		t.Fatalf("patch-size = %s", got)
+	}
+	if _, err := vm.ExecuteLine("resize-world 1 10 0 10"); err == nil {
+		t.Fatal("resize-world accepted a world that excludes the origin")
+	}
+}

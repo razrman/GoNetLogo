@@ -15,11 +15,13 @@ import {
   SetSlider,
   SetSpeed,
   SetSwitch,
+  SetWorld,
   Setup,
   Step,
   Stop,
+  WorldSettingsQuery,
 } from './api'
-import type { Frame, SessionInfo, Widget } from './types'
+import type { Frame, SessionInfo, Widget, WorldView } from './types'
 import { WorldCanvas } from './WorldCanvas'
 
 type CreateResult = { createSession: SessionInfo }
@@ -43,6 +45,7 @@ export function App() {
   const [, switchMut] = useMutation(SetSwitch)
   const [, chooserMut] = useMutation(SetChooser)
   const [, inputMut] = useMutation(SetInput)
+  const [, setWorldMut] = useMutation(SetWorld)
 
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('fire.nlogo')
@@ -57,6 +60,12 @@ export function App() {
   const [active, setActive] = useState<number | null>(null)
   const [booting, setBooting] = useState(true)
   const logRef = useRef<HTMLPreElement>(null)
+
+  const [settingsQ] = useQuery<{ worldSettings: WorldView }>({
+    query: WorldSettingsQuery,
+    variables: { id: sessionId ?? '' },
+    pause: !sessionId,
+  })
 
   useEffect(() => {
     let cancel = false
@@ -178,6 +187,12 @@ export function App() {
     if (res.data?.runCommand.ok) setCommand('')
   }
 
+  async function onWorld(next: WorldView) {
+    if (!sessionId) return 'No session'
+    const res = await setWorldMut({ id: sessionId, ...next })
+    return res.error?.message ?? null
+  }
+
   const widgets = frame?.widgets ?? []
   const goWidget = widgets.find((w) => w.kind === 'button' && w.display.toLowerCase() === 'go')
   const running = frame?.running ?? false
@@ -289,11 +304,16 @@ export function App() {
               </div>
               <div className="view-meta">
                 {frame
-                  ? `${frame.world.width} × ${frame.world.height} patches · ${modelName}`
+                  ? `${frame.world.width} × ${frame.world.height} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
                   : modelName}
               </div>
             </section>
             <aside className="side" aria-label="Interface widgets">
+              <WorldSettingsForm
+                world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
+                disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
+                onApply={onWorld}
+              />
               {widgets.length === 0 && (
                 <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
               )}
@@ -335,6 +355,107 @@ export function App() {
         </form>
       </section>
     </div>
+  )
+}
+
+function WorldSettingsForm({
+  world,
+  disabled,
+  onApply,
+}: {
+  world: WorldView | null
+  disabled: boolean
+  onApply: (next: WorldView) => Promise<string | null>
+}) {
+  const [draft, setDraft] = useState({
+    minPxcor: '0',
+    maxPxcor: '99',
+    minPycor: '0',
+    maxPycor: '99',
+    patchSize: '12',
+    wrapX: true,
+    wrapY: true,
+  })
+  const [error, setError] = useState<string | null>(null)
+  const signature = world
+    ? `${world.minPxcor},${world.maxPxcor},${world.minPycor},${world.maxPycor},${world.patchSize},${world.wrapX},${world.wrapY}`
+    : ''
+
+  useEffect(() => {
+    if (!world) return
+    setDraft({
+      minPxcor: String(world.minPxcor),
+      maxPxcor: String(world.maxPxcor),
+      minPycor: String(world.minPycor),
+      maxPycor: String(world.maxPycor),
+      patchSize: String(world.patchSize),
+      wrapX: world.wrapX,
+      wrapY: world.wrapY,
+    })
+    setError(null)
+  }, [signature]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function apply(event: FormEvent) {
+    event.preventDefault()
+    const minPxcor = Number(draft.minPxcor)
+    const maxPxcor = Number(draft.maxPxcor)
+    const minPycor = Number(draft.minPycor)
+    const maxPycor = Number(draft.maxPycor)
+    const patchSize = Number(draft.patchSize)
+    if (![minPxcor, maxPxcor, minPycor, maxPycor].every((n) => Number.isInteger(n))) {
+      setError('Coordinates must be integers.')
+      return
+    }
+    if (minPxcor > 0 || maxPxcor < 0 || minPycor > 0 || maxPycor < 0) {
+      setError('The world must contain the origin (0, 0).')
+      return
+    }
+    if (!(patchSize > 0) || patchSize > 100) {
+      setError('Patch size must be greater than 0 and at most 100.')
+      return
+    }
+    setError(null)
+    const message = await onApply({ minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY })
+    setError(message)
+  }
+
+  return (
+    <form className="world-settings" onSubmit={(e) => void apply(e)}>
+      <h2>World</h2>
+      <label>
+        min pxcor
+        <input aria-label="min pxcor" inputMode="numeric" value={draft.minPxcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPxcor: e.target.value })} />
+      </label>
+      <label>
+        max pxcor
+        <input aria-label="max pxcor" inputMode="numeric" value={draft.maxPxcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPxcor: e.target.value })} />
+      </label>
+      <label>
+        min pycor
+        <input aria-label="min pycor" inputMode="numeric" value={draft.minPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPycor: e.target.value })} />
+      </label>
+      <label>
+        max pycor
+        <input aria-label="max pycor" inputMode="numeric" value={draft.maxPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPycor: e.target.value })} />
+      </label>
+      <label>
+        patch size
+        <input aria-label="patch size" inputMode="decimal" value={draft.patchSize} disabled={disabled} onChange={(e) => setDraft({ ...draft, patchSize: e.target.value })} />
+      </label>
+      <div className="checks">
+        <label className="check">
+          <input type="checkbox" aria-label="wrap x" checked={draft.wrapX} disabled={disabled} onChange={(e) => setDraft({ ...draft, wrapX: e.target.checked })} />
+          wrap x
+        </label>
+        <label className="check">
+          <input type="checkbox" aria-label="wrap y" checked={draft.wrapY} disabled={disabled} onChange={(e) => setDraft({ ...draft, wrapY: e.target.checked })} />
+          wrap y
+        </label>
+      </div>
+      <button className="iface" type="submit" disabled={disabled}>Apply world</button>
+      <p className="hint">100×100 is min 0, max 99 on both axes. Applying kills turtles and links and clears patches.</p>
+      {error && <p className="err">{error}</p>}
+    </form>
   )
 }
 

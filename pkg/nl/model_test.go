@@ -16,8 +16,16 @@ func loadModel(t *testing.T, name string) *FileModel {
 
 func TestLoadWidgets(t *testing.T) {
 	m := loadModel(t, "fire.nlogo")
-	if m.View.MinPxcor != -12 || m.View.MaxPxcor != 12 || m.View.WrapX || m.View.WrapY {
+	if m.View.MinPxcor != -12 || m.View.MaxPxcor != 12 || m.View.WrapX || m.View.WrapY || m.View.PatchSize != 12 {
 		t.Fatalf("view %+v", m.View)
+	}
+	fireVM, err := m.NewVM(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw := fireVM.World
+	if fw.MinPxcor != -12 || fw.MaxPxcor != 12 || fw.MinPycor != -12 || fw.MaxPycor != 12 || fw.WrapX || fw.WrapY || fw.PatchSize != 12 {
+		t.Fatalf("fire world %+v", fw)
 	}
 	density := false
 	for _, w := range m.Widgets {
@@ -72,12 +80,18 @@ end
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.View.MinPxcor != -3 || m.View.MaxPycor != 4 || m.View.WrapX || !m.View.WrapY {
+	if m.View.MinPxcor != -3 || m.View.MaxPycor != 4 || m.View.WrapX || !m.View.WrapY || m.View.PatchSize != 9 {
 		t.Fatalf("view %+v", m.View)
 	}
 	vm, err := m.NewVM(1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if vm.World.MinPxcor != -3 || vm.World.MaxPxcor != 3 || vm.World.MinPycor != -4 || vm.World.MaxPycor != 4 || vm.World.WrapX || !vm.World.WrapY || vm.World.PatchSize != 9 {
+		t.Fatalf("applied world min %d max %d py %d %d wrap %v %v size %v", vm.World.MinPxcor, vm.World.MaxPxcor, vm.World.MinPycor, vm.World.MaxPycor, vm.World.WrapX, vm.World.WrapY, vm.World.PatchSize)
+	}
+	if got := mustEval(t, vm, "count patches"); got != "63" {
+		t.Fatalf("count patches = %s, want 63", got)
 	}
 	if got, _ := vm.World.Global("density"); got.N != 40 {
 		t.Fatalf("density %v", got)

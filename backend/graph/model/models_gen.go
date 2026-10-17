@@ -40,14 +40,6 @@ type Link struct {
 type Mutation struct {
 }
 
-type Patch struct {
-	Px int `json:"px"`
-	Py int `json:"py"`
-	R  int `json:"r"`
-	G  int `json:"g"`
-	B  int `json:"b"`
-}
-
 type Query struct {
 }
 
@@ -101,13 +93,29 @@ type Widget struct {
 }
 
 type World struct {
-	MinPxcor int      `json:"minPxcor"`
-	MaxPxcor int      `json:"maxPxcor"`
-	MinPycor int      `json:"minPycor"`
-	MaxPycor int      `json:"maxPycor"`
-	Width    int      `json:"width"`
-	Height   int      `json:"height"`
-	Patches  []Patch  `json:"patches"`
-	Turtles  []Turtle `json:"turtles"`
-	Links    []Link   `json:"links"`
+	MinPxcor  int     `json:"minPxcor"`
+	MaxPxcor  int     `json:"maxPxcor"`
+	MinPycor  int     `json:"minPycor"`
+	MaxPycor  int     `json:"maxPycor"`
+	Width     int     `json:"width"`
+	Height    int     `json:"height"`
+	PatchSize float64 `json:"patchSize"`
+	WrapX     bool    `json:"wrapX"`
+	WrapY     bool    `json:"wrapY"`
+	// Base64 RGB bytes, one pixel per patch, row-major.
+	// Row 0 is maxPycor and column 0 is minPxcor.
+	// The decoded length is width * height * 3.
+	PatchColors string   `json:"patchColors"`
+	Turtles     []Turtle `json:"turtles"`
+	Links       []Link   `json:"links"`
+}
+
+type WorldSettings struct {
+	MinPxcor  int     `json:"minPxcor"`
+	MaxPxcor  int     `json:"maxPxcor"`
+	MinPycor  int     `json:"minPycor"`
+	MaxPycor  int     `json:"maxPycor"`
+	PatchSize float64 `json:"patchSize"`
+	WrapX     bool    `json:"wrapX"`
+	WrapY     bool    `json:"wrapY"`
 }

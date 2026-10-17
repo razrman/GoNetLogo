@@ -199,7 +199,30 @@ func (w *World) inBounds(px, py int) bool {
 	return px >= w.MinPxcor && px <= w.MaxPxcor && py >= w.MinPycor && py <= w.MaxPycor
 }
 
+// MaxWorldSide is the largest number of patches on one axis.
+// 100×100 is the size the web view is built for; 256 keeps a frame
+// small enough to stream while go is running.
+const MaxWorldSide = 256
+
+// ValidWorld reports whether a resize-world size contains the origin
+// and stays within MaxWorldSide. max >= min is implied when the origin
+// is inside the rectangle.
+func ValidWorld(minPx, maxPx, minPy, maxPy int) error {
+	if minPx > 0 || maxPx < 0 || minPy > 0 || maxPy < 0 {
+		return fmt.Errorf("the world must contain the origin")
+	}
+	if maxPx < minPx || maxPy < minPy {
+		return fmt.Errorf("the world is empty")
+	}
+	if maxPx-minPx+1 > MaxWorldSide || maxPy-minPy+1 > MaxWorldSide {
+		return fmt.Errorf("a world can be at most %d patches on a side", MaxWorldSide)
+	}
+	return nil
+}
+
 // Resize rebuilds the patch grid and removes every turtle and link.
+// Patch variables and colors go back to their defaults. The who counter
+// is left alone, matching clear-turtles rather than clear-all.
 func (w *World) Resize(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) {
 	w.MinPxcor, w.MaxPxcor = minPx, maxPx
 	w.MinPycor, w.MaxPycor = minPy, maxPy

@@ -138,11 +138,11 @@ The schema lives in `schema/schema.graphqls`. Operations:
 
 | Kind | Fields |
 | --- | --- |
-| Query | `models`, `session(id)` |
-| Mutation | `createSession`, `loadModel`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setSlider`, `setSwitch`, `setChooser`, `setInput` |
+| Query | `models`, `session(id)`, `worldSettings(sessionId)` |
+| Mutation | `createSession`, `loadModel`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
 | Subscription | `frames(sessionId)` over a websocket |
 
-`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, and monitors, plus notes and a placeholder for plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor` and the agents needed to paint the view.
+`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, and monitors, plus notes and a placeholder for plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World panel calls `worldSettings` and `setWorld`. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side.
 
 The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` and the Docker image serve a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
 

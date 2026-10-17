@@ -6,7 +6,6 @@ package graph
 
 import (
 	"context"
-	"fmt"
 
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
@@ -126,6 +125,13 @@ func (r *mutationResolver) SetInput(ctx context.Context, sessionID string, index
 	return r.run(sessionID, func(s *session.Session) error { return s.SetInput(index, text) })
 }
 
+// SetWorld is the resolver for the setWorld field.
+func (r *mutationResolver) SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool) (*model.Session, error) {
+	return r.run(sessionID, func(s *session.Session) error {
+		return s.SetWorld(minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX, wrapY)
+	})
+}
+
 // Models is the resolver for the models field.
 func (r *queryResolver) Models(ctx context.Context) ([]string, error) {
 	return r.Store.Models()
@@ -138,6 +144,15 @@ func (r *queryResolver) Session(ctx context.Context, id string) (*model.Session,
 		return nil, nil
 	}
 	return s.Session(), nil
+}
+
+// WorldSettings is the resolver for the worldSettings field.
+func (r *queryResolver) WorldSettings(ctx context.Context, sessionID string) (*model.WorldSettings, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.WorldSettings()
 }
 
 // Frames is the resolver for the frames field.
@@ -178,25 +193,6 @@ func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-
 		}
 	}()
 	return out, nil
-}
-
-func (r *Resolver) session(id string) (*session.Session, error) {
-	s, ok := r.Store.Get(id)
-	if !ok {
-		return nil, fmt.Errorf("no session %s", id)
-	}
-	return s, nil
-}
-
-func (r *Resolver) run(id string, fn func(*session.Session) error) (*model.Session, error) {
-	s, err := r.session(id)
-	if err != nil {
-		return nil, err
-	}
-	if err := fn(s); err != nil {
-		return nil, err
-	}
-	return s.Session(), nil
 }
 
 // Mutation returns MutationResolver implementation.

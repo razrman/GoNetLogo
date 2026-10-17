@@ -140,6 +140,44 @@ export const SetInput = `
   }
 `
 
+export const WorldSettingsQuery = `
+  query WorldSettings($id: ID!) {
+    worldSettings(sessionId: $id) {
+      minPxcor
+      maxPxcor
+      minPycor
+      maxPycor
+      patchSize
+      wrapX
+      wrapY
+    }
+  }
+`
+
+export const SetWorld = `
+  mutation SetWorld(
+    $id: ID!
+    $minPxcor: Int!
+    $maxPxcor: Int!
+    $minPycor: Int!
+    $maxPycor: Int!
+    $patchSize: Float!
+    $wrapX: Boolean!
+    $wrapY: Boolean!
+  ) {
+    setWorld(
+      sessionId: $id
+      minPxcor: $minPxcor
+      maxPxcor: $maxPxcor
+      minPycor: $minPycor
+      maxPycor: $maxPycor
+      patchSize: $patchSize
+      wrapX: $wrapX
+      wrapY: $wrapY
+    ) { id }
+  }
+`
+
 export const Frames = `
   subscription Frames($id: ID!) {
     frames(sessionId: $id) {
@@ -174,7 +212,10 @@ export const Frames = `
         maxPycor
         width
         height
-        patches { px py r g b }
+        patchSize
+        wrapX
+        wrapY
+        patchColors
         turtles { who x y heading size shape hidden r g b }
         links { x1 y1 x2 y2 hidden r g b }
       }
