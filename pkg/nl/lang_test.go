@@ -365,3 +365,26 @@ func TestResizeWorld100(t *testing.T) {
 		t.Fatal("resize-world accepted a world that excludes the origin")
 	}
 }
+
+func TestApplyView(t *testing.T) {
+	w := NewWorld(-2, 2, -2, 2, true, true)
+	w.CreateTurtle("turtles", 0, 0, 0, 0)
+	if err := w.ApplyView(0, 99, 0, 99, 8, false, true); err != nil {
+		t.Fatal(err)
+	}
+	if w.Width() != 100 || w.Height() != 100 || len(w.Turtles().Agents) != 0 {
+		t.Fatalf("size %dx%d turtles %d", w.Width(), w.Height(), len(w.Turtles().Agents))
+	}
+	if w.PatchSize != 8 || w.WrapX || !w.WrapY {
+		t.Fatalf("view size %v wrap %v %v", w.PatchSize, w.WrapX, w.WrapY)
+	}
+	if err := w.ApplyView(1, 10, 0, 10, 8, false, false); err == nil {
+		t.Fatal("ApplyView accepted a world that excludes the origin")
+	}
+	if err := w.ApplyView(0, 99, 0, 99, 0, false, false); err == nil {
+		t.Fatal("ApplyView accepted a zero patch size")
+	}
+	if err := w.ApplyView(0, 300, 0, 10, 8, false, false); err == nil {
+		t.Fatal("ApplyView accepted a side longer than 256")
+	}
+}

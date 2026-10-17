@@ -368,19 +368,14 @@ func (s *Session) PressButton(index int) error {
 // SetWorld resizes the patch grid and sets patch size and wrapping.
 // Turtles and links die and patches are reset, as with resize-world.
 func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
-	if err := nl.ValidWorld(minPx, maxPx, minPy, maxPy); err != nil {
-		return err
-	}
-	if patchSize <= 0 || patchSize > 100 {
-		return fmt.Errorf("patch size must be positive and at most 100")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.vm == nil || s.vm.World == nil {
 		return fmt.Errorf("no world")
 	}
-	s.vm.World.Resize(minPx, maxPx, minPy, maxPy, wrapX, wrapY)
-	s.vm.World.PatchSize = patchSize
+	if err := s.vm.World.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
+		return err
+	}
 	s.broadcastLocked()
 	return nil
 }

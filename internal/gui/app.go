@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"gonetlogo/pkg/nl"
@@ -46,23 +48,32 @@ type control struct {
 }
 
 type session struct {
-	win      fyne.Window
-	modelsFS fs.FS
-	names    []string
-	model    *nl.FileModel
-	vm       *nl.VM
-	code     *widget.Entry
-	output   *widget.Entry
-	ticks    *widget.Label
-	notes    *widget.Label
-	raster   *canvas.Raster
-	side     *fyne.Container
-	scroll   *container.Scroll
-	layout   fyne.CanvasObject
-	picker   *widget.Select
-	speed    *widget.Slider
-	setupBtn *widget.Button
-	goBtn    *widget.Button
+	win       fyne.Window
+	modelsFS  fs.FS
+	names     []string
+	model     *nl.FileModel
+	vm        *nl.VM
+	code      *widget.Entry
+	output    *widget.Entry
+	ticks     *widget.Label
+	notes     *widget.Label
+	raster    *canvas.Raster
+	side      *fyne.Container
+	scroll    *container.Scroll
+	split     *container.Split
+	layout    fyne.CanvasObject
+	minPx     *widget.Entry
+	maxPx     *widget.Entry
+	minPy     *widget.Entry
+	maxPy     *widget.Entry
+	patchSize *widget.Entry
+	wrapX     *widget.Check
+	wrapY     *widget.Check
+	seenWorld string
+	picker    *widget.Select
+	speed     *widget.Slider
+	setupBtn  *widget.Button
+	goBtn     *widget.Button
 
 	ctls    []control
 	running int
@@ -89,7 +100,8 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	s.raster.SetMinSize(fyne.NewSize(520, 520))
 	s.side = container.NewVBox()
 	s.scroll = container.NewVScroll(s.side)
-	s.scroll.SetMinSize(fyne.NewSize(280, 400))
+	s.scroll.SetMinSize(fyne.NewSize(240, 160))
+	worldForm := s.buildWorldForm()
 
 	s.picker = widget.NewSelect(s.names, func(name string) {
 		if s.busy || name == "" {
@@ -121,9 +133,13 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks),
 		container.NewHBox(s.picker, open, s.setupBtn, s.goBtn),
 	)
-	worldCard := container.NewPadded(s.raster)
-	iface := container.NewHSplit(worldCard, s.scroll)
-	iface.Offset = 0.68
+	// Center keeps the raster at its min size so a new world resizes the view
+	// instead of stretching into the whole split pane. drawWorld still
+	// letterboxes when the pane is smaller than that size.
+	worldCard := container.NewPadded(container.NewCenter(s.raster))
+	s.split = container.NewHSplit(worldCard, container.NewBorder(worldForm, nil, nil, nil, s.scroll))
+	s.split.Offset = 0.72
+	iface := s.split
 	codePage := container.NewBorder(nil, apply, nil, nil, s.code)
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Interface", iface),
@@ -141,6 +157,193 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		s.picker.SetSelected(s.names[0])
 	}
 	return s
+}
+
+// buildWorldForm is the compact World panel: a 2×2 coordinate grid, patch
+// size, wrap toggles, and Apply. It is pinned above the widget scroll so the
+// controls stay on screen.
+func (s *session) buildWorldForm() fyne.CanvasObject {
+	s.minPx = widget.NewEntry()
+	s.maxPx = widget.NewEntry()
+	s.minPy = widget.NewEntry()
+	s.maxPy = widget.NewEntry()
+	s.patchSize = widget.NewEntry()
+	s.wrapX = widget.NewCheck("wrap x", nil)
+	s.wrapY = widget.NewCheck("wrap y", nil)
+	apply := widget.NewButton("Apply", func() { s.applyWorld() })
+	apply.Importance = widget.HighImportance
+
+	title := widget.NewLabelWithStyle("World", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	head := container.NewHBox(
+		fixedBox(48, 22, widget.NewLabel("")),
+		fixedBox(56, 22, widget.NewLabel("min")),
+		fixedBox(56, 22, widget.NewLabel("max")),
+	)
+	px := container.NewHBox(
+		fixedBox(48, 32, widget.NewLabel("pxcor")),
+		fixedBox(56, 32, s.minPx),
+		fixedBox(56, 32, s.maxPx),
+	)
+	py := container.NewHBox(
+		fixedBox(48, 32, widget.NewLabel("pycor")),
+		fixedBox(56, 32, s.minPy),
+		fixedBox(56, 32, s.maxPy),
+	)
+	extras := container.NewHBox(
+		widget.NewLabel("patch"),
+		fixedBox(56, 32, s.patchSize),
+		s.wrapX,
+		s.wrapY,
+	)
+	return container.NewVBox(container.NewBorder(nil, nil, title, apply, layout.NewSpacer()), head, px, py, extras)
+}
+
+func fixedBox(w, h float32, o fyne.CanvasObject) fyne.CanvasObject {
+	return container.NewGridWrap(fyne.NewSize(w, h), o)
+}
+
+// parseWorldInputs checks the World panel text. Coordinates are integers,
+// the rectangle must contain the origin and stay within MaxWorldSide, and
+// patch size must be in (0, 100].
+func parseWorldInputs(minPxS, maxPxS, minPyS, maxPyS, patchS string) (minPx, maxPx, minPy, maxPy int, patch float64, err error) {
+	minPx, err = parseCoord("min pxcor", minPxS)
+	if err != nil {
+		return
+	}
+	maxPx, err = parseCoord("max pxcor", maxPxS)
+	if err != nil {
+		return
+	}
+	minPy, err = parseCoord("min pycor", minPyS)
+	if err != nil {
+		return
+	}
+	maxPy, err = parseCoord("max pycor", maxPyS)
+	if err != nil {
+		return
+	}
+	if err = nl.ValidWorld(minPx, maxPx, minPy, maxPy); err != nil {
+		return
+	}
+	patch, err = strconv.ParseFloat(strings.TrimSpace(patchS), 64)
+	if err != nil {
+		err = fmt.Errorf("patch size must be a number")
+		return
+	}
+	if patch <= 0 || patch > 100 {
+		err = fmt.Errorf("patch size must be positive and at most 100")
+	}
+	return
+}
+
+func parseCoord(name, raw string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return n, nil
+}
+
+// viewPixels is the on-screen size of the world view. Patch size scales the
+// grid, then the long side is kept between 280 and 520 so a 100×100 world
+// fits and a tiny world stays readable.
+func viewPixels(width, height int, patchSize float64) (float32, float32) {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	if patchSize < 1 {
+		patchSize = 1
+	}
+	pw := float64(width) * patchSize
+	ph := float64(height) * patchSize
+	long := pw
+	if ph > long {
+		long = ph
+	}
+	const maxLong = 520.0
+	const minLong = 280.0
+	scale := 1.0
+	if long > maxLong {
+		scale = maxLong / long
+	} else if long < minLong {
+		scale = minLong / long
+	}
+	return float32(pw * scale), float32(ph * scale)
+}
+
+func (s *session) applyWorld() {
+	if s.vm == nil || s.model == nil {
+		return
+	}
+	minPx, maxPx, minPy, maxPy, ps, err := parseWorldInputs(
+		s.minPx.Text, s.maxPx.Text, s.minPy.Text, s.maxPy.Text, s.patchSize.Text,
+	)
+	if err != nil {
+		s.logf("%v", err)
+		dialog.ShowError(err, s.win)
+		return
+	}
+	wrapX, wrapY := false, false
+	if s.wrapX != nil {
+		wrapX = s.wrapX.Checked
+	}
+	if s.wrapY != nil {
+		wrapY = s.wrapY.Checked
+	}
+	if err := s.vm.World.ApplyView(minPx, maxPx, minPy, maxPy, ps, wrapX, wrapY); err != nil {
+		s.logf("%v", err)
+		dialog.ShowError(err, s.win)
+		return
+	}
+	s.model.View.MinPxcor = minPx
+	s.model.View.MaxPxcor = maxPx
+	s.model.View.MinPycor = minPy
+	s.model.View.MaxPycor = maxPy
+	s.model.View.PatchSize = ps
+	s.model.View.WrapX = wrapX
+	s.model.View.WrapY = wrapY
+	s.model.View.Set = true
+	s.seenWorld = ""
+	s.noteWorld()
+	s.logf("world %d..%d × %d..%d · patch size %s", minPx, maxPx, minPy, maxPy, trimNum(ps))
+}
+
+// noteWorld copies the live world into the panel when resize-world,
+// set-patch-size, or a newly loaded model changes it. In-progress edits are
+// left alone while the signature stays the same.
+func (s *session) noteWorld() {
+	if s.vm == nil || s.minPx == nil {
+		return
+	}
+	w := s.vm.World
+	sig := fmt.Sprintf("%d,%d,%d,%d,%g,%t,%t",
+		w.MinPxcor, w.MaxPxcor, w.MinPycor, w.MaxPycor, w.PatchSize, w.WrapX, w.WrapY)
+	if sig == s.seenWorld {
+		return
+	}
+	s.seenWorld = sig
+	s.minPx.SetText(strconv.Itoa(w.MinPxcor))
+	s.maxPx.SetText(strconv.Itoa(w.MaxPxcor))
+	s.minPy.SetText(strconv.Itoa(w.MinPycor))
+	s.maxPy.SetText(strconv.Itoa(w.MaxPycor))
+	s.patchSize.SetText(trimNum(w.PatchSize))
+	if s.wrapX != nil {
+		s.wrapX.SetChecked(w.WrapX)
+	}
+	if s.wrapY != nil {
+		s.wrapY.SetChecked(w.WrapY)
+	}
+	if s.raster != nil {
+		pw, ph := viewPixels(w.Width(), w.Height(), w.PatchSize)
+		s.raster.SetMinSize(fyne.NewSize(pw, ph))
+		s.raster.Refresh()
+	}
+	if s.split != nil {
+		s.split.Refresh()
+	}
 }
 
 func (s *session) speedWrap() fyne.CanvasObject {
@@ -191,6 +394,7 @@ func (s *session) load(name, content string) {
 	s.vm.OnPrint = func(line string) { s.log(line) }
 	s.code.SetText(m.Code)
 	s.rebuildSide()
+	s.noteWorld()
 	if s.raster != nil {
 		s.raster.Refresh()
 	}
@@ -478,6 +682,7 @@ func (s *session) refreshReadouts() {
 			}
 		}
 	}
+	s.noteWorld()
 }
 
 func (s *session) runLine(text string) {
@@ -513,6 +718,7 @@ func (s *session) applyCode() {
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
 	s.rebuildSide()
+	s.noteWorld()
 	s.raster.Refresh()
 	s.log("code applied — press setup")
 }

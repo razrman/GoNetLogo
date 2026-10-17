@@ -220,6 +220,21 @@ func ValidWorld(minPx, maxPx, minPy, maxPy int) error {
 	return nil
 }
 
+// ApplyView resizes the world and sets patch size and wrapping.
+// Turtles and links die and patches are reset, as with resize-world.
+// Patch size must be positive and at most 100.
+func (w *World) ApplyView(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
+	if err := ValidWorld(minPx, maxPx, minPy, maxPy); err != nil {
+		return err
+	}
+	if patchSize <= 0 || patchSize > 100 {
+		return fmt.Errorf("patch size must be positive and at most 100")
+	}
+	w.Resize(minPx, maxPx, minPy, maxPy, wrapX, wrapY)
+	w.PatchSize = patchSize
+	return nil
+}
+
 // Resize rebuilds the patch grid and removes every turtle and link.
 // Patch variables and colors go back to their defaults. The who counter
 // is left alone, matching clear-turtles rather than clear-all.
