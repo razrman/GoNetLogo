@@ -1,0 +1,133 @@
+# GoNetLogo API. One Session is an isolated interpreter and world.
+# The shared schema lives here so the Go server and the web client
+# can both treat it as the contract.
+
+type Query {
+  models: [String!]!
+  session(id: ID!): Session
+}
+
+type Mutation {
+  createSession(model: String!): Session!
+  loadModel(sessionId: ID!, model: String!): Session!
+  setCode(sessionId: ID!, code: String!): CompileResult!
+  runCommand(sessionId: ID!, text: String!): CommandResult!
+  setup(sessionId: ID!): Session!
+  """Start the forever button (go)."""
+  go(sessionId: ID!): Session!
+  stop(sessionId: ID!): Session!
+  """Run the go procedure a single time."""
+  step(sessionId: ID!): Session!
+  pressButton(sessionId: ID!, index: Int!): Session!
+  setSpeed(sessionId: ID!, speed: Float!): Session!
+  setSlider(sessionId: ID!, index: Int!, value: Float!): Session!
+  setSwitch(sessionId: ID!, index: Int!, on: Boolean!): Session!
+  setChooser(sessionId: ID!, index: Int!, current: Int!): Session!
+  setInput(sessionId: ID!, index: Int!, text: String!): Session!
+}
+
+type Subscription {
+  """World, widgets, and ticks. Emitted after each change and while go is running."""
+  frames(sessionId: ID!): Frame!
+}
+
+type Session {
+  id: ID!
+  modelName: String!
+  code: String!
+  ticks: Float
+  ticksStarted: Boolean!
+  running: Boolean!
+  speed: Float!
+  notes: [String!]!
+  log: [String!]!
+  widgets: [Widget!]!
+  world: World!
+}
+
+type CompileResult {
+  ok: Boolean!
+  error: String
+  session: Session!
+}
+
+type CommandResult {
+  ok: Boolean!
+  output: String
+  error: String
+  session: Session!
+}
+
+type Frame {
+  sessionId: ID!
+  ticks: Float
+  ticksStarted: Boolean!
+  running: Boolean!
+  speed: Float!
+  log: [String!]!
+  widgets: [Widget!]!
+  world: World!
+}
+
+type Widget {
+  index: Int!
+  kind: String!
+  display: String!
+  variable: String
+  forever: Boolean!
+  disabled: Boolean!
+  min: Float
+  max: Float
+  value: Float
+  step: Float
+  units: String
+  on: Boolean
+  reading: String
+  choices: [String!]
+  current: Int
+  text: String
+}
+
+type World {
+  minPxcor: Int!
+  maxPxcor: Int!
+  minPycor: Int!
+  maxPycor: Int!
+  width: Int!
+  height: Int!
+  patches: [Patch!]!
+  turtles: [Turtle!]!
+  links: [Link!]!
+}
+
+type Patch {
+  px: Int!
+  py: Int!
+  r: Int!
+  g: Int!
+  b: Int!
+}
+
+type Turtle {
+  who: Int!
+  x: Float!
+  y: Float!
+  heading: Float!
+  size: Float!
+  shape: String!
+  hidden: Boolean!
+  r: Int!
+  g: Int!
+  b: Int!
+}
+
+type Link {
+  x1: Float!
+  y1: Float!
+  x2: Float!
+  y2: Float!
+  hidden: Boolean!
+  r: Int!
+  g: Int!
+  b: Int!
+}

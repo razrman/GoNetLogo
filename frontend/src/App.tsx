@@ -1,0 +1,496 @@
+import { useEffect, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
+import { useMutation, useQuery, useSubscription } from 'urql'
+import {
+  CreateSession,
+  Frames,
+  Go,
+  LoadModel,
+  ModelsQuery,
+  PressButton,
+  RunCommand,
+  SetChooser,
+  SetCode,
+  SetInput,
+  SetSlider,
+  SetSpeed,
+  SetSwitch,
+  Setup,
+  Step,
+  Stop,
+} from './api'
+import type { Frame, SessionInfo, Widget } from './types'
+import { WorldCanvas } from './WorldCanvas'
+
+type CreateResult = { createSession: SessionInfo }
+type LoadResult = { loadModel: SessionInfo }
+type CodeResult = { setCode: { ok: boolean; error: string | null } }
+type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
+
+export function App() {
+  const [models] = useQuery<{ models: string[] }>({ query: ModelsQuery })
+  const [, createSession] = useMutation<CreateResult>(CreateSession)
+  const [, loadModel] = useMutation<LoadResult>(LoadModel)
+  const [, setCodeMut] = useMutation<CodeResult>(SetCode)
+  const [, runCommand] = useMutation<CommandResult>(RunCommand)
+  const [, setupMut] = useMutation(Setup)
+  const [, goMut] = useMutation(Go)
+  const [, stopMut] = useMutation(Stop)
+  const [, stepMut] = useMutation(Step)
+  const [, pressMut] = useMutation(PressButton)
+  const [, speedMut] = useMutation(SetSpeed)
+  const [, sliderMut] = useMutation(SetSlider)
+  const [, switchMut] = useMutation(SetSwitch)
+  const [, chooserMut] = useMutation(SetChooser)
+  const [, inputMut] = useMutation(SetInput)
+
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [modelName, setModelName] = useState('fire.nlogo')
+  const [code, setCode] = useState('')
+  const [notes, setNotes] = useState<string[]>([])
+  const [frame, setFrame] = useState<Frame | null>(null)
+  const [tab, setTab] = useState<'world' | 'code'>('world')
+  const [banner, setBanner] = useState<string | null>(null)
+  const [compileError, setCompileError] = useState<string | null>(null)
+  const [command, setCommand] = useState('')
+  const [commandError, setCommandError] = useState<string | null>(null)
+  const [active, setActive] = useState<number | null>(null)
+  const [booting, setBooting] = useState(true)
+  const logRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    let cancel = false
+    ;(async () => {
+      const created = await createSession({ model: 'fire.nlogo' })
+      if (cancel) return
+      if (created.error || !created.data) {
+        setBanner(created.error?.message ?? 'Could not open a session')
+        setBooting(false)
+        return
+      }
+      const info = created.data.createSession
+      setSessionId(info.id)
+      setModelName(info.modelName)
+      setCode(info.code)
+      setNotes(info.notes ?? [])
+      await speedMut({ id: info.id, speed: 30 })
+      const setup = await setupMut({ id: info.id })
+      if (setup.error) setBanner(setup.error.message)
+      const go = await goMut({ id: info.id })
+      if (go.error) setBanner(go.error.message)
+      else setActive(foreverIndex(info.widgets))
+      if (!cancel) setBooting(false)
+    })()
+    return () => {
+      cancel = true
+    }
+    // Boot once. The mutation executors are stable for this client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const el = logRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [frame?.log])
+
+  useEffect(() => {
+    if (frame && !frame.running) setActive(null)
+  }, [frame?.running])
+
+  async function onModel(name: string) {
+    if (!sessionId || name === modelName) return
+    setBanner(null)
+    const res = await loadModel({ id: sessionId, model: name })
+    if (res.error || !res.data) {
+      setBanner(res.error?.message ?? 'Could not load that model')
+      return
+    }
+    const info = res.data.loadModel
+    setModelName(info.modelName)
+    setCode(info.code)
+    setNotes(info.notes ?? [])
+    setCompileError(null)
+    setActive(null)
+    const setup = await setupMut({ id: sessionId })
+    if (setup.error) setBanner(setup.error.message)
+  }
+
+  async function onSetup() {
+    if (!sessionId) return
+    setBanner(null)
+    const res = await setupMut({ id: sessionId })
+    if (res.error) setBanner(res.error.message)
+  }
+
+  async function onGo() {
+    if (!sessionId) return
+    setBanner(null)
+    if (frame?.running) {
+      const res = await stopMut({ id: sessionId })
+      if (res.error) setBanner(res.error.message)
+      setActive(null)
+      return
+    }
+    const res = await goMut({ id: sessionId })
+    if (res.error) setBanner(res.error.message)
+    else setActive(foreverIndex(frame?.widgets ?? []))
+  }
+
+  async function onStep() {
+    if (!sessionId) return
+    setBanner(null)
+    const res = await stepMut({ id: sessionId })
+    if (res.error) setBanner(res.error.message)
+  }
+
+  async function onPress(widget: Widget) {
+    if (!sessionId) return
+    setBanner(null)
+    const res = await pressMut({ id: sessionId, index: widget.index })
+    if (res.error) {
+      setBanner(res.error.message)
+      return
+    }
+    if (widget.forever) {
+      setActive((cur) => (cur === widget.index ? null : widget.index))
+    }
+  }
+
+  async function applyCode() {
+    if (!sessionId) return
+    const res = await setCodeMut({ id: sessionId, code })
+    if (res.error) {
+      setCompileError(res.error.message)
+      return
+    }
+    setCompileError(res.data?.setCode.error ?? null)
+  }
+
+  async function onCommand(event: FormEvent) {
+    event.preventDefault()
+    if (!sessionId || !command.trim()) return
+    const res = await runCommand({ id: sessionId, text: command })
+    if (res.error) {
+      setCommandError(res.error.message)
+      return
+    }
+    setCommandError(res.data?.runCommand.error ?? null)
+    if (res.data?.runCommand.ok) setCommand('')
+  }
+
+  const widgets = frame?.widgets ?? []
+  const goWidget = widgets.find((w) => w.kind === 'button' && w.display.toLowerCase() === 'go')
+  const running = frame?.running ?? false
+  const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
+  const library = models.data?.models ?? []
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <strong>GoNetLogo</strong>
+          <span>GraphQL client</span>
+        </div>
+        <select
+          className="model"
+          aria-label="Model"
+          value={library.includes(modelName) ? modelName : ''}
+          disabled={!sessionId || library.length === 0}
+          onChange={(e) => void onModel(e.target.value)}
+        >
+          {library.length === 0 && <option value="">Loading models…</option>}
+          {library.map((name) => (
+            <option key={name} value={name}>
+              {name.replace(/\.nlogo$/, '')}
+            </option>
+          ))}
+        </select>
+        <div className="controls">
+          <button className="act" type="button" disabled={!sessionId} onClick={() => void onSetup()}>
+            setup
+          </button>
+          <button
+            className={running ? 'act stop' : 'act go'}
+            type="button"
+            disabled={!sessionId || (!running && (goWidget?.disabled ?? true))}
+            onClick={() => void onGo()}
+          >
+            {running ? 'stop' : 'go'}
+          </button>
+          <button
+            className="act step"
+            type="button"
+            disabled={!sessionId || (goWidget?.disabled ?? true)}
+            onClick={() => void onStep()}
+          >
+            step
+          </button>
+        </div>
+        <label className="speed">
+          speed
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            aria-label="Speed"
+            value={frame?.speed ?? 30}
+            disabled={!sessionId}
+            onChange={(e) => {
+              if (sessionId) void speedMut({ id: sessionId, speed: Number(e.target.value) })
+            }}
+          />
+        </label>
+        <div className="ticks" data-ticks={ticksLabel} data-running={running ? 'true' : 'false'}>
+          ticks <b>{ticksLabel}</b>
+        </div>
+      </header>
+
+      {sessionId && (
+        <FrameBridge sessionId={sessionId} onFrame={setFrame} onError={setBanner} />
+      )}
+
+      {models.error && <div className="banner">{models.error.message}</div>}
+      {banner && <div className="banner">{banner}</div>}
+
+      <main className="stage">
+        {tab === 'code' ? (
+          <section className="code-panel">
+            <div className="tabs">
+              <button type="button" onClick={() => setTab('world')}>Interface</button>
+              <button type="button" className="on">Code</button>
+            </div>
+            <textarea
+              aria-label="Model code"
+              spellCheck={false}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+            <div className="code-actions">
+              <button className="act" type="button" disabled={!sessionId} onClick={() => void applyCode()}>
+                Apply code
+              </button>
+              {compileError && <span className="err">{compileError}</span>}
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="view">
+              <div className="tabs">
+                <button type="button" className="on">Interface</button>
+                <button type="button" onClick={() => setTab('code')}>Code</button>
+              </div>
+              <div className="canvas-wrap">
+                {booting && !frame ? (
+                  <div className="loading">Opening the forest fire…</div>
+                ) : (
+                  <WorldCanvas world={frame?.world ?? null} />
+                )}
+              </div>
+              <div className="view-meta">
+                {frame
+                  ? `${frame.world.width} × ${frame.world.height} patches · ${modelName}`
+                  : modelName}
+              </div>
+            </section>
+            <aside className="side" aria-label="Interface widgets">
+              {widgets.length === 0 && (
+                <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
+              )}
+              {widgets.map((w) => (
+                <WidgetView
+                  key={`${modelName}-${w.index}`}
+                  widget={w}
+                  live={running && active === w.index}
+                  onPress={() => void onPress(w)}
+                  onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
+                  onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
+                  onChooser={(current) => sessionId && void chooserMut({ id: sessionId, index: w.index, current })}
+                  onInput={(text) => sessionId && void inputMut({ id: sessionId, index: w.index, text })}
+                />
+              ))}
+              {notes.map((note) => (
+                <p className="note" key={note}>{note}</p>
+              ))}
+            </aside>
+          </>
+        )}
+      </main>
+
+      <section className="command" aria-label="Command center">
+        <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'Command center. A reporter prints its result here.'}</pre>
+        <form onSubmit={(e) => void onCommand(e)}>
+          <input
+            aria-label="Command"
+            placeholder="show count turtles"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            disabled={!sessionId}
+          />
+          <button className="act" type="submit" disabled={!sessionId || !command.trim()}>
+            Run
+          </button>
+          <div className="hint">Observer commands and reporters, one line at a time.</div>
+          {commandError && <div className="err">{commandError}</div>}
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function foreverIndex(widgets: { index: number; kind: string; display: string; forever: boolean }[]) {
+  const go = widgets.find((w) => w.kind === 'button' && w.forever && w.display.toLowerCase() === 'go')
+  return go?.index ?? widgets.find((w) => w.kind === 'button' && w.forever)?.index ?? null
+}
+
+function WidgetView({
+  widget,
+  live,
+  onPress,
+  onSlider,
+  onSwitch,
+  onChooser,
+  onInput,
+}: {
+  widget: Widget
+  live: boolean
+  onPress: () => void
+  onSlider: (value: number) => void
+  onSwitch: (on: boolean) => void
+  onChooser: (current: number) => void
+  onInput: (text: string) => void
+}) {
+  const [slider, setSlider] = useState<number | null>(null)
+  const [text, setText] = useState<string | null>(null)
+
+  if (widget.kind === 'button') {
+    const label = live ? 'stop' : widget.display
+    return (
+      <div className="widget">
+        <button
+          type="button"
+          className={live ? 'iface live' : widget.forever ? 'iface forever' : 'iface'}
+          disabled={widget.disabled && !live}
+          onClick={onPress}
+        >
+          {label}
+          {widget.forever && !live ? ' ∞' : ''}
+        </button>
+      </div>
+    )
+  }
+
+  if (widget.kind === 'slider') {
+    const value = slider ?? widget.value ?? widget.min ?? 0
+    const units = widget.units ? ` ${widget.units}` : ''
+    return (
+      <div className="widget">
+        <div className="label">{widget.display}</div>
+        <input
+          type="range"
+          min={widget.min ?? 0}
+          max={widget.max ?? 100}
+          step={widget.step || 1}
+          aria-label={widget.display}
+          value={value}
+          onChange={(e) => {
+            const next = Number(e.target.value)
+            setSlider(next)
+            onSlider(next)
+          }}
+        />
+        <div className="slider-val">{value}{units}</div>
+      </div>
+    )
+  }
+
+  if (widget.kind === 'switch') {
+    return (
+      <label className="switch">
+        <input
+          type="checkbox"
+          checked={widget.on ?? false}
+          aria-label={widget.display}
+          onChange={(e) => onSwitch(e.target.checked)}
+        />
+        {widget.display}
+      </label>
+    )
+  }
+
+  if (widget.kind === 'monitor') {
+    return (
+      <div className="widget">
+        <div className="label">{widget.display}</div>
+        <div className="readout">{widget.reading ?? '—'}</div>
+      </div>
+    )
+  }
+
+  if (widget.kind === 'chooser') {
+    return (
+      <div className="widget">
+        <div className="label">{widget.display}</div>
+        <select
+          aria-label={widget.display}
+          value={widget.current ?? 0}
+          onChange={(e) => onChooser(Number(e.target.value))}
+        >
+          {(widget.choices ?? []).map((choice, i) => (
+            <option key={choice} value={i}>{choice}</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  if (widget.kind === 'input') {
+    const shown = text ?? widget.text ?? ''
+    return (
+      <div className="widget">
+        <div className="label">{widget.display}</div>
+        <input
+          type="text"
+          aria-label={widget.display}
+          value={shown}
+          onChange={(e) => {
+            setText(e.target.value)
+            onInput(e.target.value)
+          }}
+        />
+      </div>
+    )
+  }
+
+  if (widget.kind === 'note') {
+    return <p className="note">{widget.display}</p>
+  }
+
+  if (widget.kind === 'plot') {
+    return <div className="plot">Plot not available: {widget.display}</div>
+  }
+
+  return null
+}
+
+function FrameBridge({
+  sessionId,
+  onFrame,
+  onError,
+}: {
+  sessionId: string
+  onFrame: (frame: Frame) => void
+  onError: (message: string) => void
+}) {
+  const [res] = useSubscription<{ frames: Frame }>({
+    query: Frames,
+    variables: { id: sessionId },
+  })
+  useEffect(() => {
+    if (res.data?.frames) onFrame(res.data.frames)
+  }, [res.data, onFrame])
+  useEffect(() => {
+    if (res.error) onError(res.error.message)
+  }, [res.error, onError])
+  return null
+}
