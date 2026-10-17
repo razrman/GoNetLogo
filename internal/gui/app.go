@@ -20,7 +20,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"gonetlogo/internal/nl"
+	"gonetlogo/pkg/nl"
 )
 
 // Run opens the desktop app. modelsFS provides the built-in .nlogo demos.

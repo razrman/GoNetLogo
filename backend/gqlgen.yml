@@ -1,0 +1,40 @@
+# gqlgen config. Run from this directory:
+#   GOTOOLCHAIN=local go run github.com/99designs/gqlgen@v0.17.49 generate
+schema:
+  - ../schema/*.graphqls
+
+exec:
+  filename: graph/generated.go
+  package: graph
+
+model:
+  filename: graph/model/models_gen.go
+  package: model
+
+resolver:
+  layout: follow-schema
+  dir: graph
+  package: graph
+  filename_template: "{name}.resolvers.go"
+
+# The stock builtin map points at types that do not exist in gqlgen's
+# graphql package (Boolean, Int, ID, Float, String). These aliases do.
+models:
+  Boolean:
+    model: gonetlogo/backend/scalar.Boolean
+  Int:
+    model:
+      - gonetlogo/backend/scalar.Int
+      - gonetlogo/backend/scalar.Int32
+      - gonetlogo/backend/scalar.Int64
+  ID:
+    model:
+      - gonetlogo/backend/scalar.ID
+  Float:
+    model: gonetlogo/backend/scalar.Float
+  String:
+    model: gonetlogo/backend/scalar.String
+
+omit_slice_element_pointers: true
+struct_fields_always_pointers: false
+skip_mod_tidy: true
