@@ -13,41 +13,136 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// RenderWorld paints patches, pen trails, links, and turtles.
-// patchPx is the width of one patch in pixels.
-func RenderWorld(w *World, patchPx int) *image.RGBA {
-	if patchPx < 1 {
-		patchPx = 1
+// ViewSnap is an immutable picture of the world. The draw thread paints it
+// while the model mutates the live maps on another goroutine.
+type ViewSnap struct {
+	Width, Height int
+	minPx, maxPy  int
+	patches       []snapPatch
+	links         []snapLink
+	turtles       []snapTurtle
+}
+
+type snapPatch struct {
+	x, y    int
+	c       color.RGBA
+	draw    color.RGBA
+	hasDraw bool
+}
+
+type snapLink struct {
+	x1, y1, x2, y2 float64
+	c              color.RGBA
+}
+
+type snapTurtle struct {
+	x, y, heading, size float64
+	color               float64
+	shape               string
+}
+
+// CurrentView returns the last frame published by a model command.
+// The first call copies the world under its lock.
+func (w *World) CurrentView() *ViewSnap {
+	if w == nil {
+		return &ViewSnap{Width: 1, Height: 1}
 	}
-	width := w.width * patchPx
-	height := w.height * patchPx
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	for _, p := range w.patchOrder {
-		c := patchRGBA(p)
-		x0 := (p.PX - w.MinPxcor) * patchPx
-		y0 := (w.MaxPycor - p.PY) * patchPx
-		drawRect(img, x0, y0, x0+patchPx, y0+patchPx, c)
+	if s := w.view.Load(); s != nil {
+		return s
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if s := w.view.Load(); s != nil {
+		return s
+	}
+	s := w.captureView()
+	w.view.Store(s)
+	return s
+}
+
+// captureView copies the pixels the renderer needs. The caller holds w.mu,
+// or the world is not yet shared.
+func (w *World) captureView() *ViewSnap {
+	s := &ViewSnap{
+		Width:   w.width,
+		Height:  w.height,
+		minPx:   w.MinPxcor,
+		maxPy:   w.MaxPycor,
+		patches: make([]snapPatch, len(w.patchOrder)),
+	}
+	for i, p := range w.patchOrder {
+		sp := snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p)}
 		if d, ok := w.DrawingAt(p.PX, p.PY); ok {
-			m := patchPx / 3
-			if m < 1 {
-				m = 1
-			}
-			drawRect(img, x0+m, y0+m, x0+patchPx-m, y0+patchPx-m, color.RGBA{d.R, d.G, d.B, 255})
+			sp.draw = color.RGBA{d.R, d.G, d.B, 255}
+			sp.hasDraw = true
 		}
+		s.patches[i] = sp
 	}
 	for _, l := range w.links {
 		if l == nil || l.dead || l.Hidden || l.End1 == nil || l.End2 == nil || l.End1.dead || l.End2.dead {
 			continue
 		}
-		x1, y1 := worldToPx(w, l.End1.X, l.End1.Y, patchPx)
-		x2, y2 := worldToPx(w, l.End2.X, l.End2.Y, patchPx)
-		drawLine(img, x1, y1, x2, y2, ColorRGBA(l.Color))
+		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color)})
 	}
 	for _, t := range w.liveTurtles() {
 		if t.Hidden {
 			continue
 		}
-		drawTurtle(img, w, t, patchPx)
+		shape := t.Shape
+		if shape == "" {
+			shape = "default"
+		}
+		s.turtles = append(s.turtles, snapTurtle{t.X, t.Y, t.Heading, t.Size, t.Color, shape})
+	}
+	return s
+}
+
+// RenderWorld paints patches, pen trails, links, and turtles.
+// patchPx is the width of one patch in pixels. The paint uses the latest
+// published frame, so it does not read the live turtle map.
+func RenderWorld(w *World, patchPx int) *image.RGBA {
+	if w == nil {
+		return image.NewRGBA(image.Rect(0, 0, 1, 1))
+	}
+	return w.CurrentView().Paint(patchPx)
+}
+
+// Paint draws this frame. It does not touch the live world.
+func (s *ViewSnap) Paint(patchPx int) *image.RGBA {
+	if s == nil {
+		return image.NewRGBA(image.Rect(0, 0, 1, 1))
+	}
+	if patchPx < 1 {
+		patchPx = 1
+	}
+	width := s.Width * patchPx
+	height := s.Height * patchPx
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for _, p := range s.patches {
+		x0 := (p.x - s.minPx) * patchPx
+		y0 := (s.maxPy - p.y) * patchPx
+		drawRect(img, x0, y0, x0+patchPx, y0+patchPx, p.c)
+		if p.hasDraw {
+			m := patchPx / 3
+			if m < 1 {
+				m = 1
+			}
+			drawRect(img, x0+m, y0+m, x0+patchPx-m, y0+patchPx-m, p.draw)
+		}
+	}
+	for _, l := range s.links {
+		x1, y1 := worldToPx(s.minPx, s.maxPy, l.x1, l.y1, patchPx)
+		x2, y2 := worldToPx(s.minPx, s.maxPy, l.x2, l.y2, patchPx)
+		drawLine(img, x1, y1, x2, y2, l.c)
+	}
+	for _, t := range s.turtles {
+		drawTurtle(img, s.minPx, s.maxPy, t, patchPx)
 	}
 	return img
 }
@@ -61,25 +156,22 @@ func patchRGBA(p *Patch) color.RGBA {
 	return ColorRGBA(p.PColor)
 }
 
-func worldToPx(w *World, x, y float64, patchPx int) (int, int) {
-	minX := float64(w.MinPxcor) - 0.5
-	maxY := float64(w.MaxPycor) + 0.5
+func worldToPx(minPx, maxPy int, x, y float64, patchPx int) (int, int) {
+	minX := float64(minPx) - 0.5
+	maxY := float64(maxPy) + 0.5
 	px := int((x - minX) * float64(patchPx))
 	py := int((maxY - y) * float64(patchPx))
 	return px, py
 }
 
-func drawTurtle(img *image.RGBA, w *World, t *Turtle, patchPx int) {
-	cx, cy := worldToPx(w, t.X, t.Y, patchPx)
-	r := t.Size * float64(patchPx) * 0.45
+func drawTurtle(img *image.RGBA, minPx, maxPy int, t snapTurtle, patchPx int) {
+	cx, cy := worldToPx(minPx, maxPy, t.x, t.y, patchPx)
+	r := t.size * float64(patchPx) * 0.45
 	if r < 2 {
 		r = 2
 	}
-	col := ColorRGBA(t.Color)
-	shape := t.Shape
-	if shape == "" {
-		shape = "default"
-	}
+	col := ColorRGBA(t.color)
+	shape := t.shape
 	switch shape {
 	case "square":
 		rr := int(r)
@@ -90,17 +182,17 @@ func drawTurtle(img *image.RGBA, w *World, t *Turtle, patchPx int) {
 		fillCircle(img, cx, cy, r, col)
 		fillCircle(img, cx, cy-int(r*0.7), r*0.45, col)
 	case "wolf":
-		fillTri(img, cx, cy, r*1.15, t.Heading, col)
+		fillTri(img, cx, cy, r*1.15, t.heading, col)
 		fillCircle(img, cx, cy, r*0.35, color.RGBA{40, 40, 40, 255})
 	case "bug":
 		fillCircle(img, cx, cy, r*0.7, col)
 		// two antennae along the heading
-		h := t.Heading * math.Pi / 180
+		h := t.heading * math.Pi / 180
 		ax := int(float64(cx) + math.Sin(h)*r)
 		ay := int(float64(cy) - math.Cos(h)*r)
 		drawLine(img, cx, cy, ax, ay, color.RGBA{20, 20, 20, 255})
 	default:
-		fillTri(img, cx, cy, r, t.Heading, col)
+		fillTri(img, cx, cy, r, t.heading, col)
 	}
 }
 

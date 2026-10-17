@@ -82,6 +82,12 @@ func (vm *VM) Output() []string { return append([]string(nil), vm.lines...) }
 // Call runs a command procedure. stopped is true when that procedure
 // executed stop, which is how a forever button knows to halt.
 func (vm *VM) Call(name string, args ...Value) (stopped bool, err error) {
+	vm.World.mu.Lock()
+	defer vm.World.unlockPublish()
+	return vm.call(name, args...)
+}
+
+func (vm *VM) call(name string, args ...Value) (bool, error) {
 	proc := vm.Prog.Proc(name)
 	if proc == nil {
 		return false, fmt.Errorf("nothing named %s has been defined", strings.ToUpper(name))
@@ -94,6 +100,8 @@ func (vm *VM) Call(name string, args ...Value) (stopped bool, err error) {
 
 // CallReporter runs a to-report procedure.
 func (vm *VM) CallReporter(name string, args ...Value) (v Value, err error) {
+	vm.World.mu.Lock()
+	defer vm.World.unlockPublish()
 	proc := vm.Prog.Proc(name)
 	if proc == nil || !proc.IsReporter {
 		return Value{}, fmt.Errorf("nothing named %s has been defined as a reporter", strings.ToUpper(name))
@@ -103,6 +111,12 @@ func (vm *VM) CallReporter(name string, args ...Value) (v Value, err error) {
 
 // RunStatements executes commands in the observer context.
 func (vm *VM) RunStatements(stmts []Stmt) (err error) {
+	vm.World.mu.Lock()
+	defer vm.World.unlockPublish()
+	return vm.runStatements(stmts)
+}
+
+func (vm *VM) runStatements(stmts []Stmt) (err error) {
 	defer vm.recover(&err, nil)
 	vm.execStmts(stmts)
 	return nil
@@ -110,12 +124,24 @@ func (vm *VM) RunStatements(stmts []Stmt) (err error) {
 
 // Eval evaluates one reporter in the current context.
 func (vm *VM) Eval(e Expr) (v Value, err error) {
+	vm.World.mu.Lock()
+	defer vm.World.unlockPublish()
+	return vm.evalTop(e)
+}
+
+func (vm *VM) evalTop(e Expr) (v Value, err error) {
 	defer vm.recover(&err, nil)
 	return vm.eval(e)
 }
 
 // ExecuteLine runs one command-center line. A reporter line returns its printed form.
 func (vm *VM) ExecuteLine(src string) (out string, err error) {
+	vm.World.mu.Lock()
+	defer vm.World.unlockPublish()
+	return vm.executeLine(src)
+}
+
+func (vm *VM) executeLine(src string) (string, error) {
 	src = strings.TrimSpace(src)
 	if src == "" {
 		return "", nil
@@ -125,7 +151,7 @@ func (vm *VM) ExecuteLine(src string) (out string, err error) {
 		if err != nil {
 			return "", err
 		}
-		if err := vm.RunStatements(stmts); err != nil {
+		if err := vm.runStatements(stmts); err != nil {
 			return "", err
 		}
 		return "", nil
@@ -134,7 +160,7 @@ func (vm *VM) ExecuteLine(src string) (out string, err error) {
 	if err != nil {
 		return "", err
 	}
-	v, err := vm.Eval(e)
+	v, err := vm.evalTop(e)
 	if err != nil {
 		return "", err
 	}
@@ -896,6 +922,8 @@ func CompileButton(prog *Program, source, agent string) ([]Stmt, error) {
 // called directly from this list stops the caller (a forever button). stop
 // nested inside another procedure does not.
 func (vm *VM) RunCompiled(stmts []Stmt) (stopped bool, err error) {
+	vm.World.mu.Lock()
+	defer vm.World.unlockPublish()
 	defer vm.recover(&err, &stopped)
 	for _, s := range stmts {
 		if c, ok := s.(*cmdStmt); ok {

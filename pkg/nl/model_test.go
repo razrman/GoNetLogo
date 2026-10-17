@@ -2,7 +2,9 @@ package nl
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 func loadModel(t *testing.T, name string) *FileModel {
@@ -223,6 +225,63 @@ func TestTermitesConserveChips(t *testing.T) {
 	if mustEval(t, vm, "count turtles") == "0" {
 		t.Fatal("termites vanished")
 	}
+}
+
+// TestWolfSheepConcurrentRender runs the model while other goroutines paint.
+// Reading the live turtle map from RenderWorld used to fatal on the desktop
+// draw thread (concurrent map iteration during hatch/die).
+func TestWolfSheepConcurrentRender(t *testing.T) {
+	m := loadModel(t, "wolfsheep.nlogo")
+	vm, err := m.NewVM(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vm.Call("setup"); err != nil {
+		t.Fatal(err)
+	}
+	side := vm.World.Width()
+	if side < 2 || vm.World.Height() != side {
+		t.Fatalf("world %dx%d", side, vm.World.Height())
+	}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := vm.Call("go"); err != nil {
+				t.Errorf("go: %v", err)
+				return
+			}
+		}
+	}()
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		px := 2 + i
+		go func(px int) {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				img := RenderWorld(vm.World, px)
+				if img.Bounds().Dx() != side*px || img.Bounds().Dy() != side*px {
+					t.Errorf("frame %v with patch %d", img.Bounds(), px)
+					return
+				}
+			}
+		}(px)
+	}
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }
 
 func TestWolfSheepSteps(t *testing.T) {

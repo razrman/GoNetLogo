@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -80,6 +82,13 @@ type session struct {
 	frame   int
 	anim    *fyne.Animation
 	busy    bool
+
+	// mu keeps the go loop, command center, monitors, world Apply, and
+	// model loads off the same world. The draw thread does not take it;
+	// it paints view, the last immutable frame.
+	mu    sync.Mutex
+	view  atomic.Pointer[nl.ViewSnap]
+	outMu sync.Mutex
 }
 
 func newSession(modelsFS fs.FS, win fyne.Window) *session {
@@ -275,16 +284,24 @@ func viewPixels(width, height int, patchSize float64) (float32, float32) {
 }
 
 func (s *session) applyWorld() {
+	s.mu.Lock()
+	err := s.applyWorldLocked()
+	s.mu.Unlock()
+	if err != nil {
+		dialog.ShowError(err, s.win)
+	}
+}
+
+func (s *session) applyWorldLocked() error {
 	if s.vm == nil || s.model == nil {
-		return
+		return nil
 	}
 	minPx, maxPx, minPy, maxPy, ps, err := parseWorldInputs(
 		s.minPx.Text, s.maxPx.Text, s.minPy.Text, s.maxPy.Text, s.patchSize.Text,
 	)
 	if err != nil {
 		s.logf("%v", err)
-		dialog.ShowError(err, s.win)
-		return
+		return err
 	}
 	wrapX, wrapY := false, false
 	if s.wrapX != nil {
@@ -295,8 +312,7 @@ func (s *session) applyWorld() {
 	}
 	if err := s.vm.World.ApplyView(minPx, maxPx, minPy, maxPy, ps, wrapX, wrapY); err != nil {
 		s.logf("%v", err)
-		dialog.ShowError(err, s.win)
-		return
+		return err
 	}
 	s.model.View.MinPxcor = minPx
 	s.model.View.MaxPxcor = maxPx
@@ -308,7 +324,19 @@ func (s *session) applyWorld() {
 	s.model.View.Set = true
 	s.seenWorld = ""
 	s.noteWorld()
+	s.publishViewLocked()
 	s.logf("world %d..%d × %d..%d · patch size %s", minPx, maxPx, minPy, maxPy, trimNum(ps))
+	return nil
+}
+
+// publishViewLocked hands the draw thread a frame that does not alias the
+// live turtle map. Caller holds s.mu.
+func (s *session) publishViewLocked() {
+	if s.vm == nil || s.vm.World == nil {
+		s.view.Store(nil)
+		return
+	}
+	s.view.Store(s.vm.World.CurrentView())
 }
 
 // noteWorld copies the live world into the panel when resize-world,
@@ -354,13 +382,13 @@ func (s *session) speedWrap() fyne.CanvasObject {
 func (s *session) drawWorld(w, h int) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, max(w, 1), max(h, 1)))
 	draw.Draw(dst, dst.Bounds(), image.NewUniform(color.RGBA{24, 24, 24, 255}), image.Point{}, draw.Src)
-	if s.vm == nil || w < 2 || h < 2 {
+	// Paint the published frame only. This runs on the GL thread while go
+	// may be hatching or killing turtles on the animation goroutine.
+	snap := s.view.Load()
+	if snap == nil || w < 2 || h < 2 || snap.Width < 1 || snap.Height < 1 {
 		return dst
 	}
-	ww, hh := s.vm.World.Width(), s.vm.World.Height()
-	if ww < 1 || hh < 1 {
-		return dst
-	}
+	ww, hh := snap.Width, snap.Height
 	px := w / ww
 	if h/hh < px {
 		px = h / hh
@@ -368,7 +396,7 @@ func (s *session) drawWorld(w, h int) image.Image {
 	if px < 1 {
 		px = 1
 	}
-	src := nl.RenderWorld(s.vm.World, px)
+	src := snap.Paint(px)
 	ox := (w - src.Bounds().Dx()) / 2
 	oy := (h - src.Bounds().Dy()) / 2
 	draw.Draw(dst, image.Rect(ox, oy, ox+src.Bounds().Dx(), oy+src.Bounds().Dy()), src, image.Point{}, draw.Over)
@@ -388,17 +416,20 @@ func (s *session) load(name, content string) {
 		dialog.ShowError(err, s.win)
 		return
 	}
+	s.mu.Lock()
 	s.running = -1
 	s.model = m
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
 	s.code.SetText(m.Code)
 	s.rebuildSide()
+	s.publishViewLocked()
 	s.noteWorld()
 	if s.raster != nil {
 		s.raster.Refresh()
 	}
 	s.refreshReadouts()
+	s.mu.Unlock()
 	if len(m.Notes) > 0 {
 		s.notes.SetText(strings.Join(m.Notes, " · "))
 	} else {
@@ -446,7 +477,9 @@ func (s *session) rebuildSide() {
 			sl.Value = w.Value
 			variable := w.Variable
 			sl.OnChanged = func(v float64) {
-				if s.busy || s.vm == nil {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
 					return
 				}
 				s.vm.World.SetGlobal(variable, nl.Num(v))
@@ -458,7 +491,9 @@ func (s *session) rebuildSide() {
 		case "switch":
 			variable := w.Variable
 			chk := widget.NewCheck(w.Display, func(on bool) {
-				if s.busy || s.vm == nil {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
 					return
 				}
 				s.vm.World.SetGlobal(variable, nl.Bool(on))
@@ -479,8 +514,14 @@ func (s *session) rebuildSide() {
 				opts[i] = ch.Format(false)
 			}
 			variable := w.Variable
-			sel := widget.NewSelect(opts, func(picked string) {
-				if s.busy || s.vm == nil {
+			sel := widget.NewSelect(opts, nil)
+			if w.Current >= 0 && w.Current < len(opts) {
+				sel.SetSelected(opts[w.Current])
+			}
+			sel.OnChanged = func(picked string) {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
 					return
 				}
 				for i, ch := range s.model.Widgets[idx].Choices {
@@ -490,9 +531,6 @@ func (s *session) rebuildSide() {
 						break
 					}
 				}
-			})
-			if w.Current >= 0 && w.Current < len(opts) {
-				sel.SetSelected(opts[w.Current])
 			}
 			c.choice = sel
 			objs = append(objs, widget.NewLabel(w.Display), sel)
@@ -506,7 +544,9 @@ func (s *session) rebuildSide() {
 			variable := w.Variable
 			typ := w.InputType
 			ent.OnChanged = func(text string) {
-				if s.busy || s.vm == nil {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
 					return
 				}
 				s.model.Widgets[idx].Text = text
@@ -534,12 +574,14 @@ func (s *session) rebuildSide() {
 }
 
 func (s *session) pressNamed(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i, c := range s.ctls {
 		if c.widget.Kind != "button" {
 			continue
 		}
 		if strings.EqualFold(c.widget.Display, name) || strings.EqualFold(strings.TrimSpace(c.widget.Source), name) {
-			s.press(i)
+			s.pressLocked(i)
 			return
 		}
 	}
@@ -553,12 +595,19 @@ func (s *session) pressNamed(name string) {
 		if name == "go" && stopped {
 			s.running = -1
 		}
+		s.publishViewLocked()
 		s.raster.Refresh()
 		s.refreshReadouts()
 	}
 }
 
 func (s *session) press(i int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pressLocked(i)
+}
+
+func (s *session) pressLocked(i int) {
 	if i < 0 || i >= len(s.ctls) || s.vm == nil {
 		return
 	}
@@ -588,10 +637,14 @@ func (s *session) press(i int) {
 		}
 		return
 	}
-	s.step(c)
+	s.stepLocked(c)
 }
 
-func (s *session) step(c *control) {
+// stepLocked runs one button. Caller holds s.mu. The world lock inside
+// RunCompiled keeps a concurrent RenderWorld off the live maps, and the
+// published frame is what the draw thread paints.
+func (s *session) stepLocked(c *control) {
+	defer s.publishViewLocked()
 	if c.disableTicks() && !s.vm.World.TicksStarted() {
 		s.logf("%s is disabled until ticks start", c.widget.Display)
 		return
@@ -619,6 +672,8 @@ func (s *session) step(c *control) {
 func (c *control) disableTicks() bool { return c.widget.DisableUntilTicks }
 
 func (s *session) tick() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.vm == nil {
 		return
 	}
@@ -626,14 +681,15 @@ func (s *session) tick() {
 	if s.running >= 0 && s.running < len(s.ctls) {
 		n := stepsFor(s.speed.Value, s.frame)
 		for i := 0; i < n; i++ {
-			s.step(&s.ctls[s.running])
+			s.stepLocked(&s.ctls[s.running])
 			if s.running < 0 {
 				break
 			}
 		}
 	}
 	s.refreshReadouts()
-	if s.vm.DisplayOn {
+	s.publishViewLocked()
+	if s.vm != nil && s.vm.DisplayOn {
 		s.raster.Refresh()
 	}
 }
@@ -652,6 +708,7 @@ func stepsFor(speed float64, frame int) int {
 	return 0
 }
 
+// refreshReadouts updates monitors and the world fields. Caller holds s.mu.
 func (s *session) refreshReadouts() {
 	if s.vm == nil {
 		return
@@ -687,6 +744,8 @@ func (s *session) refreshReadouts() {
 
 func (s *session) runLine(text string) {
 	text = strings.TrimSpace(text)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if text == "" || s.vm == nil {
 		return
 	}
@@ -698,29 +757,40 @@ func (s *session) runLine(text string) {
 	if out != "" {
 		s.log(out)
 	}
+	s.publishViewLocked()
 	s.raster.Refresh()
 	s.refreshReadouts()
 }
 
 func (s *session) applyCode() {
+	s.mu.Lock()
+	err := s.applyCodeLocked()
+	s.mu.Unlock()
+	if err != nil {
+		dialog.ShowError(err, s.win)
+	}
+}
+
+func (s *session) applyCodeLocked() error {
 	if s.model == nil {
-		return
+		return nil
 	}
 	s.model.Code = s.code.Text
 	vm, err := s.model.NewVM(0)
 	if err != nil {
 		s.logf("apply: %v", err)
-		dialog.ShowError(err, s.win)
-		return
+		return err
 	}
 	s.running = -1
 	s.goBtn.SetText("go")
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
 	s.rebuildSide()
+	s.publishViewLocked()
 	s.noteWorld()
 	s.raster.Refresh()
 	s.log("code applied — press setup")
+	return nil
 }
 
 func (s *session) openFile() {
@@ -743,6 +813,8 @@ func (s *session) openFile() {
 }
 
 func (s *session) log(line string) {
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
 	if s.output.Text == "" {
 		s.output.SetText(line)
 	} else {

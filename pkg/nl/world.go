@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -46,6 +48,13 @@ type World struct {
 
 	// Drawing is a patch-resolution stamp of pen trails. Nil until first use.
 	drawing []colorRGBA
+
+	// mu guards mutation of the world against a concurrent render.
+	// The desktop draw thread never holds it: it paints the last view
+	// published by unlockPublish. Interpreter entry points hold it for
+	// one command, then publish.
+	mu   sync.Mutex
+	view atomic.Pointer[ViewSnap]
 }
 
 type colorRGBA struct{ R, G, B, A uint8 }
@@ -230,9 +239,18 @@ func (w *World) ApplyView(minPx, maxPx, minPy, maxPy int, patchSize float64, wra
 	if patchSize <= 0 || patchSize > 100 {
 		return fmt.Errorf("patch size must be positive and at most 100")
 	}
+	w.mu.Lock()
+	defer w.unlockPublish()
 	w.Resize(minPx, maxPx, minPy, maxPy, wrapX, wrapY)
 	w.PatchSize = patchSize
 	return nil
+}
+
+// unlockPublish stores an immutable frame and releases mu.
+// The caller must hold mu.
+func (w *World) unlockPublish() {
+	defer w.mu.Unlock()
+	w.view.Store(w.captureView())
 }
 
 // Resize rebuilds the patch grid and removes every turtle and link.
@@ -298,7 +316,11 @@ func (w *World) SetProgramVars(p *Program) {
 	}
 }
 
-func (w *World) SetGlobal(name string, v Value) { w.globals[name] = v }
+func (w *World) SetGlobal(name string, v Value) {
+	w.mu.Lock()
+	w.globals[name] = v
+	w.mu.Unlock()
+}
 func (w *World) Global(name string) (Value, bool) {
 	v, ok := w.globals[name]
 	return v, ok
