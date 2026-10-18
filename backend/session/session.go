@@ -110,7 +110,7 @@ type Session struct {
 	frame     int
 	clock     nl.RunClock
 	frameRate int
-	pub       framePublisher
+	pub       nl.FramePublisher
 	rateNote  chan struct{}
 	stop      chan struct{}
 	closed    bool
@@ -121,7 +121,7 @@ func newSession() *Session {
 		id:        newID(),
 		running:   -1,
 		speed:     40,
-		frameRate: DefaultFrameRate,
+		frameRate: nl.DefaultFrameRate,
 		buttons:   map[int][]nl.Stmt{},
 		listeners: map[int]chan struct{}{},
 		rateNote:  make(chan struct{}, 1),
@@ -161,7 +161,7 @@ func (s *Session) loop() {
 
 func (s *Session) publishLoop() {
 	s.mu.Lock()
-	interval := frameInterval(s.frameRate)
+	interval := nl.FrameInterval(s.frameRate)
 	s.mu.Unlock()
 	publish := time.NewTimer(interval)
 	defer publish.Stop()
@@ -171,7 +171,7 @@ func (s *Session) publishLoop() {
 			return
 		case <-s.rateNote:
 			s.mu.Lock()
-			interval = frameInterval(s.frameRate)
+			interval = nl.FrameInterval(s.frameRate)
 			s.mu.Unlock()
 			if !publish.Stop() {
 				select {
@@ -185,8 +185,8 @@ func (s *Session) publishLoop() {
 			if !s.closed {
 				s.publishDueLocked(now)
 			}
-			interval = frameInterval(s.frameRate)
-			wait := s.pub.nextWait(now, interval)
+			interval = nl.FrameInterval(s.frameRate)
+			wait := s.pub.NextWait(now, interval)
 			closed := s.closed
 			s.mu.Unlock()
 			if closed {
@@ -220,7 +220,7 @@ func (s *Session) runStepSlot() {
 		stopped := s.running < 0
 		now := time.Now()
 		if err == nil {
-			s.pub.produce(1)
+			s.pub.Produce(1)
 		}
 		s.syncClockLocked(now)
 		s.publishDueLocked(now)
@@ -252,13 +252,13 @@ func (s *Session) frameTickLocked() {
 		}
 	}
 	s.syncClockLocked(time.Now())
-	s.pub.produce(done)
+	s.pub.Produce(done)
 }
 
 // publishDueLocked sends the latest snapshot when the cap interval fires.
 // Caller holds s.mu. Intermediate steps are counted, not queued.
 func (s *Session) publishDueLocked(now time.Time) {
-	if !s.pub.publish(now, frameInterval(s.frameRate)) {
+	if !s.pub.Publish(now, nl.FrameInterval(s.frameRate)) {
 		return
 	}
 	s.broadcastLocked()
@@ -306,7 +306,7 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	s.running = -1
 	s.frame = 0
 	s.clock = nl.RunClock{}
-	s.pub.reset()
+	s.pub.Reset()
 	vm.OnPrint = func(line string) {
 		// Called while s.mu is held by the command that is running.
 		s.appendLogLocked(line)
@@ -465,7 +465,7 @@ func (s *Session) PressButton(index int) error {
 		return err
 	}
 	if strings.EqualFold(w.Display, "setup") || strings.EqualFold(strings.TrimSpace(w.Source), "setup") {
-		s.pub.reset()
+		s.pub.Reset()
 	}
 	s.broadcastLocked()
 	return nil
@@ -509,7 +509,7 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 // SetFrameRate sets the publish cap. Values outside 1..120 are clamped.
 // The step loop is not blocked; the next publish interval uses the new cap.
 func (s *Session) SetFrameRate(fps int) int {
-	fps = clampFrameRate(fps)
+	fps = nl.ClampFrameRate(fps)
 	s.mu.Lock()
 	s.frameRate = fps
 	s.mu.Unlock()
@@ -522,7 +522,7 @@ func (s *Session) SetFrameRate(fps int) int {
 
 func (s *Session) frameRateCap() int {
 	if s.frameRate == 0 {
-		return DefaultFrameRate
+		return nl.DefaultFrameRate
 	}
 	return s.frameRate
 }
@@ -632,7 +632,7 @@ func (s *Session) runNamed(name string, forever bool) error {
 				s.appendLogLocked(name + ": " + err.Error())
 			}
 			if strings.EqualFold(name, "setup") {
-				s.pub.reset()
+				s.pub.Reset()
 			}
 			s.broadcastLocked()
 			return err
@@ -649,7 +649,7 @@ func (s *Session) runNamed(name string, forever bool) error {
 		return err
 	}
 	if strings.EqualFold(name, "setup") {
-		s.pub.reset()
+		s.pub.Reset()
 	}
 	s.broadcastLocked()
 	return nil
@@ -745,7 +745,7 @@ func (s *Session) broadcastLocked() {
 			dropped++
 		}
 	}
-	s.pub.noteSlow(dropped)
+	s.pub.NoteSlow(dropped)
 }
 
 // Session builds the GraphQL session object, including monitor readings.
@@ -797,9 +797,9 @@ func (s *Session) syncClockLocked(now time.Time) (tps float64, timer string) {
 
 func (s *Session) fillRunStats(out *model.Session) {
 	out.FrameRateCap = s.frameRateCap()
-	out.DroppedFrames = s.pub.dropped
-	out.DroppedSlow = s.pub.droppedSlow
-	out.PublishedFps = s.pub.publishedFPS
+	out.DroppedFrames = s.pub.Dropped()
+	out.DroppedSlow = s.pub.DroppedSlow()
+	out.PublishedFps = s.pub.PublishedFPS()
 }
 
 func (s *Session) sessionLocked() *model.Session {

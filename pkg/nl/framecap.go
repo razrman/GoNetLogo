@@ -1,17 +1,18 @@
-package session
+package nl
 
 import "time"
 
 const (
 	// DefaultFrameRate is the publish cap. The step loop used to publish
 	// on a fixed 30ms ticker (about 33 fps). 24 fps is the runtime default
-	// so a browser can skip intermediate snapshots without following every tick.
+	// so a view can skip intermediate snapshots without following every tick.
 	DefaultFrameRate = 24
 	MinFrameRate     = 1
 	MaxFrameRate     = 120
 )
 
-func clampFrameRate(fps int) int {
+// ClampFrameRate limits fps to 1..120.
+func ClampFrameRate(fps int) int {
 	if fps < MinFrameRate {
 		return MinFrameRate
 	}
@@ -21,17 +22,19 @@ func clampFrameRate(fps int) int {
 	return fps
 }
 
-func frameInterval(fps int) time.Duration {
+// FrameInterval is the gap between published snapshots. An unset rate uses
+// DefaultFrameRate so a zero value does not become 1 fps.
+func FrameInterval(fps int) time.Duration {
 	if fps == 0 {
 		fps = DefaultFrameRate
 	}
-	return time.Second / time.Duration(clampFrameRate(fps))
+	return time.Second / time.Duration(ClampFrameRate(fps))
 }
 
-// framePublisher counts model steps that were never published.
-// publish keeps the latest snapshot only: it does not queue and it does
-// not block the step loop.
-type framePublisher struct {
+// FramePublisher counts model steps that were never published.
+// Publish keeps the latest snapshot only: it does not queue and it does
+// not block the step loop. Web and desktop share this counter.
+type FramePublisher struct {
 	pending      int
 	published    int
 	dropped      int
@@ -42,15 +45,16 @@ type framePublisher struct {
 	lastPublish  time.Time
 }
 
-func (p *framePublisher) produce(steps int) {
+// Produce records steps that have run since the last published snapshot.
+func (p *FramePublisher) Produce(steps int) {
 	if steps <= 0 {
 		return
 	}
 	p.pending += steps
 }
 
-// due reports that the cap interval has elapsed and a snapshot is waiting.
-func (p *framePublisher) due(now time.Time, interval time.Duration) bool {
+// Due reports that the cap interval has elapsed and a snapshot is waiting.
+func (p *FramePublisher) Due(now time.Time, interval time.Duration) bool {
 	if p.pending <= 0 {
 		return false
 	}
@@ -60,12 +64,11 @@ func (p *framePublisher) due(now time.Time, interval time.Duration) bool {
 	return !now.Before(p.lastPublish.Add(interval))
 }
 
-// publish records one send of the latest snapshot. Every pending step
+// Publish records one send of the latest snapshot. Every pending step
 // except that one was skipped by the cap. interval is the cap; a non-positive
 // interval does not rate-limit (tests of the drop counter). A second caller
-// in the same interval is refused, so the step loop and the timer cannot
-// both publish.
-func (p *framePublisher) publish(now time.Time, interval time.Duration) bool {
+// in the same interval is refused, so a step loop and a timer cannot both publish.
+func (p *FramePublisher) Publish(now time.Time, interval time.Duration) bool {
 	if p.pending <= 0 {
 		return false
 	}
@@ -82,10 +85,10 @@ func (p *framePublisher) publish(now time.Time, interval time.Duration) bool {
 	return true
 }
 
-// nextWait is how long the timer should sleep after a publish attempt.
+// NextWait is how long a timer should sleep after a publish attempt.
 // A refused early fire waits out the rest of the interval instead of
 // starting a new full period from the wrong phase.
-func (p *framePublisher) nextWait(now time.Time, interval time.Duration) time.Duration {
+func (p *FramePublisher) NextWait(now time.Time, interval time.Duration) time.Duration {
 	if interval <= 0 {
 		interval = time.Second / time.Duration(DefaultFrameRate)
 	}
@@ -99,13 +102,23 @@ func (p *framePublisher) nextWait(now time.Time, interval time.Duration) time.Du
 	return wait
 }
 
-func (p *framePublisher) noteSlow(n int) {
+// NoteSlow counts publishes a subscriber missed. Separate from cap drops.
+func (p *FramePublisher) NoteSlow(n int) {
 	if n > 0 {
 		p.droppedSlow += n
 	}
 }
 
-func (p *framePublisher) noteFPS(now time.Time, interval time.Duration) {
+// Dropped is the number of steps skipped by the cap since Reset.
+func (p *FramePublisher) Dropped() int { return p.dropped }
+
+// DroppedSlow is the number of publishes a slow subscriber missed.
+func (p *FramePublisher) DroppedSlow() int { return p.droppedSlow }
+
+// PublishedFPS is the publish rate over about the last second, never above the cap.
+func (p *FramePublisher) PublishedFPS() float64 { return p.publishedFPS }
+
+func (p *FramePublisher) noteFPS(now time.Time, interval time.Duration) {
 	if p.windowStart.IsZero() || now.Sub(p.windowStart) >= time.Second {
 		if !p.windowStart.IsZero() {
 			span := now.Sub(p.windowStart).Seconds()
@@ -129,6 +142,7 @@ func (p *framePublisher) noteFPS(now time.Time, interval time.Duration) {
 	p.windowCount++
 }
 
-func (p *framePublisher) reset() {
-	*p = framePublisher{}
+// Reset clears the counters. Call it on setup and when a model is loaded.
+func (p *FramePublisher) Reset() {
+	*p = FramePublisher{}
 }
