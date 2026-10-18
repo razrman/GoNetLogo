@@ -45,19 +45,30 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 .topbar {
-  display: flex;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px 14px;
+  column-gap: 8px;
   flex-shrink: 0;
   min-width: 0;
   color: #f3ecdf;
 }
 
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.topbar-right { justify-content: flex-end; }
+
 .brand {
   display: flex;
   flex-direction: column;
-  min-width: 140px;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .brand strong {
@@ -76,9 +87,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .controls, .speed {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 
 .model {
@@ -86,15 +98,30 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: #f3ecdf;
   border: 1px solid rgba(243, 236, 223, 0.2);
   border-radius: 8px;
-  padding: 7px 10px;
-  min-width: 160px;
+  padding: 7px 8px;
+  width: 7.4rem;
+  min-width: 0;
+  flex: 0 1 7.4rem;
 }
 
 .ticks {
-  margin-left: auto;
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  background: #262b20;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #f3ecdf;
+  font-size: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.ticks b { color: #f0c9a0; font-weight: 650; }
+
+.run-timer {
+  justify-self: center;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   background: #262b20;
@@ -104,13 +131,32 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 0.85rem;
 }
 
-.ticks b { color: #f0c9a0; font-weight: 650; }
-.ticks .timer b { font-variant-numeric: tabular-nums; }
+.run-timer b { color: #f0c9a0; font-weight: 650; }
+
+.frame-cap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+.frame-cap input {
+  width: 5.25rem;
+  min-width: 5.25rem;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 4px;
+  padding: 2px 4px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
 
 button.act {
   border: 0;
   border-radius: 8px;
-  padding: 8px 14px;
+  padding: 6px 10px;
   cursor: pointer;
   color: white;
   background: var(--steel);
@@ -130,7 +176,7 @@ button.act:disabled {
 }
 
 .speed { color: #d9d0c2; font-size: 0.85rem; }
-.speed input { width: 140px; accent-color: var(--ember); }
+.speed input { width: 92px; accent-color: var(--ember); }
 
 .banner {
   background: #3a241c;
@@ -398,10 +444,17 @@ canvas.world {
 }
 
 @media (max-width: 860px) {
-  .topbar { flex-wrap: wrap; }
+  .topbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 8px;
+  }
+  .topbar-left { flex: 1 1 100%; flex-wrap: wrap; }
+  .topbar-right { flex: 0 0 auto; }
+  .run-timer { order: 3; }
   .stage { grid-template-columns: 1fr; }
   .side { max-height: none; }
   .command { grid-template-columns: 1fr; }
-  .ticks { margin-left: 0; }
   .canvas-wrap { min-height: 280px; height: 70vw; }
 }

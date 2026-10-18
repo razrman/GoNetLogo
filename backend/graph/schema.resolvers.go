@@ -6,6 +6,7 @@ package graph
 
 import (
 	"context"
+
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
 )
@@ -101,6 +102,16 @@ func (r *mutationResolver) SetSpeed(ctx context.Context, sessionID string, speed
 		return nil, err
 	}
 	s.SetSpeed(speed)
+	return s.Session(), nil
+}
+
+// SetFrameRate is the resolver for the setFrameRate field.
+func (r *mutationResolver) SetFrameRate(ctx context.Context, sessionID string, fps int) (*model.Session, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	s.SetFrameRate(fps)
 	return s.Session(), nil
 }
 

@@ -59,8 +59,12 @@ type session struct {
 	output    *widget.Entry
 	ticks     *widget.Label
 	tps       *widget.Label
+	dropped   *widget.Label
 	timer     *widget.Label
 	clock     nl.RunClock
+	pub       nl.FramePublisher
+	frameRate int
+	maxFPS    *widget.Entry
 	notes     *widget.Label
 	raster    *canvas.Raster
 	side      *fyne.Container
@@ -95,13 +99,19 @@ type session struct {
 }
 
 func newSession(modelsFS fs.FS, win fyne.Window) *session {
-	s := &session{win: win, modelsFS: modelsFS, running: -1}
+	s := &session{win: win, modelsFS: modelsFS, running: -1, frameRate: nl.DefaultFrameRate}
 	s.names = demoNames(modelsFS)
 	s.ticks = widget.NewLabel("ticks")
 	s.tps = widget.NewLabel("tps —")
+	s.dropped = widget.NewLabel("drop 0")
 	s.timer = widget.NewLabel("00:00.0")
 	s.tps.TextStyle = fyne.TextStyle{Monospace: true}
+	s.dropped.TextStyle = fyne.TextStyle{Monospace: true}
 	s.timer.TextStyle = fyne.TextStyle{Monospace: true}
+	s.timer.Alignment = fyne.TextAlignCenter
+	s.maxFPS = widget.NewEntry()
+	s.maxFPS.SetText(strconv.Itoa(nl.DefaultFrameRate))
+	s.maxFPS.OnChanged = s.setMaxFPS
 	s.notes = widget.NewLabel("")
 	s.output = widget.NewMultiLineEntry()
 	s.output.Disable()
@@ -145,9 +155,14 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		cmd.SetText("")
 	}
 
-	toolbar := container.NewBorder(nil, nil, nil,
-		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks, s.tps, s.timer),
+	// Timer sits in the middle of the bar. Ticks stay immediately right of
+	// the speed slider; tps stays with that cluster. The web header centers
+	// the timer on the full bar; Fyne's border layout centers it in the
+	// slot between the left controls and this cluster.
+	toolbar := container.NewBorder(nil, nil,
 		container.NewHBox(s.picker, open, s.setupBtn, s.goBtn),
+		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks, s.tps, s.dropped),
+		container.NewCenter(s.timer),
 	)
 	// Center keeps the raster at its min size so a new world resizes the view
 	// instead of stretching into the whole split pane. drawWorld still
@@ -189,6 +204,10 @@ func (s *session) buildWorldForm() fyne.CanvasObject {
 	apply := widget.NewButton("Apply", func() { s.applyWorld() })
 	apply.Importance = widget.HighImportance
 
+	fpsRow := container.NewHBox(
+		widget.NewLabel("max fps"),
+		fixedBox(84, 32, s.maxFPS),
+	)
 	title := widget.NewLabelWithStyle("World", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	head := container.NewHBox(
 		fixedBox(48, 22, widget.NewLabel("")),
@@ -211,7 +230,24 @@ func (s *session) buildWorldForm() fyne.CanvasObject {
 		s.wrapX,
 		s.wrapY,
 	)
-	return container.NewVBox(container.NewBorder(nil, nil, title, apply, layout.NewSpacer()), head, px, py, extras)
+	return container.NewVBox(fpsRow, container.NewBorder(nil, nil, title, apply, layout.NewSpacer()), head, px, py, extras)
+}
+
+// setMaxFPS applies a typed cap. Values outside 1..120 are clamped.
+// A partial entry (empty, or not yet a number) leaves the current cap.
+func (s *session) setMaxFPS(text string) {
+	n, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil {
+		return
+	}
+	clamped := nl.ClampFrameRate(n)
+	s.mu.Lock()
+	s.frameRate = clamped
+	s.mu.Unlock()
+	shown := strconv.Itoa(clamped)
+	if shown != strings.TrimSpace(text) && s.maxFPS != nil {
+		s.maxFPS.SetText(shown)
+	}
 }
 
 func fixedBox(w, h float32, o fyne.CanvasObject) fyne.CanvasObject {
@@ -426,6 +462,7 @@ func (s *session) load(name, content string) {
 	s.mu.Lock()
 	s.running = -1
 	s.clock = nl.RunClock{}
+	s.pub.Reset()
 	s.model = m
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
@@ -603,6 +640,9 @@ func (s *session) pressNamed(name string) {
 		if name == "go" && stopped {
 			s.running = -1
 		}
+		if strings.EqualFold(name, "setup") {
+			s.pub.Reset()
+		}
 		s.publishViewLocked()
 		s.raster.Refresh()
 		s.refreshReadouts()
@@ -646,23 +686,26 @@ func (s *session) pressLocked(i int) {
 		return
 	}
 	s.stepLocked(c)
+	if strings.EqualFold(c.widget.Display, "setup") || strings.EqualFold(strings.TrimSpace(c.widget.Source), "setup") {
+		s.pub.Reset()
+	}
 	s.presentLocked()
 }
 
-// stepLocked runs one button. Caller holds s.mu. It does not paint: the
-// animation frame paints once, and a single click paints after the step.
+// stepLocked runs one button. Caller holds s.mu. It does not paint.
+// A click paints afterwards, and the animation paints on the frame cap.
 // RunCompiled keeps a concurrent RenderWorld off the live maps.
-func (s *session) stepLocked(c *control) {
+func (s *session) stepLocked(c *control) bool {
 	if c.disableTicks() && !s.vm.World.TicksStarted() {
 		s.logf("%s is disabled until ticks start", c.widget.Display)
-		return
+		return false
 	}
 	stopped, err := s.vm.RunCompiled(c.stmts)
 	if err != nil {
 		s.logf("%s: %v", c.widget.Display, err)
 		s.running = -1
 		s.goBtn.SetText("go")
-		return
+		return false
 	}
 	if stopped {
 		s.running = -1
@@ -673,6 +716,7 @@ func (s *session) stepLocked(c *control) {
 			}
 		}
 	}
+	return true
 }
 
 // presentLocked publishes one frame and refreshes monitors. Caller holds s.mu.
@@ -699,14 +743,35 @@ func (s *session) tick() {
 	s.frame++
 	if s.running >= 0 && s.running < len(s.ctls) {
 		n := stepsFor(s.speed.Value, s.frame)
+		interval := nl.FrameInterval(s.frameRate)
 		for i := 0; i < n; i++ {
-			s.stepLocked(&s.ctls[s.running])
+			if s.vm == nil || s.running < 0 || s.running >= len(s.ctls) {
+				break
+			}
+			if !s.stepLocked(&s.ctls[s.running]) {
+				break
+			}
+			// Count the step, then publish only when the cap interval has
+			// elapsed. The snapshot is the latest world; steps in between
+			// are drops. Refresh is scheduled without waiting for the draw.
+			s.pub.Produce(1)
+			if s.pub.Publish(time.Now(), interval) {
+				s.publishViewLocked()
+				s.refreshRunLabels()
+				s.refreshMonitorsLocked()
+				displayOn := s.vm.DisplayOn
+				s.mu.Unlock()
+				if displayOn && s.raster != nil {
+					s.raster.Refresh()
+				}
+				s.mu.Lock()
+			}
 			if s.running < 0 {
 				break
 			}
 		}
 	}
-	s.presentLocked()
+	s.refreshRunLabels()
 }
 
 func stepsFor(speed float64, frame int) int {
@@ -734,6 +799,17 @@ func (s *session) refreshReadouts() {
 	if s.vm == nil {
 		return
 	}
+	s.refreshRunLabels()
+	s.refreshMonitorsLocked()
+	s.noteWorld()
+}
+
+// refreshRunLabels updates the toolbar clock and drop count. Caller holds s.mu.
+// It does not copy the world, so the step loop can call it every frame.
+func (s *session) refreshRunLabels() {
+	if s.vm == nil {
+		return
+	}
 	var ticks float64
 	if s.vm.World.TicksStarted() {
 		n, err := s.vm.World.Ticks()
@@ -748,6 +824,14 @@ func (s *session) refreshReadouts() {
 	tps, timer := s.clock.Sync(time.Now(), running, s.vm.World.RunEpoch(), ticks)
 	s.setLabel(s.tps, "tps "+nl.FormatTPS(tps, running))
 	s.setLabel(s.timer, timer)
+	s.setLabel(s.dropped, "drop "+strconv.Itoa(s.pub.Dropped()))
+}
+
+// refreshMonitorsLocked re-reads monitor widgets. Caller holds s.mu.
+func (s *session) refreshMonitorsLocked() {
+	if s.vm == nil {
+		return
+	}
 	for i := range s.ctls {
 		c := &s.ctls[i]
 		if c.widget.Kind == "monitor" && c.readout != nil {
@@ -766,7 +850,6 @@ func (s *session) refreshReadouts() {
 			}
 		}
 	}
-	s.noteWorld()
 }
 
 func (s *session) runLine(text string) {

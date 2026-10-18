@@ -64,6 +64,10 @@ export type Frame = {
   ticksStarted: boolean
   tps: number
   timer: string
+  frameRateCap: number
+  droppedFrames: number
+  droppedSlow: number
+  publishedFps: number
   running: boolean
   speed: number
   log: string[]

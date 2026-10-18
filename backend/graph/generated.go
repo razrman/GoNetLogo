@@ -63,16 +63,20 @@ type ComplexityRoot struct {
 	}
 
 	Frame struct {
-		Log          func(childComplexity int) int
-		Running      func(childComplexity int) int
-		SessionID    func(childComplexity int) int
-		Speed        func(childComplexity int) int
-		Ticks        func(childComplexity int) int
-		TicksStarted func(childComplexity int) int
-		Timer        func(childComplexity int) int
-		Tps          func(childComplexity int) int
-		Widgets      func(childComplexity int) int
-		World        func(childComplexity int) int
+		DroppedFrames func(childComplexity int) int
+		DroppedSlow   func(childComplexity int) int
+		FrameRateCap  func(childComplexity int) int
+		Log           func(childComplexity int) int
+		PublishedFps  func(childComplexity int) int
+		Running       func(childComplexity int) int
+		SessionID     func(childComplexity int) int
+		Speed         func(childComplexity int) int
+		Ticks         func(childComplexity int) int
+		TicksStarted  func(childComplexity int) int
+		Timer         func(childComplexity int) int
+		Tps           func(childComplexity int) int
+		Widgets       func(childComplexity int) int
+		World         func(childComplexity int) int
 	}
 
 	Link struct {
@@ -94,6 +98,7 @@ type ComplexityRoot struct {
 		RunCommand    func(childComplexity int, sessionID string, text string) int
 		SetChooser    func(childComplexity int, sessionID string, index int, current int) int
 		SetCode       func(childComplexity int, sessionID string, code string) int
+		SetFrameRate  func(childComplexity int, sessionID string, fps int) int
 		SetInput      func(childComplexity int, sessionID string, index int, text string) int
 		SetSlider     func(childComplexity int, sessionID string, index int, value float64) int
 		SetSpeed      func(childComplexity int, sessionID string, speed float64) int
@@ -111,19 +116,23 @@ type ComplexityRoot struct {
 	}
 
 	Session struct {
-		Code         func(childComplexity int) int
-		ID           func(childComplexity int) int
-		Log          func(childComplexity int) int
-		ModelName    func(childComplexity int) int
-		Notes        func(childComplexity int) int
-		Running      func(childComplexity int) int
-		Speed        func(childComplexity int) int
-		Ticks        func(childComplexity int) int
-		TicksStarted func(childComplexity int) int
-		Timer        func(childComplexity int) int
-		Tps          func(childComplexity int) int
-		Widgets      func(childComplexity int) int
-		World        func(childComplexity int) int
+		Code          func(childComplexity int) int
+		DroppedFrames func(childComplexity int) int
+		DroppedSlow   func(childComplexity int) int
+		FrameRateCap  func(childComplexity int) int
+		ID            func(childComplexity int) int
+		Log           func(childComplexity int) int
+		ModelName     func(childComplexity int) int
+		Notes         func(childComplexity int) int
+		PublishedFps  func(childComplexity int) int
+		Running       func(childComplexity int) int
+		Speed         func(childComplexity int) int
+		Ticks         func(childComplexity int) int
+		TicksStarted  func(childComplexity int) int
+		Timer         func(childComplexity int) int
+		Tps           func(childComplexity int) int
+		Widgets       func(childComplexity int) int
+		World         func(childComplexity int) int
 	}
 
 	Subscription struct {
@@ -178,13 +187,14 @@ type ComplexityRoot struct {
 	}
 
 	WorldSettings struct {
-		MaxPxcor  func(childComplexity int) int
-		MaxPycor  func(childComplexity int) int
-		MinPxcor  func(childComplexity int) int
-		MinPycor  func(childComplexity int) int
-		PatchSize func(childComplexity int) int
-		WrapX     func(childComplexity int) int
-		WrapY     func(childComplexity int) int
+		FrameRateCap func(childComplexity int) int
+		MaxPxcor     func(childComplexity int) int
+		MaxPycor     func(childComplexity int) int
+		MinPxcor     func(childComplexity int) int
+		MinPycor     func(childComplexity int) int
+		PatchSize    func(childComplexity int) int
+		WrapX        func(childComplexity int) int
+		WrapY        func(childComplexity int) int
 	}
 }
 
@@ -199,6 +209,7 @@ type MutationResolver interface {
 	Step(ctx context.Context, sessionID string) (*model.Session, error)
 	PressButton(ctx context.Context, sessionID string, index int) (*model.Session, error)
 	SetSpeed(ctx context.Context, sessionID string, speed float64) (*model.Session, error)
+	SetFrameRate(ctx context.Context, sessionID string, fps int) (*model.Session, error)
 	SetSlider(ctx context.Context, sessionID string, index int, value float64) (*model.Session, error)
 	SetSwitch(ctx context.Context, sessionID string, index int, on bool) (*model.Session, error)
 	SetChooser(ctx context.Context, sessionID string, index int, current int) (*model.Session, error)
@@ -282,12 +293,40 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.CompileResult.Session(childComplexity), true
 
+	case "Frame.droppedFrames":
+		if e.complexity.Frame.DroppedFrames == nil {
+			break
+		}
+
+		return e.complexity.Frame.DroppedFrames(childComplexity), true
+
+	case "Frame.droppedSlow":
+		if e.complexity.Frame.DroppedSlow == nil {
+			break
+		}
+
+		return e.complexity.Frame.DroppedSlow(childComplexity), true
+
+	case "Frame.frameRateCap":
+		if e.complexity.Frame.FrameRateCap == nil {
+			break
+		}
+
+		return e.complexity.Frame.FrameRateCap(childComplexity), true
+
 	case "Frame.log":
 		if e.complexity.Frame.Log == nil {
 			break
 		}
 
 		return e.complexity.Frame.Log(childComplexity), true
+
+	case "Frame.publishedFps":
+		if e.complexity.Frame.PublishedFps == nil {
+			break
+		}
+
+		return e.complexity.Frame.PublishedFps(childComplexity), true
 
 	case "Frame.running":
 		if e.complexity.Frame.Running == nil {
@@ -492,6 +531,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.SetCode(childComplexity, args["sessionId"].(string), args["code"].(string)), true
 
+	case "Mutation.setFrameRate":
+		if e.complexity.Mutation.SetFrameRate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setFrameRate_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetFrameRate(childComplexity, args["sessionId"].(string), args["fps"].(int)), true
+
 	case "Mutation.setInput":
 		if e.complexity.Mutation.SetInput == nil {
 			break
@@ -626,6 +677,27 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Session.Code(childComplexity), true
 
+	case "Session.droppedFrames":
+		if e.complexity.Session.DroppedFrames == nil {
+			break
+		}
+
+		return e.complexity.Session.DroppedFrames(childComplexity), true
+
+	case "Session.droppedSlow":
+		if e.complexity.Session.DroppedSlow == nil {
+			break
+		}
+
+		return e.complexity.Session.DroppedSlow(childComplexity), true
+
+	case "Session.frameRateCap":
+		if e.complexity.Session.FrameRateCap == nil {
+			break
+		}
+
+		return e.complexity.Session.FrameRateCap(childComplexity), true
+
 	case "Session.id":
 		if e.complexity.Session.ID == nil {
 			break
@@ -653,6 +725,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Session.Notes(childComplexity), true
+
+	case "Session.publishedFps":
+		if e.complexity.Session.PublishedFps == nil {
+			break
+		}
+
+		return e.complexity.Session.PublishedFps(childComplexity), true
 
 	case "Session.running":
 		if e.complexity.Session.Running == nil {
@@ -988,6 +1067,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.WrapY(childComplexity), true
 
+	case "WorldSettings.frameRateCap":
+		if e.complexity.WorldSettings.FrameRateCap == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.FrameRateCap(childComplexity), true
+
 	case "WorldSettings.maxPxcor":
 		if e.complexity.WorldSettings.MaxPxcor == nil {
 			break
@@ -1182,6 +1268,12 @@ type Mutation {
   step(sessionId: ID!): Session!
   pressButton(sessionId: ID!, index: Int!): Session!
   setSpeed(sessionId: ID!, speed: Float!): Session!
+  """
+  Cap how often a new world snapshot is published.
+  fps is clamped to 1..120. The model keeps stepping; intermediate
+  snapshots are skipped instead of queued.
+  """
+  setFrameRate(sessionId: ID!, fps: Int!): Session!
   setSlider(sessionId: ID!, index: Int!, value: Float!): Session!
   setSwitch(sessionId: ID!, index: Int!, on: Boolean!): Session!
   setChooser(sessionId: ID!, index: Int!, current: Int!): Session!
@@ -1217,6 +1309,14 @@ type Session {
   tps: Float!
   """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
   timer: String!
+  """Publish cap in frames per second. 1..120, default 24."""
+  frameRateCap: Int!
+  """Model steps since setup that were never published because of the cap."""
+  droppedFrames: Int!
+  """Publishes a slow subscriber missed. Separate from droppedFrames."""
+  droppedSlow: Int!
+  """Frames actually published over about the last second."""
+  publishedFps: Float!
   running: Boolean!
   speed: Float!
   notes: [String!]!
@@ -1246,6 +1346,14 @@ type Frame {
   tps: Float!
   """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
   timer: String!
+  """Publish cap in frames per second. 1..120, default 24."""
+  frameRateCap: Int!
+  """Model steps since setup that were never published because of the cap."""
+  droppedFrames: Int!
+  """Publishes a slow subscriber missed. Separate from droppedFrames."""
+  droppedSlow: Int!
+  """Frames actually published over about the last second."""
+  publishedFps: Float!
   running: Boolean!
   speed: Float!
   log: [String!]!
@@ -1273,6 +1381,8 @@ type Widget {
 }
 
 type WorldSettings {
+  """Publish cap in frames per second. 1..120, default 24."""
+  frameRateCap: Int!
   minPxcor: Int!
   maxPxcor: Int!
   minPycor: Int!
@@ -1489,6 +1599,30 @@ func (ec *executionContext) field_Mutation_setCode_args(ctx context.Context, raw
 		}
 	}
 	args["code"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setFrameRate_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 int
+	if tmp, ok := rawArgs["fps"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("fps"))
+		arg1, err = ec.unmarshalNInt2int(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["fps"] = arg1
 	return args, nil
 }
 
@@ -2015,6 +2149,14 @@ func (ec *executionContext) fieldContext_CommandResult_session(_ context.Context
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -2172,6 +2314,14 @@ func (ec *executionContext) fieldContext_CompileResult_session(_ context.Context
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -2403,6 +2553,182 @@ func (ec *executionContext) fieldContext_Frame_timer(_ context.Context, field gr
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_frameRateCap(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_frameRateCap(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.FrameRateCap, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_frameRateCap(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_droppedFrames(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_droppedFrames(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DroppedFrames, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_droppedFrames(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_droppedSlow(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_droppedSlow(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DroppedSlow, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_droppedSlow(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_publishedFps(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_publishedFps(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PublishedFps, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_publishedFps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -3093,6 +3419,14 @@ func (ec *executionContext) fieldContext_Mutation_createSession(ctx context.Cont
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3176,6 +3510,14 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3387,6 +3729,14 @@ func (ec *executionContext) fieldContext_Mutation_setup(ctx context.Context, fie
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3470,6 +3820,14 @@ func (ec *executionContext) fieldContext_Mutation_go(ctx context.Context, field 
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3553,6 +3911,14 @@ func (ec *executionContext) fieldContext_Mutation_stop(ctx context.Context, fiel
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3636,6 +4002,14 @@ func (ec *executionContext) fieldContext_Mutation_step(ctx context.Context, fiel
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3719,6 +4093,14 @@ func (ec *executionContext) fieldContext_Mutation_pressButton(ctx context.Contex
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3802,6 +4184,14 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3826,6 +4216,97 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_setSpeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setFrameRate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setFrameRate(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetFrameRate(rctx, fc.Args["sessionId"].(string), fc.Args["fps"].(int))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Session)
+	fc.Result = res
+	return ec.marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setFrameRate(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setFrameRate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3885,6 +4366,14 @@ func (ec *executionContext) fieldContext_Mutation_setSlider(ctx context.Context,
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3968,6 +4457,14 @@ func (ec *executionContext) fieldContext_Mutation_setSwitch(ctx context.Context,
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4051,6 +4548,14 @@ func (ec *executionContext) fieldContext_Mutation_setChooser(ctx context.Context
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4134,6 +4639,14 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4217,6 +4730,14 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4341,6 +4862,14 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 				return ec.fieldContext_Session_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4410,6 +4939,8 @@ func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "frameRateCap":
+				return ec.fieldContext_WorldSettings_frameRateCap(ctx, field)
 			case "minPxcor":
 				return ec.fieldContext_WorldSettings_minPxcor(ctx, field)
 			case "maxPxcor":
@@ -4876,6 +5407,182 @@ func (ec *executionContext) fieldContext_Session_timer(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _Session_frameRateCap(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_frameRateCap(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.FrameRateCap, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_frameRateCap(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_droppedFrames(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_droppedFrames(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DroppedFrames, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_droppedFrames(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_droppedSlow(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_droppedSlow(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DroppedSlow, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_droppedSlow(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_publishedFps(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_publishedFps(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PublishedFps, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_publishedFps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Session_running(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Session_running(ctx, field)
 	if err != nil {
@@ -5263,6 +5970,14 @@ func (ec *executionContext) fieldContext_Subscription_frames(ctx context.Context
 				return ec.fieldContext_Frame_tps(ctx, field)
 			case "timer":
 				return ec.fieldContext_Frame_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Frame_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Frame_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Frame_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Frame_publishedFps(ctx, field)
 			case "running":
 				return ec.fieldContext_Frame_running(ctx, field)
 			case "speed":
@@ -6965,6 +7680,50 @@ func (ec *executionContext) fieldContext_World_links(_ context.Context, field gr
 				return ec.fieldContext_Link_b(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Link", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_frameRateCap(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_frameRateCap(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.FrameRateCap, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_frameRateCap(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9186,6 +9945,26 @@ func (ec *executionContext) _Frame(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "frameRateCap":
+			out.Values[i] = ec._Frame_frameRateCap(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "droppedFrames":
+			out.Values[i] = ec._Frame_droppedFrames(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "droppedSlow":
+			out.Values[i] = ec._Frame_droppedSlow(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "publishedFps":
+			out.Values[i] = ec._Frame_publishedFps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "running":
 			out.Values[i] = ec._Frame_running(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -9393,6 +10172,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "setSpeed":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setSpeed(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setFrameRate":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setFrameRate(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -9608,6 +10394,26 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "timer":
 			out.Values[i] = ec._Session_timer(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "frameRateCap":
+			out.Values[i] = ec._Session_frameRateCap(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "droppedFrames":
+			out.Values[i] = ec._Session_droppedFrames(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "droppedSlow":
+			out.Values[i] = ec._Session_droppedSlow(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "publishedFps":
+			out.Values[i] = ec._Session_publishedFps(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -9954,6 +10760,11 @@ func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.Selectio
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("WorldSettings")
+		case "frameRateCap":
+			out.Values[i] = ec._WorldSettings_frameRateCap(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "minPxcor":
 			out.Values[i] = ec._WorldSettings_minPxcor(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
