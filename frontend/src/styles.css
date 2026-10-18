@@ -23,6 +23,7 @@
 html, body, #root {
   margin: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -45,9 +46,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .topbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 10px 14px;
+  flex-shrink: 0;
+  min-width: 0;
   color: #f3ecdf;
 }
 
@@ -89,15 +92,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .ticks {
   margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
   background: #262b20;
   border-radius: 999px;
   padding: 6px 12px;
   color: #f3ecdf;
-  font-size: 0.92rem;
+  font-size: 0.85rem;
 }
 
 .ticks b { color: #f0c9a0; font-weight: 650; }
+.ticks .timer b { font-variant-numeric: tabular-nums; }
 
 button.act {
   border: 0;
@@ -390,6 +398,7 @@ canvas.world {
 }
 
 @media (max-width: 860px) {
+  .topbar { flex-wrap: wrap; }
   .stage { grid-template-columns: 1fr; }
   .side { max-height: none; }
   .command { grid-template-columns: 1fr; }

@@ -69,6 +69,8 @@ type ComplexityRoot struct {
 		Speed        func(childComplexity int) int
 		Ticks        func(childComplexity int) int
 		TicksStarted func(childComplexity int) int
+		Timer        func(childComplexity int) int
+		Tps          func(childComplexity int) int
 		Widgets      func(childComplexity int) int
 		World        func(childComplexity int) int
 	}
@@ -118,6 +120,8 @@ type ComplexityRoot struct {
 		Speed        func(childComplexity int) int
 		Ticks        func(childComplexity int) int
 		TicksStarted func(childComplexity int) int
+		Timer        func(childComplexity int) int
+		Tps          func(childComplexity int) int
 		Widgets      func(childComplexity int) int
 		World        func(childComplexity int) int
 	}
@@ -319,6 +323,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Frame.TicksStarted(childComplexity), true
+
+	case "Frame.timer":
+		if e.complexity.Frame.Timer == nil {
+			break
+		}
+
+		return e.complexity.Frame.Timer(childComplexity), true
+
+	case "Frame.tps":
+		if e.complexity.Frame.Tps == nil {
+			break
+		}
+
+		return e.complexity.Frame.Tps(childComplexity), true
 
 	case "Frame.widgets":
 		if e.complexity.Frame.Widgets == nil {
@@ -663,6 +681,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Session.TicksStarted(childComplexity), true
+
+	case "Session.timer":
+		if e.complexity.Session.Timer == nil {
+			break
+		}
+
+		return e.complexity.Session.Timer(childComplexity), true
+
+	case "Session.tps":
+		if e.complexity.Session.Tps == nil {
+			break
+		}
+
+		return e.complexity.Session.Tps(childComplexity), true
 
 	case "Session.widgets":
 		if e.complexity.Session.Widgets == nil {
@@ -1181,6 +1213,10 @@ type Session {
   code: String!
   ticks: Float
   ticksStarted: Boolean!
+  """Smoothed ticks per second over about the last second. Zero while stopped."""
+  tps: Float!
+  """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
+  timer: String!
   running: Boolean!
   speed: Float!
   notes: [String!]!
@@ -1206,6 +1242,10 @@ type Frame {
   sessionId: ID!
   ticks: Float
   ticksStarted: Boolean!
+  """Smoothed ticks per second over about the last second. Zero while stopped."""
+  tps: Float!
+  """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
+  timer: String!
   running: Boolean!
   speed: Float!
   log: [String!]!
@@ -1971,6 +2011,10 @@ func (ec *executionContext) fieldContext_CommandResult_session(_ context.Context
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -2124,6 +2168,10 @@ func (ec *executionContext) fieldContext_CompileResult_session(_ context.Context
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -2267,6 +2315,94 @@ func (ec *executionContext) fieldContext_Frame_ticksStarted(_ context.Context, f
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_tps(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_tps(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Tps, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_tps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_timer(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_timer(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Timer, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_timer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -2953,6 +3089,10 @@ func (ec *executionContext) fieldContext_Mutation_createSession(ctx context.Cont
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3032,6 +3172,10 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3239,6 +3383,10 @@ func (ec *executionContext) fieldContext_Mutation_setup(ctx context.Context, fie
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3318,6 +3466,10 @@ func (ec *executionContext) fieldContext_Mutation_go(ctx context.Context, field 
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3397,6 +3549,10 @@ func (ec *executionContext) fieldContext_Mutation_stop(ctx context.Context, fiel
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3476,6 +3632,10 @@ func (ec *executionContext) fieldContext_Mutation_step(ctx context.Context, fiel
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3555,6 +3715,10 @@ func (ec *executionContext) fieldContext_Mutation_pressButton(ctx context.Contex
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3634,6 +3798,10 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3713,6 +3881,10 @@ func (ec *executionContext) fieldContext_Mutation_setSlider(ctx context.Context,
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3792,6 +3964,10 @@ func (ec *executionContext) fieldContext_Mutation_setSwitch(ctx context.Context,
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3871,6 +4047,10 @@ func (ec *executionContext) fieldContext_Mutation_setChooser(ctx context.Context
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -3950,6 +4130,10 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4029,6 +4213,10 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4149,6 +4337,10 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Session_running(ctx, field)
 			case "speed":
@@ -4596,6 +4788,94 @@ func (ec *executionContext) fieldContext_Session_ticksStarted(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Session_tps(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_tps(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Tps, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_tps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_timer(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_timer(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Timer, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_timer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Session_running(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Session_running(ctx, field)
 	if err != nil {
@@ -4979,6 +5259,10 @@ func (ec *executionContext) fieldContext_Subscription_frames(ctx context.Context
 				return ec.fieldContext_Frame_ticks(ctx, field)
 			case "ticksStarted":
 				return ec.fieldContext_Frame_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Frame_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Frame_timer(ctx, field)
 			case "running":
 				return ec.fieldContext_Frame_running(ctx, field)
 			case "speed":
@@ -8892,6 +9176,16 @@ func (ec *executionContext) _Frame(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "tps":
+			out.Values[i] = ec._Frame_tps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "timer":
+			out.Values[i] = ec._Frame_timer(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "running":
 			out.Values[i] = ec._Frame_running(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -9304,6 +9598,16 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 			out.Values[i] = ec._Session_ticks(ctx, field, obj)
 		case "ticksStarted":
 			out.Values[i] = ec._Session_ticksStarted(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tps":
+			out.Values[i] = ec._Session_tps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "timer":
+			out.Values[i] = ec._Session_timer(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

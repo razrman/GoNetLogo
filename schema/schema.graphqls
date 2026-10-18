@@ -53,6 +53,10 @@ type Session {
   code: String!
   ticks: Float
   ticksStarted: Boolean!
+  """Smoothed ticks per second over about the last second. Zero while stopped."""
+  tps: Float!
+  """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
+  timer: String!
   running: Boolean!
   speed: Float!
   notes: [String!]!
@@ -78,6 +82,10 @@ type Frame {
   sessionId: ID!
   ticks: Float
   ticksStarted: Boolean!
+  """Smoothed ticks per second over about the last second. Zero while stopped."""
+  tps: Float!
+  """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
+  timer: String!
   running: Boolean!
   speed: Float!
   log: [String!]!

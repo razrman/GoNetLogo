@@ -6,14 +6,13 @@ package graph
 
 import (
 	"context"
-
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
 )
 
 // CreateSession is the resolver for the createSession field.
-func (r *mutationResolver) CreateSession(ctx context.Context, modelName string) (*model.Session, error) {
-	s, err := r.Store.Create(modelName)
+func (r *mutationResolver) CreateSession(ctx context.Context, model string) (*model.Session, error) {
+	s, err := r.Store.Create(model)
 	if err != nil {
 		return nil, err
 	}
@@ -21,12 +20,12 @@ func (r *mutationResolver) CreateSession(ctx context.Context, modelName string) 
 }
 
 // LoadModel is the resolver for the loadModel field.
-func (r *mutationResolver) LoadModel(ctx context.Context, sessionID string, modelName string) (*model.Session, error) {
+func (r *mutationResolver) LoadModel(ctx context.Context, sessionID string, model string) (*model.Session, error) {
 	s, err := r.session(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.LoadModel(modelName); err != nil {
+	if err := s.LoadModel(model); err != nil {
 		return nil, err
 	}
 	return s.Session(), nil

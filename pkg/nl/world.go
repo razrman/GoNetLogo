@@ -43,6 +43,9 @@ type World struct {
 
 	ticks        float64
 	ticksStarted bool
+	// runEpoch increments on clear-ticks, reset-ticks, and clear-all.
+	// The run timer watches it. Tick does not, so a benchmark is unchanged.
+	runEpoch uint64
 
 	rng  *rand.Rand
 	seed int64
@@ -509,12 +512,18 @@ func (w *World) ClearGlobals() {
 func (w *World) ClearTicks() {
 	w.ticks = 0
 	w.ticksStarted = false
+	w.runEpoch++
 }
 
 func (w *World) ResetTicks() {
 	w.ticks = 0
 	w.ticksStarted = true
+	w.runEpoch++
 }
+
+// RunEpoch changes when ticks are cleared or reset. It does not change
+// when the model ticks.
+func (w *World) RunEpoch() uint64 { return w.runEpoch }
 
 func (w *World) Tick() error {
 	if !w.ticksStarted {

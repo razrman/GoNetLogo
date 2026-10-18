@@ -108,6 +108,7 @@ type Session struct {
 	listeners map[int]chan struct{}
 	nextSub   int
 	frame     int
+	clock     nl.RunClock
 	stop      chan struct{}
 	closed    bool
 }
@@ -168,6 +169,7 @@ func (s *Session) frameTickLocked() {
 			break
 		}
 	}
+	s.syncClockLocked(time.Now())
 	if n > 0 {
 		s.broadcastLocked()
 	}
@@ -214,6 +216,7 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	s.vm = vm
 	s.running = -1
 	s.frame = 0
+	s.clock = nl.RunClock{}
 	vm.OnPrint = func(line string) {
 		// Called while s.mu is held by the command that is running.
 		s.appendLogLocked(line)
@@ -305,6 +308,7 @@ func (s *Session) Go() error {
 		return err
 	}
 	s.running = i
+	s.syncClockLocked(time.Now())
 	s.broadcastLocked()
 	return nil
 }
@@ -314,6 +318,7 @@ func (s *Session) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.running = -1
+	s.syncClockLocked(time.Now())
 	s.broadcastLocked()
 }
 
@@ -361,6 +366,7 @@ func (s *Session) PressButton(index int) error {
 			}
 			s.running = index
 		}
+		s.syncClockLocked(time.Now())
 		s.broadcastLocked()
 		return nil
 	}
@@ -631,12 +637,30 @@ func (s *Session) Frame() *model.Frame {
 		SessionID:    snap.ID,
 		Ticks:        snap.Ticks,
 		TicksStarted: snap.TicksStarted,
+		Tps:          snap.Tps,
+		Timer:        snap.Timer,
 		Running:      snap.Running,
 		Speed:        snap.Speed,
 		Log:          snap.Log,
 		Widgets:      snap.Widgets,
 		World:        snap.World,
 	}
+}
+
+// syncClockLocked samples the shared run clock. Caller holds s.mu.
+func (s *Session) syncClockLocked(now time.Time) (tps float64, timer string) {
+	var ticks float64
+	var epoch uint64
+	if s.vm != nil && s.vm.World != nil {
+		w := s.vm.World
+		epoch = w.RunEpoch()
+		if w.TicksStarted() {
+			if n, err := w.Ticks(); err == nil {
+				ticks = n
+			}
+		}
+	}
+	return s.clock.Sync(now, s.running >= 0, epoch, ticks)
 }
 
 func (s *Session) sessionLocked() *model.Session {
@@ -658,6 +682,7 @@ func (s *Session) sessionLocked() *model.Session {
 		}
 	}
 	if s.vm == nil || s.vm.World == nil {
+		out.Tps, out.Timer = s.syncClockLocked(time.Now())
 		return out
 	}
 	w := s.vm.World
@@ -667,6 +692,7 @@ func (s *Session) sessionLocked() *model.Session {
 			out.Ticks = &t
 		}
 	}
+	out.Tps, out.Timer = s.syncClockLocked(time.Now())
 	out.Widgets = s.widgetsLocked()
 	out.World = worldLocked(w)
 	return out
