@@ -13,6 +13,7 @@ import {
   SetCode,
   SetInput,
   SetSlider,
+  SetFrameRate,
   SetSpeed,
   SetSwitch,
   SetWorld,
@@ -41,6 +42,7 @@ export function App() {
   const [, stepMut] = useMutation(Step)
   const [, pressMut] = useMutation(PressButton)
   const [, speedMut] = useMutation(SetSpeed)
+  const [, frameRateMut] = useMutation(SetFrameRate)
   const [, sliderMut] = useMutation(SetSlider)
   const [, switchMut] = useMutation(SetSwitch)
   const [, chooserMut] = useMutation(SetChooser)
@@ -199,6 +201,7 @@ export function App() {
   const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
+  const dropLabel = frame ? String(frame.droppedFrames) : '—'
   const library = models.data?.models ?? []
 
   return (
@@ -263,11 +266,13 @@ export function App() {
           data-ticks={ticksLabel}
           data-tps={tpsLabel}
           data-timer={timerLabel}
+          data-dropped={dropLabel}
           data-running={running ? 'true' : 'false'}
         >
           <span>ticks <b>{ticksLabel}</b></span>
           <span>tps <b>{tpsLabel}</b></span>
           <span className="timer"><b>{timerLabel}</b></span>
+          <span title={frame ? `${frame.publishedFps.toFixed(1)} published fps, ${frame.droppedSlow} slow` : undefined}>drop <b>{dropLabel}</b></span>
         </div>
       </header>
 
@@ -319,6 +324,13 @@ export function App() {
               </div>
             </section>
             <aside className="side" aria-label="Interface widgets">
+              <FrameCapControl
+                fps={frame?.frameRateCap ?? 24}
+                disabled={!sessionId}
+                onChange={(fps) => {
+                  if (sessionId) void frameRateMut({ id: sessionId, fps })
+                }}
+              />
               <WorldSettingsForm
                 world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
                 disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
@@ -365,6 +377,55 @@ export function App() {
         </form>
       </section>
     </div>
+  )
+}
+
+function FrameCapControl({
+  fps,
+  disabled,
+  onChange,
+}: {
+  fps: number
+  disabled: boolean
+  onChange: (fps: number) => void
+}) {
+  const [text, setText] = useState(String(fps || 24))
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focused.current) setText(String(fps || 24))
+  }, [fps])
+  return (
+    <label className="frame-cap">
+      fps
+      <input
+        type="number"
+        min={1}
+        max={120}
+        step={1}
+        aria-label="Frame rate cap"
+        value={text}
+        disabled={disabled}
+        onFocus={() => {
+          focused.current = true
+        }}
+        onBlur={() => {
+          focused.current = false
+          const n = Number(text)
+          if (Number.isInteger(n) && n >= 1 && n <= 120) {
+            onChange(n)
+            setText(String(n))
+          } else {
+            setText(String(fps || 24))
+          }
+        }}
+        onChange={(e) => {
+          const next = e.target.value
+          setText(next)
+          const n = Number(next)
+          if (next !== '' && Number.isInteger(n) && n >= 1 && n <= 120) onChange(n)
+        }}
+      />
+    </label>
   )
 }
 

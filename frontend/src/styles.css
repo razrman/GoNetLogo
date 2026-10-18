@@ -107,6 +107,26 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ticks b { color: #f0c9a0; font-weight: 650; }
 .ticks .timer b { font-variant-numeric: tabular-nums; }
 
+.frame-cap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+.frame-cap input {
+  width: 4.6ch;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 4px;
+  padding: 2px 4px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+
 button.act {
   border: 0;
   border-radius: 8px;

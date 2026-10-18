@@ -109,6 +109,9 @@ type Session struct {
 	nextSub   int
 	frame     int
 	clock     nl.RunClock
+	frameRate int
+	pub       framePublisher
+	rateNote  chan struct{}
 	stop      chan struct{}
 	closed    bool
 }
@@ -118,8 +121,10 @@ func newSession() *Session {
 		id:        newID(),
 		running:   -1,
 		speed:     40,
+		frameRate: DefaultFrameRate,
 		buttons:   map[int][]nl.Stmt{},
 		listeners: map[int]chan struct{}{},
+		rateNote:  make(chan struct{}, 1),
 		stop:      make(chan struct{}),
 	}
 }
@@ -138,41 +143,126 @@ func (s *Session) Close() {
 }
 
 func (s *Session) loop() {
-	tick := time.NewTicker(30 * time.Millisecond)
-	defer tick.Stop()
+	// Steps stay on the speed-slider cadence. A second goroutine publishes
+	// on the frame-rate interval so it can take the latest snapshot between
+	// steps without the step loop waiting on a subscriber.
+	go s.publishLoop()
+	step := time.NewTicker(30 * time.Millisecond)
+	defer step.Stop()
 	for {
 		select {
 		case <-s.stop:
 			return
-		case <-tick.C:
-			s.mu.Lock()
-			if s.closed {
-				s.mu.Unlock()
-				return
-			}
-			s.frameTickLocked()
-			s.mu.Unlock()
+		case <-step.C:
+			s.runStepSlot()
 		}
 	}
 }
 
-// frameTickLocked runs one animation frame: several model steps at the
-// current speed, then a single subscriber wake. Caller holds s.mu.
+func (s *Session) publishLoop() {
+	s.mu.Lock()
+	interval := frameInterval(s.frameRate)
+	s.mu.Unlock()
+	publish := time.NewTimer(interval)
+	defer publish.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-s.rateNote:
+			s.mu.Lock()
+			interval = frameInterval(s.frameRate)
+			s.mu.Unlock()
+			if !publish.Stop() {
+				select {
+				case <-publish.C:
+				default:
+				}
+			}
+			publish.Reset(interval)
+		case now := <-publish.C:
+			s.mu.Lock()
+			if !s.closed {
+				s.publishDueLocked(now)
+			}
+			interval = frameInterval(s.frameRate)
+			closed := s.closed
+			s.mu.Unlock()
+			if closed {
+				return
+			}
+			publish.Reset(interval)
+		}
+	}
+}
+
+// runStepSlot runs one speed-slider slot, releasing the lock between
+// steps so the publish timer can snapshot the latest world without
+// waiting for the rest of the slot or for a subscriber.
+func (s *Session) runStepSlot() {
+	s.mu.Lock()
+	if s.closed || s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
+		s.mu.Unlock()
+		return
+	}
+	s.frame++
+	n := stepsFor(s.speed, s.frame)
+	s.mu.Unlock()
+	for i := 0; i < n; i++ {
+		s.mu.Lock()
+		if s.closed || s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
+			s.syncClockLocked(time.Now())
+			s.mu.Unlock()
+			return
+		}
+		_, err := s.runIndexLocked(s.running)
+		stopped := s.running < 0
+		now := time.Now()
+		if err == nil {
+			s.pub.produce(1)
+		}
+		s.syncClockLocked(now)
+		if s.pub.due(now, frameInterval(s.frameRate)) {
+			s.publishDueLocked(now)
+		}
+		s.mu.Unlock()
+		if err != nil || stopped {
+			return
+		}
+	}
+}
+
+// frameTickLocked runs the speed-slider steps for one 30ms slot.
+// It does not publish. Caller holds s.mu for the whole slot.
 func (s *Session) frameTickLocked() {
 	if s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
 		return
 	}
 	s.frame++
 	n := stepsFor(s.speed, s.frame)
+	done := 0
 	for i := 0; i < n; i++ {
-		if _, err := s.runIndexLocked(s.running); err != nil || s.running < 0 {
+		_, err := s.runIndexLocked(s.running)
+		stopped := s.running < 0
+		if err != nil {
+			break
+		}
+		done++
+		if stopped {
 			break
 		}
 	}
 	s.syncClockLocked(time.Now())
-	if n > 0 {
-		s.broadcastLocked()
+	s.pub.produce(done)
+}
+
+// publishDueLocked sends the latest snapshot when the cap interval fires.
+// Caller holds s.mu. Intermediate steps are counted, not queued.
+func (s *Session) publishDueLocked(now time.Time) {
+	if !s.pub.publish(now) {
+		return
 	}
+	s.broadcastLocked()
 }
 
 // Subscribe registers a wake-up channel. The first value is not sent
@@ -217,6 +307,7 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	s.running = -1
 	s.frame = 0
 	s.clock = nl.RunClock{}
+	s.pub.reset()
 	vm.OnPrint = func(line string) {
 		// Called while s.mu is held by the command that is running.
 		s.appendLogLocked(line)
@@ -374,6 +465,9 @@ func (s *Session) PressButton(index int) error {
 		s.broadcastLocked()
 		return err
 	}
+	if strings.EqualFold(w.Display, "setup") || strings.EqualFold(strings.TrimSpace(w.Source), "setup") {
+		s.pub.reset()
+	}
 	s.broadcastLocked()
 	return nil
 }
@@ -402,14 +496,36 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 	}
 	w := s.vm.World
 	return &model.WorldSettings{
-		MinPxcor:  w.MinPxcor,
-		MaxPxcor:  w.MaxPxcor,
-		MinPycor:  w.MinPycor,
-		MaxPycor:  w.MaxPycor,
-		PatchSize: w.PatchSize,
-		WrapX:     w.WrapX,
-		WrapY:     w.WrapY,
+		FrameRateCap: s.frameRateCap(),
+		MinPxcor:     w.MinPxcor,
+		MaxPxcor:     w.MaxPxcor,
+		MinPycor:     w.MinPycor,
+		MaxPycor:     w.MaxPycor,
+		PatchSize:    w.PatchSize,
+		WrapX:        w.WrapX,
+		WrapY:        w.WrapY,
 	}, nil
+}
+
+// SetFrameRate sets the publish cap. Values outside 1..120 are clamped.
+// The step loop is not blocked; the next publish interval uses the new cap.
+func (s *Session) SetFrameRate(fps int) int {
+	fps = clampFrameRate(fps)
+	s.mu.Lock()
+	s.frameRate = fps
+	s.mu.Unlock()
+	select {
+	case s.rateNote <- struct{}{}:
+	default:
+	}
+	return fps
+}
+
+func (s *Session) frameRateCap() int {
+	if s.frameRate == 0 {
+		return DefaultFrameRate
+	}
+	return s.frameRate
 }
 
 // SetSpeed sets the forever-button speed. 0 is slowest, 100 is fastest.
@@ -516,6 +632,9 @@ func (s *Session) runNamed(name string, forever bool) error {
 			if err != nil {
 				s.appendLogLocked(name + ": " + err.Error())
 			}
+			if strings.EqualFold(name, "setup") {
+				s.pub.reset()
+			}
 			s.broadcastLocked()
 			return err
 		}
@@ -529,6 +648,9 @@ func (s *Session) runNamed(name string, forever bool) error {
 	if _, err := s.runIndexLocked(i); err != nil {
 		s.broadcastLocked()
 		return err
+	}
+	if strings.EqualFold(name, "setup") {
+		s.pub.reset()
 	}
 	s.broadcastLocked()
 	return nil
@@ -603,21 +725,28 @@ func (s *Session) appendLogLocked(line string) {
 	}
 }
 
-// broadcastLocked wakes subscribers at most once each. The loop calls this
-// once per animation frame, after every speed-slider step in that frame.
-// A subscriber that has not read the previous wake is left as-is, so a
-// slow client skips intermediate frames.
+// broadcastLocked wakes subscribers at most once each. An unread wake is
+// replaced, and a send that does not fit is counted as a slow drop. The
+// step loop never waits on a subscriber.
 func (s *Session) broadcastLocked() {
+	dropped := 0
 	for _, ch := range s.listeners {
+		unread := false
 		select {
 		case <-ch:
+			unread = true
 		default:
 		}
 		select {
 		case ch <- struct{}{}:
+			if unread {
+				dropped++
+			}
 		default:
+			dropped++
 		}
 	}
+	s.pub.noteSlow(dropped)
 }
 
 // Session builds the GraphQL session object, including monitor readings.
@@ -634,16 +763,20 @@ func (s *Session) Frame() *model.Frame {
 	defer s.mu.Unlock()
 	snap := s.sessionLocked()
 	return &model.Frame{
-		SessionID:    snap.ID,
-		Ticks:        snap.Ticks,
-		TicksStarted: snap.TicksStarted,
-		Tps:          snap.Tps,
-		Timer:        snap.Timer,
-		Running:      snap.Running,
-		Speed:        snap.Speed,
-		Log:          snap.Log,
-		Widgets:      snap.Widgets,
-		World:        snap.World,
+		SessionID:     snap.ID,
+		Ticks:         snap.Ticks,
+		TicksStarted:  snap.TicksStarted,
+		Tps:           snap.Tps,
+		Timer:         snap.Timer,
+		FrameRateCap:  snap.FrameRateCap,
+		DroppedFrames: snap.DroppedFrames,
+		DroppedSlow:   snap.DroppedSlow,
+		PublishedFps:  snap.PublishedFps,
+		Running:       snap.Running,
+		Speed:         snap.Speed,
+		Log:           snap.Log,
+		Widgets:       snap.Widgets,
+		World:         snap.World,
 	}
 }
 
@@ -661,6 +794,13 @@ func (s *Session) syncClockLocked(now time.Time) (tps float64, timer string) {
 		}
 	}
 	return s.clock.Sync(now, s.running >= 0, epoch, ticks)
+}
+
+func (s *Session) fillRunStats(out *model.Session) {
+	out.FrameRateCap = s.frameRateCap()
+	out.DroppedFrames = s.pub.dropped
+	out.DroppedSlow = s.pub.droppedSlow
+	out.PublishedFps = s.pub.publishedFPS
 }
 
 func (s *Session) sessionLocked() *model.Session {
@@ -681,6 +821,7 @@ func (s *Session) sessionLocked() *model.Session {
 			out.Notes = []string{}
 		}
 	}
+	s.fillRunStats(out)
 	if s.vm == nil || s.vm.World == nil {
 		out.Tps, out.Timer = s.syncClockLocked(time.Now())
 		return out
@@ -693,6 +834,7 @@ func (s *Session) sessionLocked() *model.Session {
 		}
 	}
 	out.Tps, out.Timer = s.syncClockLocked(time.Now())
+	s.fillRunStats(out)
 	out.Widgets = s.widgetsLocked()
 	out.World = worldLocked(w)
 	return out

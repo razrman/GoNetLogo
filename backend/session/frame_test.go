@@ -42,6 +42,7 @@ func TestMaxSpeedWakesOncePerFrame(t *testing.T) {
 	s.running = goBtn
 	s.speed = 100
 	s.frameTickLocked()
+	s.publishDueLocked(time.Now())
 	s.mu.Unlock()
 
 	select {

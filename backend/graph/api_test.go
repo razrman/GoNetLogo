@@ -406,6 +406,88 @@ func create(t *testing.T, c *client.Client, modelName string) created {
 	return resp.CreateSession
 }
 
+func TestSetFrameRateClampAndDrops(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "wolfsheep.nlogo")
+	query := `query ($id: ID!) {
+		session(id: $id) { frameRateCap droppedFrames droppedSlow publishedFps tps ticks running }
+		worldSettings(sessionId: $id) { frameRateCap }
+	}`
+	type sample struct {
+		Session struct {
+			FrameRateCap  int
+			DroppedFrames int
+			DroppedSlow   int
+			PublishedFps  float64
+			Tps           float64
+			Ticks         *float64
+			Running       bool
+		}
+		WorldSettings struct {
+			FrameRateCap int
+		}
+	}
+	var q sample
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if q.Session.FrameRateCap != 24 || q.WorldSettings.FrameRateCap != 24 || q.Session.DroppedFrames != 0 {
+		t.Fatalf("default session %+v settings %d", q.Session, q.WorldSettings.FrameRateCap)
+	}
+	set := func(fps int) int {
+		t.Helper()
+		var resp struct {
+			SetFrameRate struct{ FrameRateCap int }
+		}
+		c.MustPost(`mutation ($id: ID!, $fps: Int!) {
+			setFrameRate(sessionId: $id, fps: $fps) { frameRateCap }
+		}`, &resp, client.Var("id", s.ID), client.Var("fps", fps))
+		return resp.SetFrameRate.FrameRateCap
+	}
+	if got := set(0); got != 1 {
+		t.Fatalf("fps 0 clamped to %d", got)
+	}
+	if got := set(500); got != 120 {
+		t.Fatalf("fps 500 clamped to %d", got)
+	}
+	if got := set(24); got != 24 {
+		t.Fatalf("fps 24 became %d", got)
+	}
+
+	setup(t, c, s.ID)
+	c.MustPost(`mutation ($id: ID!) { setSpeed(sessionId: $id, speed: 100) { id } }`, &struct {
+		SetSpeed struct{ ID string }
+	}{}, client.Var("id", s.ID))
+
+	run := func(fps int) sample {
+		t.Helper()
+		if got := set(fps); got != fps {
+			t.Fatalf("set %d -> %d", fps, got)
+		}
+		c.MustPost(`mutation ($id: ID!) { go(sessionId: $id) { id } }`, &struct {
+			Go struct{ ID string }
+		}{}, client.Var("id", s.ID))
+		time.Sleep(2 * time.Second)
+		var got sample
+		c.MustPost(query, &got, client.Var("id", s.ID))
+		c.MustPost(`mutation ($id: ID!) { stop(sessionId: $id) { id } }`, &struct {
+			Stop struct{ ID string }
+		}{}, client.Var("id", s.ID))
+		if !got.Session.Running || got.Session.FrameRateCap != fps || got.Session.Ticks == nil || *got.Session.Ticks <= 0 {
+			t.Fatalf("cap %d sample %+v", fps, got.Session)
+		}
+		t.Logf("cap %d tps %.2f ticks %.0f dropped %d slow %d publishedFps %.2f",
+			fps, got.Session.Tps, *got.Session.Ticks, got.Session.DroppedFrames, got.Session.DroppedSlow, got.Session.PublishedFps)
+		return got
+	}
+	at24 := run(24)
+	setup(t, c, s.ID)
+	at60 := run(60)
+	if at24.Session.DroppedFrames == 0 && at60.Session.DroppedFrames == 0 {
+		t.Log("model did not outrun either cap during the sample")
+	} else if at24.Session.DroppedFrames <= at60.Session.DroppedFrames {
+		t.Fatalf("expected more cap drops at 24 fps (%d) than 60 (%d)", at24.Session.DroppedFrames, at60.Session.DroppedFrames)
+	}
+}
+
 func setup(t *testing.T, c *client.Client, id string) created {
 	t.Helper()
 	var resp struct {

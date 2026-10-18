@@ -6,16 +6,35 @@ import type { World } from './types'
 // one RGB image so a 100×100 world stays a single blit.
 export function WorldCanvas({ world }: { world: World | null }) {
   const ref = useRef<HTMLCanvasElement>(null)
+  const worldRef = useRef(world)
+  worldRef.current = world
 
   useEffect(() => {
     const canvas = ref.current
     if (!canvas) return
-    const paint = () => draw(canvas, world)
-    paint()
-    const observer = new ResizeObserver(paint)
+    let raf = 0
+    let painted: World | null | undefined
+    const paintLatest = () => {
+      const latest = worldRef.current
+      if (latest === painted) return
+      draw(canvas, latest)
+      painted = latest
+    }
+    const loop = () => {
+      paintLatest()
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    const observer = new ResizeObserver(() => {
+      painted = undefined
+      paintLatest()
+    })
     observer.observe(canvas)
-    return () => observer.disconnect()
-  }, [world])
+    return () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
+  }, [])
 
   return (
     <canvas

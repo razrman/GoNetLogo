@@ -22,6 +22,12 @@ type Mutation {
   step(sessionId: ID!): Session!
   pressButton(sessionId: ID!, index: Int!): Session!
   setSpeed(sessionId: ID!, speed: Float!): Session!
+  """
+  Cap how often a new world snapshot is published.
+  fps is clamped to 1..120. The model keeps stepping; intermediate
+  snapshots are skipped instead of queued.
+  """
+  setFrameRate(sessionId: ID!, fps: Int!): Session!
   setSlider(sessionId: ID!, index: Int!, value: Float!): Session!
   setSwitch(sessionId: ID!, index: Int!, on: Boolean!): Session!
   setChooser(sessionId: ID!, index: Int!, current: Int!): Session!
@@ -57,6 +63,14 @@ type Session {
   tps: Float!
   """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
   timer: String!
+  """Publish cap in frames per second. 1..120, default 24."""
+  frameRateCap: Int!
+  """Model steps since setup that were never published because of the cap."""
+  droppedFrames: Int!
+  """Publishes a slow subscriber missed. Separate from droppedFrames."""
+  droppedSlow: Int!
+  """Frames actually published over about the last second."""
+  publishedFps: Float!
   running: Boolean!
   speed: Float!
   notes: [String!]!
@@ -86,6 +100,14 @@ type Frame {
   tps: Float!
   """Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour."""
   timer: String!
+  """Publish cap in frames per second. 1..120, default 24."""
+  frameRateCap: Int!
+  """Model steps since setup that were never published because of the cap."""
+  droppedFrames: Int!
+  """Publishes a slow subscriber missed. Separate from droppedFrames."""
+  droppedSlow: Int!
+  """Frames actually published over about the last second."""
+  publishedFps: Float!
   running: Boolean!
   speed: Float!
   log: [String!]!
@@ -113,6 +135,8 @@ type Widget {
 }
 
 type WorldSettings {
+  """Publish cap in frames per second. 1..120, default 24."""
+  frameRateCap: Int!
   minPxcor: Int!
   maxPxcor: Int!
   minPycor: Int!

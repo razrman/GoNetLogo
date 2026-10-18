@@ -22,12 +22,20 @@ type Frame struct {
 	// Smoothed ticks per second over about the last second. Zero while stopped.
 	Tps float64 `json:"tps"`
 	// Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour.
-	Timer   string   `json:"timer"`
-	Running bool     `json:"running"`
-	Speed   float64  `json:"speed"`
-	Log     []string `json:"log"`
-	Widgets []Widget `json:"widgets"`
-	World   World    `json:"world"`
+	Timer string `json:"timer"`
+	// Publish cap in frames per second. 1..120, default 24.
+	FrameRateCap int `json:"frameRateCap"`
+	// Model steps since setup that were never published because of the cap.
+	DroppedFrames int `json:"droppedFrames"`
+	// Publishes a slow subscriber missed. Separate from droppedFrames.
+	DroppedSlow int `json:"droppedSlow"`
+	// Frames actually published over about the last second.
+	PublishedFps float64  `json:"publishedFps"`
+	Running      bool     `json:"running"`
+	Speed        float64  `json:"speed"`
+	Log          []string `json:"log"`
+	Widgets      []Widget `json:"widgets"`
+	World        World    `json:"world"`
 }
 
 type Link struct {
@@ -56,13 +64,21 @@ type Session struct {
 	// Smoothed ticks per second over about the last second. Zero while stopped.
 	Tps float64 `json:"tps"`
 	// Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour.
-	Timer   string   `json:"timer"`
-	Running bool     `json:"running"`
-	Speed   float64  `json:"speed"`
-	Notes   []string `json:"notes"`
-	Log     []string `json:"log"`
-	Widgets []Widget `json:"widgets"`
-	World   World    `json:"world"`
+	Timer string `json:"timer"`
+	// Publish cap in frames per second. 1..120, default 24.
+	FrameRateCap int `json:"frameRateCap"`
+	// Model steps since setup that were never published because of the cap.
+	DroppedFrames int `json:"droppedFrames"`
+	// Publishes a slow subscriber missed. Separate from droppedFrames.
+	DroppedSlow int `json:"droppedSlow"`
+	// Frames actually published over about the last second.
+	PublishedFps float64  `json:"publishedFps"`
+	Running      bool     `json:"running"`
+	Speed        float64  `json:"speed"`
+	Notes        []string `json:"notes"`
+	Log          []string `json:"log"`
+	Widgets      []Widget `json:"widgets"`
+	World        World    `json:"world"`
 }
 
 type Subscription struct {
@@ -119,11 +135,13 @@ type World struct {
 }
 
 type WorldSettings struct {
-	MinPxcor  int     `json:"minPxcor"`
-	MaxPxcor  int     `json:"maxPxcor"`
-	MinPycor  int     `json:"minPycor"`
-	MaxPycor  int     `json:"maxPycor"`
-	PatchSize float64 `json:"patchSize"`
-	WrapX     bool    `json:"wrapX"`
-	WrapY     bool    `json:"wrapY"`
+	// Publish cap in frames per second. 1..120, default 24.
+	FrameRateCap int     `json:"frameRateCap"`
+	MinPxcor     int     `json:"minPxcor"`
+	MaxPxcor     int     `json:"maxPxcor"`
+	MinPycor     int     `json:"minPycor"`
+	MaxPycor     int     `json:"maxPycor"`
+	PatchSize    float64 `json:"patchSize"`
+	WrapX        bool    `json:"wrapX"`
+	WrapY        bool    `json:"wrapY"`
 }

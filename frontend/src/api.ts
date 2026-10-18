@@ -116,6 +116,12 @@ export const SetSpeed = `
   }
 `
 
+export const SetFrameRate = `
+  mutation SetFrameRate($id: ID!, $fps: Int!) {
+    setFrameRate(sessionId: $id, fps: $fps) { id frameRateCap }
+  }
+`
+
 export const SetSlider = `
   mutation SetSlider($id: ID!, $index: Int!, $value: Float!) {
     setSlider(sessionId: $id, index: $index, value: $value) { id }
@@ -186,6 +192,10 @@ export const Frames = `
       ticksStarted
       tps
       timer
+      frameRateCap
+      droppedFrames
+      droppedSlow
+      publishedFps
       running
       speed
       log
