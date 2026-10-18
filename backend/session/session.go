@@ -186,12 +186,13 @@ func (s *Session) publishLoop() {
 				s.publishDueLocked(now)
 			}
 			interval = frameInterval(s.frameRate)
+			wait := s.pub.nextWait(now, interval)
 			closed := s.closed
 			s.mu.Unlock()
 			if closed {
 				return
 			}
-			publish.Reset(interval)
+			publish.Reset(wait)
 		}
 	}
 }
@@ -222,9 +223,7 @@ func (s *Session) runStepSlot() {
 			s.pub.produce(1)
 		}
 		s.syncClockLocked(now)
-		if s.pub.due(now, frameInterval(s.frameRate)) {
-			s.publishDueLocked(now)
-		}
+		s.publishDueLocked(now)
 		s.mu.Unlock()
 		if err != nil || stopped {
 			return
@@ -259,7 +258,7 @@ func (s *Session) frameTickLocked() {
 // publishDueLocked sends the latest snapshot when the cap interval fires.
 // Caller holds s.mu. Intermediate steps are counted, not queued.
 func (s *Session) publishDueLocked(now time.Time) {
-	if !s.pub.publish(now) {
+	if !s.pub.publish(now, frameInterval(s.frameRate)) {
 		return
 	}
 	s.broadcastLocked()

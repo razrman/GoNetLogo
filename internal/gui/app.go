@@ -102,6 +102,7 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	s.timer = widget.NewLabel("00:00.0")
 	s.tps.TextStyle = fyne.TextStyle{Monospace: true}
 	s.timer.TextStyle = fyne.TextStyle{Monospace: true}
+	s.timer.Alignment = fyne.TextAlignCenter
 	s.notes = widget.NewLabel("")
 	s.output = widget.NewMultiLineEntry()
 	s.output.Disable()
@@ -145,9 +146,14 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		cmd.SetText("")
 	}
 
-	toolbar := container.NewBorder(nil, nil, nil,
-		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks, s.tps, s.timer),
+	// Timer sits in the middle of the bar. Ticks stay immediately right of
+	// the speed slider; tps stays with that cluster. The web header centers
+	// the timer on the full bar; Fyne's border layout centers it in the
+	// slot between the left controls and this cluster.
+	toolbar := container.NewBorder(nil, nil,
 		container.NewHBox(s.picker, open, s.setupBtn, s.goBtn),
+		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks, s.tps),
+		container.NewCenter(s.timer),
 	)
 	// Center keeps the raster at its min size so a new world resizes the view
 	// instead of stretching into the whole split pane. drawWorld still

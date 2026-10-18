@@ -207,72 +207,76 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
-          <strong>GoNetLogo</strong>
-          <span>GraphQL client</span>
-        </div>
-        <select
-          className="model"
-          aria-label="Model"
-          value={library.includes(modelName) ? modelName : ''}
-          disabled={!sessionId || library.length === 0}
-          onChange={(e) => void onModel(e.target.value)}
-        >
-          {library.length === 0 && <option value="">Loading models…</option>}
-          {library.map((name) => (
-            <option key={name} value={name}>
-              {name.replace(/\.nlogo$/, '')}
-            </option>
-          ))}
-        </select>
-        <div className="controls">
-          <button className="act" type="button" disabled={!sessionId} onClick={() => void onSetup()}>
-            setup
-          </button>
-          <button
-            className={running ? 'act stop' : 'act go'}
-            type="button"
-            disabled={!sessionId || (!running && (goWidget?.disabled ?? true))}
-            onClick={() => void onGo()}
+        <div className="topbar-left">
+          <div className="brand">
+            <strong>GoNetLogo</strong>
+            <span>GraphQL client</span>
+          </div>
+          <select
+            className="model"
+            aria-label="Model"
+            value={library.includes(modelName) ? modelName : ''}
+            disabled={!sessionId || library.length === 0}
+            onChange={(e) => void onModel(e.target.value)}
           >
-            {running ? 'stop' : 'go'}
-          </button>
-          <button
-            className="act step"
-            type="button"
-            disabled={!sessionId || (goWidget?.disabled ?? true)}
-            onClick={() => void onStep()}
-          >
-            step
-          </button>
+            {library.length === 0 && <option value="">Loading models…</option>}
+            {library.map((name) => (
+              <option key={name} value={name}>
+                {name.replace(/\.nlogo$/, '')}
+              </option>
+            ))}
+          </select>
+          <div className="controls">
+            <button className="act" type="button" disabled={!sessionId} onClick={() => void onSetup()}>
+              setup
+            </button>
+            <button
+              className={running ? 'act stop' : 'act go'}
+              type="button"
+              disabled={!sessionId || (!running && (goWidget?.disabled ?? true))}
+              onClick={() => void onGo()}
+            >
+              {running ? 'stop' : 'go'}
+            </button>
+            <button
+              className="act step"
+              type="button"
+              disabled={!sessionId || (goWidget?.disabled ?? true)}
+              onClick={() => void onStep()}
+            >
+              step
+            </button>
+          </div>
+          <label className="speed">
+            speed
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              aria-label="Speed"
+              value={frame?.speed ?? 30}
+              disabled={!sessionId}
+              onChange={(e) => {
+                if (sessionId) void speedMut({ id: sessionId, speed: Number(e.target.value) })
+              }}
+            />
+          </label>
+          <div className="ticks tick-count" data-ticks={ticksLabel}>
+            <span>ticks <b>{ticksLabel}</b></span>
+          </div>
         </div>
-        <label className="speed">
-          speed
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            aria-label="Speed"
-            value={frame?.speed ?? 30}
-            disabled={!sessionId}
-            onChange={(e) => {
-              if (sessionId) void speedMut({ id: sessionId, speed: Number(e.target.value) })
-            }}
-          />
-        </label>
-        <div
-          className="ticks"
-          data-ticks={ticksLabel}
-          data-tps={tpsLabel}
-          data-timer={timerLabel}
-          data-dropped={dropLabel}
-          data-running={running ? 'true' : 'false'}
-        >
-          <span>ticks <b>{ticksLabel}</b></span>
-          <span>tps <b>{tpsLabel}</b></span>
-          <span className="timer"><b>{timerLabel}</b></span>
-          <span title={frame ? `${frame.publishedFps.toFixed(1)} published fps, ${frame.droppedSlow} slow` : undefined}>drop <b>{dropLabel}</b></span>
+        <div className="run-timer" data-timer={timerLabel}><b>{timerLabel}</b></div>
+        <div className="topbar-right">
+          <div
+            className="ticks"
+            data-tps={tpsLabel}
+            data-dropped={dropLabel}
+            data-running={running ? 'true' : 'false'}
+          >
+            <span>tps <b>{tpsLabel}</b></span>
+            <span title={frame ? `${frame.publishedFps.toFixed(1)} published fps, ${frame.droppedSlow} slow` : undefined}>drop <b>{dropLabel}</b></span>
+          </div>
         </div>
       </header>
 
@@ -396,13 +400,13 @@ function FrameCapControl({
   }, [fps])
   return (
     <label className="frame-cap">
-      fps
+      max fps
       <input
         type="number"
         min={1}
         max={120}
         step={1}
-        aria-label="Frame rate cap"
+        aria-label="max fps"
         value={text}
         disabled={disabled}
         onFocus={() => {

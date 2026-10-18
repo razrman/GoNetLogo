@@ -61,9 +61,15 @@ func (p *framePublisher) due(now time.Time, interval time.Duration) bool {
 }
 
 // publish records one send of the latest snapshot. Every pending step
-// except that one was skipped by the cap.
-func (p *framePublisher) publish(now time.Time) bool {
+// except that one was skipped by the cap. interval is the cap; a non-positive
+// interval does not rate-limit (tests of the drop counter). A second caller
+// in the same interval is refused, so the step loop and the timer cannot
+// both publish.
+func (p *framePublisher) publish(now time.Time, interval time.Duration) bool {
 	if p.pending <= 0 {
+		return false
+	}
+	if interval > 0 && !p.lastPublish.IsZero() && now.Before(p.lastPublish.Add(interval)) {
 		return false
 	}
 	if p.pending > 1 {
@@ -72,8 +78,25 @@ func (p *framePublisher) publish(now time.Time) bool {
 	p.pending = 0
 	p.published++
 	p.lastPublish = now
-	p.noteFPS(now)
+	p.noteFPS(now, interval)
 	return true
+}
+
+// nextWait is how long the timer should sleep after a publish attempt.
+// A refused early fire waits out the rest of the interval instead of
+// starting a new full period from the wrong phase.
+func (p *framePublisher) nextWait(now time.Time, interval time.Duration) time.Duration {
+	if interval <= 0 {
+		interval = time.Second / time.Duration(DefaultFrameRate)
+	}
+	if p.lastPublish.IsZero() {
+		return interval
+	}
+	wait := interval - now.Sub(p.lastPublish)
+	if wait <= 0 || wait > interval {
+		return interval
+	}
+	return wait
 }
 
 func (p *framePublisher) noteSlow(n int) {
@@ -82,12 +105,22 @@ func (p *framePublisher) noteSlow(n int) {
 	}
 }
 
-func (p *framePublisher) noteFPS(now time.Time) {
+func (p *framePublisher) noteFPS(now time.Time, interval time.Duration) {
 	if p.windowStart.IsZero() || now.Sub(p.windowStart) >= time.Second {
 		if !p.windowStart.IsZero() {
 			span := now.Sub(p.windowStart).Seconds()
 			if span > 0 {
-				p.publishedFPS = float64(p.windowCount) / span
+				fps := float64(p.windowCount) / span
+				// Integer division makes time.Second/fps a hair under the
+				// ideal interval, so a one-second window can count one extra
+				// publish. The reported rate still must not exceed the cap.
+				if interval > 0 {
+					capFPS := float64(time.Second) / float64(interval)
+					if fps > capFPS {
+						fps = capFPS
+					}
+				}
+				p.publishedFPS = fps
 			}
 		}
 		p.windowStart = now
