@@ -58,6 +58,9 @@ type session struct {
 	code      *widget.Entry
 	output    *widget.Entry
 	ticks     *widget.Label
+	tps       *widget.Label
+	timer     *widget.Label
+	clock     nl.RunClock
 	notes     *widget.Label
 	raster    *canvas.Raster
 	side      *fyne.Container
@@ -95,6 +98,10 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	s := &session{win: win, modelsFS: modelsFS, running: -1}
 	s.names = demoNames(modelsFS)
 	s.ticks = widget.NewLabel("ticks")
+	s.tps = widget.NewLabel("tps —")
+	s.timer = widget.NewLabel("00:00.0")
+	s.tps.TextStyle = fyne.TextStyle{Monospace: true}
+	s.timer.TextStyle = fyne.TextStyle{Monospace: true}
 	s.notes = widget.NewLabel("")
 	s.output = widget.NewMultiLineEntry()
 	s.output.Disable()
@@ -139,7 +146,7 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	}
 
 	toolbar := container.NewBorder(nil, nil, nil,
-		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks),
+		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks, s.tps, s.timer),
 		container.NewHBox(s.picker, open, s.setupBtn, s.goBtn),
 	)
 	// Center keeps the raster at its min size so a new world resizes the view
@@ -418,6 +425,7 @@ func (s *session) load(name, content string) {
 	}
 	s.mu.Lock()
 	s.running = -1
+	s.clock = nl.RunClock{}
 	s.model = m
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
@@ -715,19 +723,31 @@ func stepsFor(speed float64, frame int) int {
 	return 0
 }
 
+func (s *session) setLabel(label *widget.Label, text string) {
+	if label != nil && label.Text != text {
+		label.SetText(text)
+	}
+}
+
 // refreshReadouts updates monitors and the world fields. Caller holds s.mu.
 func (s *session) refreshReadouts() {
 	if s.vm == nil {
 		return
 	}
+	var ticks float64
 	if s.vm.World.TicksStarted() {
 		n, err := s.vm.World.Ticks()
 		if err == nil {
-			s.ticks.SetText("ticks: " + trimNum(n))
+			ticks = n
+			s.setLabel(s.ticks, "ticks: "+trimNum(n))
 		}
 	} else {
-		s.ticks.SetText("ticks")
+		s.setLabel(s.ticks, "ticks")
 	}
+	running := s.running >= 0
+	tps, timer := s.clock.Sync(time.Now(), running, s.vm.World.RunEpoch(), ticks)
+	s.setLabel(s.tps, "tps "+nl.FormatTPS(tps, running))
+	s.setLabel(s.timer, timer)
 	for i := range s.ctls {
 		c := &s.ctls[i]
 		if c.widget.Kind == "monitor" && c.readout != nil {
@@ -790,6 +810,7 @@ func (s *session) applyCodeLocked() error {
 	}
 	s.running = -1
 	s.goBtn.SetText("go")
+	s.clock = nl.RunClock{}
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
 	s.rebuildSide()

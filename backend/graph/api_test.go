@@ -184,6 +184,100 @@ func TestFramesSubscription(t *testing.T) {
 	}
 }
 
+func TestRunReadout(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "wolfsheep.nlogo")
+	var q struct {
+		Session struct {
+			Tps     float64
+			Timer   string
+			Running bool
+		}
+	}
+	query := `query ($id: ID!) { session(id: $id) { tps timer running } }`
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if q.Session.Tps != 0 || q.Session.Timer != "00:00.0" || q.Session.Running {
+		t.Fatalf("initial %+v", q.Session)
+	}
+
+	setup(t, c, s.ID)
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if q.Session.Tps != 0 || q.Session.Timer != "00:00.0" {
+		t.Fatalf("after setup %+v", q.Session)
+	}
+
+	var speed struct{ SetSpeed struct{ ID string } }
+	c.MustPost(`mutation ($id: ID!) { setSpeed(sessionId: $id, speed: 100) { id } }`, &speed, client.Var("id", s.ID))
+	var goResp struct{ Go struct{ ID string } }
+	c.MustPost(`mutation ($id: ID!) { go(sessionId: $id) { id } }`, &goResp, client.Var("id", s.ID))
+	time.Sleep(700 * time.Millisecond)
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if !q.Session.Running || q.Session.Timer == "00:00.0" || q.Session.Tps <= 0 {
+		t.Fatalf("while running %+v", q.Session)
+	}
+
+	sub := c.Websocket(`subscription ($id: ID!) { frames(sessionId: $id) { tps timer running } }`, client.Var("id", s.ID))
+	defer sub.Close()
+	var frame struct {
+		Frames struct {
+			Tps     float64
+			Timer   string
+			Running bool
+		}
+	}
+	if err := sub.Next(&frame); err != nil {
+		t.Fatal(err)
+	}
+	if !frame.Frames.Running || frame.Frames.Timer == "" {
+		t.Fatalf("frame %+v", frame.Frames)
+	}
+
+	var stop struct{ Stop struct{ ID string } }
+	c.MustPost(`mutation ($id: ID!) { stop(sessionId: $id) { id } }`, &stop, client.Var("id", s.ID))
+	paused := ""
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	paused = q.Session.Timer
+	if q.Session.Running || q.Session.Tps != 0 || paused == "00:00.0" {
+		t.Fatalf("stopped %+v", q.Session)
+	}
+	time.Sleep(400 * time.Millisecond)
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if q.Session.Timer != paused || q.Session.Tps != 0 {
+		t.Fatalf("paused timer moved from %s to %+v", paused, q.Session)
+	}
+
+	var cmd struct {
+		RunCommand struct {
+			Ok    bool
+			Error *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!) { runCommand(sessionId: $id, text: "reset-ticks") { ok error } }`, &cmd, client.Var("id", s.ID))
+	if !cmd.RunCommand.Ok {
+		t.Fatalf("reset-ticks: %v", cmd.RunCommand.Error)
+	}
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if q.Session.Timer != "00:00.0" {
+		t.Fatalf("after reset-ticks %+v", q.Session)
+	}
+
+	c.MustPost(`mutation ($id: ID!) { go(sessionId: $id) { id } }`, &goResp, client.Var("id", s.ID))
+	time.Sleep(400 * time.Millisecond)
+	c.MustPost(`mutation ($id: ID!) { stop(sessionId: $id) { id } }`, &stop, client.Var("id", s.ID))
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if q.Session.Timer == "00:00.0" {
+		t.Fatal("timer stayed at zero while go ran")
+	}
+	c.MustPost(`mutation ($id: ID!) { runCommand(sessionId: $id, text: "clear-all") { ok error } }`, &cmd, client.Var("id", s.ID))
+	if !cmd.RunCommand.Ok {
+		t.Fatalf("clear-all: %v", cmd.RunCommand.Error)
+	}
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if q.Session.Timer != "00:00.0" || q.Session.Tps != 0 {
+		t.Fatalf("after clear-all %+v", q.Session)
+	}
+}
+
 func TestSetWorld(t *testing.T) {
 	c := newClient(t)
 	s := create(t, c, "fire.nlogo")

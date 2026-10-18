@@ -62,6 +62,8 @@ export type Frame = {
   sessionId: string
   ticks: number | null
   ticksStarted: boolean
+  tps: number
+  timer: string
   running: boolean
   speed: number
   log: string[]

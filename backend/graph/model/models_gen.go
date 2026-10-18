@@ -19,11 +19,15 @@ type Frame struct {
 	SessionID    string   `json:"sessionId"`
 	Ticks        *float64 `json:"ticks,omitempty"`
 	TicksStarted bool     `json:"ticksStarted"`
-	Running      bool     `json:"running"`
-	Speed        float64  `json:"speed"`
-	Log          []string `json:"log"`
-	Widgets      []Widget `json:"widgets"`
-	World        World    `json:"world"`
+	// Smoothed ticks per second over about the last second. Zero while stopped.
+	Tps float64 `json:"tps"`
+	// Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour.
+	Timer   string   `json:"timer"`
+	Running bool     `json:"running"`
+	Speed   float64  `json:"speed"`
+	Log     []string `json:"log"`
+	Widgets []Widget `json:"widgets"`
+	World   World    `json:"world"`
 }
 
 type Link struct {
@@ -49,12 +53,16 @@ type Session struct {
 	Code         string   `json:"code"`
 	Ticks        *float64 `json:"ticks,omitempty"`
 	TicksStarted bool     `json:"ticksStarted"`
-	Running      bool     `json:"running"`
-	Speed        float64  `json:"speed"`
-	Notes        []string `json:"notes"`
-	Log          []string `json:"log"`
-	Widgets      []Widget `json:"widgets"`
-	World        World    `json:"world"`
+	// Smoothed ticks per second over about the last second. Zero while stopped.
+	Tps float64 `json:"tps"`
+	// Elapsed run time, paused while stopped. mm:ss.s, or h:mm:ss from one hour.
+	Timer   string   `json:"timer"`
+	Running bool     `json:"running"`
+	Speed   float64  `json:"speed"`
+	Notes   []string `json:"notes"`
+	Log     []string `json:"log"`
+	Widgets []Widget `json:"widgets"`
+	World   World    `json:"world"`
 }
 
 type Subscription struct {

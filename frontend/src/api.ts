@@ -184,6 +184,8 @@ export const Frames = `
       sessionId
       ticks
       ticksStarted
+      tps
+      timer
       running
       speed
       log

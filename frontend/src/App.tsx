@@ -197,6 +197,8 @@ export function App() {
   const goWidget = widgets.find((w) => w.kind === 'button' && w.display.toLowerCase() === 'go')
   const running = frame?.running ?? false
   const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
+  const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
+  const timerLabel = frame?.timer || '00:00.0'
   const library = models.data?.models ?? []
 
   return (
@@ -256,8 +258,16 @@ export function App() {
             }}
           />
         </label>
-        <div className="ticks" data-ticks={ticksLabel} data-running={running ? 'true' : 'false'}>
-          ticks <b>{ticksLabel}</b>
+        <div
+          className="ticks"
+          data-ticks={ticksLabel}
+          data-tps={tpsLabel}
+          data-timer={timerLabel}
+          data-running={running ? 'true' : 'false'}
+        >
+          <span>ticks <b>{ticksLabel}</b></span>
+          <span>tps <b>{tpsLabel}</b></span>
+          <span className="timer"><b>{timerLabel}</b></span>
         </div>
       </header>
 
