@@ -49,6 +49,31 @@ func TestModelsIncludeFire(t *testing.T) {
 	}
 }
 
+func TestRobbyIsListedAndRejectedUntilPlotCommandsExist(t *testing.T) {
+	c := newClient(t)
+	var resp struct {
+		Models []string
+	}
+	c.MustPost(`query { models }`, &resp)
+	found := false
+	for _, name := range resp.Models {
+		if name == "Robby the Robot.nlogo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("models = %v, want Robby the Robot.nlogo", resp.Models)
+	}
+	err := c.Post(`mutation ($m: String!) {
+		createSession(model: $m) { id }
+	}`, &struct {
+		CreateSession struct{ ID string }
+	}{}, client.Var("m", "Robby the Robot.nlogo"))
+	if err == nil || !strings.Contains(err.Error(), "PLOT-PEN-UP") {
+		t.Fatalf("createSession: %v, want the unsupported plot-pen-up primitive", err)
+	}
+}
+
 func TestSessionsAreIsolated(t *testing.T) {
 	c := newClient(t)
 	a := create(t, c, "fire.nlogo")
