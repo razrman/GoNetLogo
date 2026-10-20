@@ -218,16 +218,56 @@ func (s *ViewSnap) paintDrawing(patchPx int) *image.RGBA {
 }
 
 func (s *ViewSnap) paintLabels(img *image.RGBA, patchPx int) {
+	scale := labelScale(patchPx)
 	for _, lb := range s.labels {
 		if lb.patch {
 			cx := (int(lb.x)-s.minPx)*patchPx + patchPx/2
 			cy := (s.maxPy-int(lb.y))*patchPx + patchPx/2
-			drawText(img, cx, cy-6, lb.text, lb.c)
+			paintLabel(img, cx, cy-6*scale, lb.text, lb.c, scale)
 			continue
 		}
 		cx, cy := worldToPx(s.minPx, s.maxPy, lb.x, lb.y, patchPx)
 		r := agentRadius(lb.size, patchPx)
-		drawText(img, cx+int(r*0.5), cy+int(r*0.2), lb.text, lb.c)
+		paintLabel(img, cx+int(r*0.5), cy+int(r*0.2), lb.text, lb.c, scale)
+	}
+}
+
+func labelScale(patchPx int) int {
+	n := patchPx / 8
+	if n < 1 {
+		n = 1
+	}
+	if n > 4 {
+		n = 4
+	}
+	return n
+}
+
+func paintLabel(img *image.RGBA, x, y int, text string, c color.Color, scale int) {
+	if text == "" {
+		return
+	}
+	if scale <= 1 {
+		drawText(img, x, y, text, c)
+		return
+	}
+	w := 7*len(text) + 1
+	h := 13
+	tmp := image.NewRGBA(image.Rect(0, 0, w, h))
+	drawText(tmp, 0, 1, text, c)
+	for yy := 0; yy < h; yy++ {
+		for xx := 0; xx < w; xx++ {
+			p := tmp.RGBAAt(xx, yy)
+			if p.A == 0 {
+				continue
+			}
+			ink := color.RGBA{p.R, p.G, p.B, 255}
+			for dy := 0; dy < scale; dy++ {
+				for dx := 0; dx < scale; dx++ {
+					setPx(img, x+xx*scale+dx, y+yy*scale+dy, ink)
+				}
+			}
+		}
 	}
 }
 
