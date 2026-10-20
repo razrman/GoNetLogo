@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
-	"math"
 	"os"
 
 	"golang.org/x/image/font"
@@ -21,27 +20,39 @@ type ViewSnap struct {
 	patches       []snapPatch
 	links         []snapLink
 	turtles       []snapTurtle
+	marks         []snapMark
+	labels        []snapLabel
 }
 
 type snapPatch struct {
-	x, y    int
-	c       color.RGBA
-	draw    color.RGBA
-	hasDraw bool
-	label   string
+	x, y int
+	c    color.RGBA
 }
 
 type snapLink struct {
 	x1, y1, x2, y2 float64
 	c              color.RGBA
-	label          string
 }
 
 type snapTurtle struct {
 	x, y, heading, size float64
 	color               float64
 	shape               string
-	label               string
+}
+
+type snapMark struct {
+	pen, erase           bool
+	x, y, x2, y2         float64
+	heading, size, color float64
+	shape                string
+}
+
+type snapLabel struct {
+	x, y, size float64
+	patch      bool
+	link       bool
+	text       string
+	c          color.RGBA
 }
 
 // CurrentView returns the last frame a painter asked for. A model command
@@ -80,18 +91,34 @@ func (w *World) captureView() *ViewSnap {
 		patches: make([]snapPatch, len(w.patchOrder)),
 	}
 	for i, p := range w.patchOrder {
-		sp := snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p), label: LabelString(p.Label)}
-		if d, ok := w.DrawingAt(p.PX, p.PY); ok {
-			sp.draw = color.RGBA{d.R, d.G, d.B, 255}
-			sp.hasDraw = true
+		s.patches[i] = snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p)}
+		if text, col, ok := p.viewLabel(); ok {
+			s.labels = append(s.labels, snapLabel{
+				x: float64(p.PX), y: float64(p.PY), patch: true, text: text, c: col,
+			})
 		}
-		s.patches[i] = sp
+	}
+	if len(w.marks) > 0 {
+		s.marks = make([]snapMark, len(w.marks))
+		for i, m := range w.marks {
+			s.marks[i] = snapMark{
+				pen: m.Pen, erase: m.Erase,
+				x: m.X, y: m.Y, x2: m.X2, y2: m.Y2,
+				heading: m.Heading, size: m.Size, color: m.Color, shape: m.Shape,
+			}
+		}
 	}
 	for _, l := range w.links {
 		if l == nil || l.dead || l.Hidden || l.End1 == nil || l.End2 == nil || l.End1.dead || l.End2.dead {
 			continue
 		}
-		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color), LabelString(l.Label)})
+		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color)})
+		if text, col, ok := l.viewLabel(); ok {
+			s.labels = append(s.labels, snapLabel{
+				x: (l.End1.X + l.End2.X) / 2, y: (l.End1.Y + l.End2.Y) / 2,
+				link: true, text: text, c: col,
+			})
+		}
 	}
 	if len(w.whoSeq) != len(w.turtles) {
 		w.rebuildWhoSeq()
@@ -105,12 +132,17 @@ func (w *World) captureView() *ViewSnap {
 		if shape == "" {
 			shape = "default"
 		}
-		s.turtles = append(s.turtles, snapTurtle{t.X, t.Y, t.Heading, t.Size, t.Color, shape, LabelString(t.Label)})
+		s.turtles = append(s.turtles, snapTurtle{t.X, t.Y, t.Heading, t.Size, t.Color, shape})
+		if text, col, ok := t.viewLabel(); ok {
+			s.labels = append(s.labels, snapLabel{
+				x: t.X, y: t.Y, size: t.Size, text: text, c: col,
+			})
+		}
 	}
 	return s
 }
 
-// RenderWorld paints patches, pen trails, links, and turtles.
+// RenderWorld paints patches, the drawing layer, links, turtles, and labels.
 // patchPx is the width of one patch in pixels. The paint uses the latest
 // published frame, so it does not read the live turtle map.
 func RenderWorld(w *World, patchPx int) *image.RGBA {
@@ -141,41 +173,114 @@ func (s *ViewSnap) Paint(patchPx int) *image.RGBA {
 		x0 := (p.x - s.minPx) * patchPx
 		y0 := (s.maxPy - p.y) * patchPx
 		drawRect(img, x0, y0, x0+patchPx, y0+patchPx, p.c)
-		if p.hasDraw {
-			m := patchPx / 3
-			if m < 1 {
-				m = 1
-			}
-			drawRect(img, x0+m, y0+m, x0+patchPx-m, y0+patchPx-m, p.draw)
-		}
-		if p.label != "" {
-			drawAgentLabel(img, x0+2, y0+patchPx/2-8, p.label)
-		}
+	}
+	if layer := s.paintDrawing(patchPx); layer != nil {
+		draw.Draw(img, img.Bounds(), layer, image.Point{}, draw.Over)
 	}
 	for _, l := range s.links {
 		x1, y1 := worldToPx(s.minPx, s.maxPy, l.x1, l.y1, patchPx)
 		x2, y2 := worldToPx(s.minPx, s.maxPy, l.x2, l.y2, patchPx)
 		drawLine(img, x1, y1, x2, y2, l.c)
-		if l.label != "" {
-			drawAgentLabel(img, (x1+x2)/2, (y1+y2)/2-8, l.label)
-		}
 	}
 	for _, t := range s.turtles {
 		drawTurtle(img, s.minPx, s.maxPy, t, patchPx)
-		if t.label != "" {
-			cx, cy := worldToPx(s.minPx, s.maxPy, t.x, t.y, patchPx)
-			drawAgentLabel(img, cx+3, cy-patchPx/2, t.label)
-		}
 	}
+	s.paintLabels(img, patchPx)
 	return img
 }
 
-func drawAgentLabel(img *image.RGBA, x, y int, text string) {
-	if text == "" || img == nil {
+func (s *ViewSnap) paintDrawing(patchPx int) *image.RGBA {
+	if s == nil || len(s.marks) == 0 {
+		return nil
+	}
+	w := s.Width * patchPx
+	h := s.Height * patchPx
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	layer := image.NewRGBA(image.Rect(0, 0, w, h))
+	p := &painter{img: layer}
+	for _, m := range s.marks {
+		if m.pen {
+			p.erase = false
+			p.c = ColorRGBA(m.color)
+			x1, y1 := worldToPx(s.minPx, s.maxPy, m.x, m.y, patchPx)
+			x2, y2 := worldToPx(s.minPx, s.maxPy, m.x2, m.y2, patchPx)
+			width := m.size * float64(patchPx) * 0.55
+			if width < 1 {
+				width = 1
+			}
+			p.thickLine(x1, y1, x2, y2, width)
+			continue
+		}
+		p.erase = m.erase
+		p.c = ColorRGBA(m.color)
+		cx, cy := worldToPx(s.minPx, s.maxPy, m.x, m.y, patchPx)
+		drawAgentShape(p, cx, cy, agentRadius(m.size, patchPx), m.heading, m.shape)
+	}
+	return layer
+}
+
+func (s *ViewSnap) paintLabels(img *image.RGBA, patchPx int) {
+	scale := labelScale(patchPx)
+	for _, lb := range s.labels {
+		if lb.patch {
+			cx := (int(lb.x)-s.minPx)*patchPx + patchPx/2
+			cy := (s.maxPy-int(lb.y))*patchPx + patchPx/2
+			paintLabel(img, cx, cy-6*scale, lb.text, lb.c, scale)
+			continue
+		}
+		if lb.link {
+			cx, cy := worldToPx(s.minPx, s.maxPy, lb.x, lb.y, patchPx)
+			paintLabel(img, cx, cy-6*scale, lb.text, lb.c, scale)
+			continue
+		}
+		cx, cy := worldToPx(s.minPx, s.maxPy, lb.x, lb.y, patchPx)
+		r := agentRadius(lb.size, patchPx)
+		paintLabel(img, cx+int(r*0.5), cy+int(r*0.2), lb.text, lb.c, scale)
+	}
+}
+
+func labelScale(patchPx int) int {
+	n := patchPx / 8
+	if n < 1 {
+		n = 1
+	}
+	if n > 4 {
+		n = 4
+	}
+	return n
+}
+
+func paintLabel(img *image.RGBA, x, y int, text string, c color.Color, scale int) {
+	if text == "" {
 		return
 	}
-	drawText(img, x+1, y+1, text, color.RGBA{0, 0, 0, 255})
-	drawText(img, x, y, text, color.RGBA{255, 255, 255, 255})
+	if scale <= 1 {
+		drawText(img, x, y, text, c)
+		return
+	}
+	w := 7*len(text) + 1
+	h := 13
+	tmp := image.NewRGBA(image.Rect(0, 0, w, h))
+	drawText(tmp, 0, 1, text, c)
+	for yy := 0; yy < h; yy++ {
+		for xx := 0; xx < w; xx++ {
+			p := tmp.RGBAAt(xx, yy)
+			if p.A == 0 {
+				continue
+			}
+			ink := color.RGBA{p.R, p.G, p.B, 255}
+			for dy := 0; dy < scale; dy++ {
+				for dx := 0; dx < scale; dx++ {
+					setPx(img, x+xx*scale+dx, y+yy*scale+dy, ink)
+				}
+			}
+		}
+	}
 }
 
 func patchRGBA(p *Patch) color.RGBA {
@@ -197,95 +302,8 @@ func worldToPx(minPx, maxPy int, x, y float64, patchPx int) (int, int) {
 
 func drawTurtle(img *image.RGBA, minPx, maxPy int, t snapTurtle, patchPx int) {
 	cx, cy := worldToPx(minPx, maxPy, t.x, t.y, patchPx)
-	r := t.size * float64(patchPx) * 0.45
-	if r < 2 {
-		r = 2
-	}
-	col := ColorRGBA(t.color)
-	shape := t.shape
-	switch shape {
-	case "square":
-		rr := int(r)
-		drawRect(img, cx-rr, cy-rr, cx+rr, cy+rr, col)
-	case "circle", "dot":
-		fillCircle(img, cx, cy, r, col)
-	case "sheep":
-		fillCircle(img, cx, cy, r, col)
-		fillCircle(img, cx, cy-int(r*0.7), r*0.45, col)
-	case "wolf":
-		fillTri(img, cx, cy, r*1.15, t.heading, col)
-		fillCircle(img, cx, cy, r*0.35, color.RGBA{40, 40, 40, 255})
-	case "bug":
-		fillCircle(img, cx, cy, r*0.7, col)
-		// two antennae along the heading
-		h := t.heading * math.Pi / 180
-		ax := int(float64(cx) + math.Sin(h)*r)
-		ay := int(float64(cy) - math.Cos(h)*r)
-		drawLine(img, cx, cy, ax, ay, color.RGBA{20, 20, 20, 255})
-	default:
-		fillTri(img, cx, cy, r, t.heading, col)
-	}
-}
-
-func fillTri(img *image.RGBA, cx, cy int, r, heading float64, c color.RGBA) {
-	h := heading * math.Pi / 180
-	tipX := float64(cx) + math.Sin(h)*r
-	tipY := float64(cy) - math.Cos(h)*r
-	left := h + 2.4
-	right := h - 2.4
-	pts := [3][2]float64{
-		{tipX, tipY},
-		{float64(cx) + math.Sin(left)*r*0.75, float64(cy) - math.Cos(left)*r*0.75},
-		{float64(cx) + math.Sin(right)*r*0.75, float64(cy) - math.Cos(right)*r*0.75},
-	}
-	minX, maxX := int(pts[0][0]), int(pts[0][0])
-	minY, maxY := int(pts[0][1]), int(pts[0][1])
-	for _, p := range pts {
-		if int(p[0]) < minX {
-			minX = int(p[0])
-		}
-		if int(p[0]) > maxX {
-			maxX = int(p[0])
-		}
-		if int(p[1]) < minY {
-			minY = int(p[1])
-		}
-		if int(p[1]) > maxY {
-			maxY = int(p[1])
-		}
-	}
-	for y := minY; y <= maxY; y++ {
-		for x := minX; x <= maxX; x++ {
-			if pointInTri(float64(x)+0.5, float64(y)+0.5, pts) {
-				setPx(img, x, y, c)
-			}
-		}
-	}
-}
-
-func pointInTri(x, y float64, p [3][2]float64) bool {
-	s1 := edge(x, y, p[0], p[1])
-	s2 := edge(x, y, p[1], p[2])
-	s3 := edge(x, y, p[2], p[0])
-	neg := s1 < 0 || s2 < 0 || s3 < 0
-	pos := s1 > 0 || s2 > 0 || s3 > 0
-	return !(neg && pos)
-}
-
-func edge(x, y float64, a, b [2]float64) float64 {
-	return (x-b[0])*(a[1]-b[1]) - (a[0]-b[0])*(y-b[1])
-}
-
-func fillCircle(img *image.RGBA, cx, cy int, r float64, c color.RGBA) {
-	ri := int(r + 1)
-	rr := r * r
-	for y := -ri; y <= ri; y++ {
-		for x := -ri; x <= ri; x++ {
-			if float64(x*x+y*y) <= rr {
-				setPx(img, cx+x, cy+y, c)
-			}
-		}
-	}
+	p := &painter{img: img, c: ColorRGBA(t.color)}
+	drawAgentShape(p, cx, cy, agentRadius(t.size, patchPx), t.heading, t.shape)
 }
 
 func drawRect(img *image.RGBA, x0, y0, x1, y1 int, c color.RGBA) {

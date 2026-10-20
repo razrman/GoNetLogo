@@ -178,12 +178,62 @@ type World {
   Base64 RGB bytes, one pixel per patch, row-major.
   Row 0 is maxPycor and column 0 is minPxcor.
   The decoded length is width * height * 3.
+  Patch colors only. Pen trails and stamps are in drawing.
   """
   patchColors: String!
+  """
+  Drawing layer, oldest first: pen strokes and turtle stamps.
+  Empty after clear-drawing and clear-all, and when nothing has been drawn.
+  """
+  drawing: [DrawingMark!]!
+  """
+  Turtle, patch, and link labels with a non-empty rendered string.
+  Hidden agents are omitted. The text is formatted from the stored value.
+  """
+  labels: [AgentLabel!]!
   turtles: [Turtle!]!
   links: [Link!]!
-  "Patch labels with a non-empty rendered string. Coordinates are patch coords."
-  patchLabels: [PatchLabel!]!
+}
+
+"""One pen stroke or stamp on the drawing layer."""
+type DrawingMark {
+  """True for a pen stroke. False for a stamp."""
+  pen: Boolean!
+  """True when a stamp erases drawing under the turtle's shape."""
+  erase: Boolean!
+  x: Float!
+  y: Float!
+  """End of a pen stroke. Equal to x and y for a stamp."""
+  x2: Float!
+  y2: Float!
+  heading: Float!
+  size: Float!
+  """Empty for a pen stroke. Turtle shape name for a stamp."""
+  shape: String!
+  r: Int!
+  g: Int!
+  b: Int!
+}
+
+"""
+A non-empty label. A turtle sets who. A patch sets px and py.
+A link sets lx and ly to the midpoint. The other fields are null.
+"""
+type AgentLabel {
+  """Turtle who. Null for a patch or link label."""
+  who: Int
+  """Patch column. Null for a turtle or link label."""
+  px: Int
+  """Patch row. Null for a turtle or link label."""
+  py: Int
+  """Link midpoint x. Null for a turtle or patch label."""
+  lx: Float
+  """Link midpoint y. Null for a turtle or patch label."""
+  ly: Float
+  text: String!
+  r: Int!
+  g: Int!
+  b: Int!
 }
 
 type Turtle {
@@ -197,8 +247,6 @@ type Turtle {
   r: Int!
   g: Int!
   b: Int!
-  "Label formatted for drawing. The interpreter keeps the original value type."
-  label: String!
 }
 
 type Link {
@@ -210,11 +258,4 @@ type Link {
   r: Int!
   g: Int!
   b: Int!
-  label: String!
-}
-
-type PatchLabel {
-  x: Int!
-  y: Int!
-  label: String!
 }
