@@ -561,7 +561,7 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		}
 		return Bool(CentralColor(a) == CentralColor(b)), nil
 	case "runresult":
-		return vm.runResult(args[0], pos)
+		return vm.runResult(args, pos)
 	case "turtle-set", "patch-set", "link-set":
 		return vm.buildSet(name, args)
 	case "in-link-from", "out-link-to", "link-with":
@@ -1412,9 +1412,17 @@ func readLiteral(s string) (Value, error) {
 	return v, nil
 }
 
-func (vm *VM) runResult(v Value, pos Pos) (Value, error) {
+func (vm *VM) runResult(args []Value, pos Pos) (Value, error) {
+	if len(args) == 0 {
+		return Value{}, fmt.Errorf("runresult expected a string or a reporter task")
+	}
+	v := args[0]
+	inputs := args[1:]
 	switch v.K {
 	case KindString:
+		if len(inputs) != 0 {
+			return Value{}, fmt.Errorf("runresult of a string does not take extra inputs")
+		}
 		e, err := ParseReporter(v.S, vm.Prog)
 		if err != nil {
 			return Value{}, err
@@ -1424,9 +1432,9 @@ func (vm *VM) runResult(v Value, pos Pos) (Value, error) {
 		if v.Task == nil || v.Task.IsCommand {
 			return Value{}, fmt.Errorf("runresult expected a reporter task")
 		}
-		return vm.callTaskRep(v.Task, nil, pos), nil
+		return vm.callTaskRep(v.Task, inputs, pos), nil
 	default:
-		return Value{}, fmt.Errorf("runresult expected a string or reporter task")
+		return Value{}, fmt.Errorf("runresult expected a string or a reporter task")
 	}
 }
 
@@ -1582,7 +1590,7 @@ func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
 	case "shape":
 		return Str(t.Shape), true, nil
 	case "label":
-		return Str(t.Label), true, nil
+		return t.Label, true, nil
 	case "label-color":
 		if v, ok := t.Vars["label-color"]; ok {
 			return v, true, nil
@@ -1627,7 +1635,7 @@ func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
 		if p == nil {
 			return Str(""), true, nil
 		}
-		return Str(p.Label), true, nil
+		return p.Label, true, nil
 	}
 	if v, ok := t.Vars[name]; ok && vm.World.turtleOwns(t, name) {
 		return v, true, nil
@@ -1654,7 +1662,7 @@ func (vm *VM) getPatchVar(p *Patch, name string) (Value, bool, error) {
 	case "pcolor":
 		return patchColorValue(p), true, nil
 	case "plabel":
-		return Str(p.Label), true, nil
+		return p.Label, true, nil
 	case "plabel-color":
 		if v, ok := p.Vars["plabel-color"]; ok {
 			return v, true, nil
@@ -1679,7 +1687,7 @@ func (vm *VM) getLinkVar(l *Link, name string) (Value, bool, error) {
 	case "color":
 		return Num(l.Color), true, nil
 	case "label":
-		return Str(l.Label), true, nil
+		return l.Label, true, nil
 	case "label-color":
 		if v, ok := l.Vars["label-color"]; ok {
 			return v, true, nil
@@ -1768,7 +1776,7 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 		t.Shape = strings.ToLower(v.S)
 		return true, nil
 	case "label":
-		t.Label = v.Format(false)
+		t.Label = v
 		return true, nil
 	case "label-color":
 		t.Vars["label-color"] = v
@@ -1823,7 +1831,7 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 		if p == nil {
 			return true, fmt.Errorf("turtle is not on a patch")
 		}
-		p.Label = v.Format(false)
+		p.Label = v
 		return true, nil
 	}
 	if vm.World.turtleOwns(t, name) {
@@ -1848,7 +1856,7 @@ func (vm *VM) setPatchVar(p *Patch, name string, v Value) (bool, error) {
 	case "pcolor":
 		return true, setPatchColor(p, v)
 	case "plabel":
-		p.Label = v.Format(false)
+		p.Label = v
 		return true, nil
 	case "plabel-color":
 		p.Vars["plabel-color"] = v
@@ -1872,7 +1880,7 @@ func (vm *VM) setLinkVar(l *Link, name string, v Value) (bool, error) {
 		l.Color = v.N
 		return true, nil
 	case "label":
-		l.Label = v.Format(false)
+		l.Label = v
 		return true, nil
 	case "hidden?":
 		b, err := v.Truth()

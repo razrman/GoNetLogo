@@ -33,6 +33,7 @@ export type Turtle = {
   r: number
   g: number
   b: number
+  label: string
 }
 export type Link = {
   x1: number
@@ -43,6 +44,12 @@ export type Link = {
   r: number
   g: number
   b: number
+  label: string
+}
+export type PatchLabel = {
+  x: number
+  y: number
+  label: string
 }
 
 export type WorldView = {
@@ -61,6 +68,7 @@ export type World = WorldView & {
   patchColors: string
   turtles: Turtle[]
   links: Link[]
+  patchLabels: PatchLabel[]
 }
 
 export type Frame = {

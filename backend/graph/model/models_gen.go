@@ -61,9 +61,16 @@ type Link struct {
 	R      int     `json:"r"`
 	G      int     `json:"g"`
 	B      int     `json:"b"`
+	Label  string  `json:"label"`
 }
 
 type Mutation struct {
+}
+
+type PatchLabel struct {
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	Label string `json:"label"`
 }
 
 type Query struct {
@@ -115,6 +122,8 @@ type Turtle struct {
 	R       int     `json:"r"`
 	G       int     `json:"g"`
 	B       int     `json:"b"`
+	// Label formatted for drawing. The interpreter keeps the original value type.
+	Label string `json:"label"`
 }
 
 type Widget struct {
@@ -159,6 +168,8 @@ type World struct {
 	PatchColors string   `json:"patchColors"`
 	Turtles     []Turtle `json:"turtles"`
 	Links       []Link   `json:"links"`
+	// Patch labels with a non-empty rendered string. Coordinates are patch coords.
+	PatchLabels []PatchLabel `json:"patchLabels"`
 }
 
 type WorldSettings struct {

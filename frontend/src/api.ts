@@ -239,8 +239,9 @@ export const Frames = `
         wrapX
         wrapY
         patchColors
-        turtles { who x y heading size shape hidden r g b }
-        links { x1 y1 x2 y2 hidden r g b }
+        turtles { who x y heading size shape hidden r g b label }
+        links { x1 y1 x2 y2 hidden r g b label }
+        patchLabels { x y label }
       }
     }
   }

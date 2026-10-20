@@ -397,7 +397,7 @@ func (p *parser) parseStatement(variadic bool) (Stmt, error) {
 	case "if":
 		return p.parseIf()
 	case "ifelse":
-		return p.parseIfelse()
+		return p.parseIfelse(variadic)
 	case "while":
 		return p.parseWhile()
 	case "repeat":
@@ -548,24 +548,67 @@ func (p *parser) parseIf() (Stmt, error) {
 	return &ifStmt{Cond: cond, Body: body, Pos: t.Pos}, nil
 }
 
-func (p *parser) parseIfelse() (Stmt, error) {
+func (p *parser) parseIfelse(variadic bool) (Stmt, error) {
 	t := p.next()
-	cond, err := p.parseExpr(precMin, goalAny, false)
-	if err != nil {
-		return nil, err
-	}
-	thenB, err := p.expectCmdBlock()
-	if err != nil {
-		return nil, err
-	}
-	var elseB []Stmt
-	if p.peek().Kind == TokLBrack {
-		elseB, err = p.expectCmdBlock()
+	if !variadic {
+		cond, err := p.parseExpr(precMin, goalAny, false)
 		if err != nil {
 			return nil, err
 		}
+		thenB, err := p.expectCmdBlock()
+		if err != nil {
+			return nil, err
+		}
+		var elseB []Stmt
+		if p.peek().Kind == TokLBrack {
+			elseB, err = p.expectCmdBlock()
+			if err != nil {
+				return nil, err
+			}
+		}
+		return &ifelseStmt{Cond: cond, Then: thenB, Else: elseB, Pos: t.Pos}, nil
 	}
-	return &ifelseStmt{Cond: cond, Then: thenB, Else: elseB, Pos: t.Pos}, nil
+	// (ifelse c1 [cmds1] c2 [cmds2] ... [else])
+	type branch struct {
+		cond Expr
+		body []Stmt
+	}
+	var pairs []branch
+	for {
+		if p.peek().Kind == TokRParen || p.peek().Kind == TokEOF {
+			break
+		}
+		if p.peek().Kind == TokLBrack {
+			elseB, err := p.expectCmdBlock()
+			if err != nil {
+				return nil, err
+			}
+			if p.peek().Kind != TokRParen && p.peek().Kind != TokEOF {
+				return nil, p.errf(p.peek(), "ifelse else block must be the last input")
+			}
+			if len(pairs) == 0 {
+				return nil, p.errf(t, "ifelse expected a condition")
+			}
+			stmt := &ifelseStmt{Cond: pairs[len(pairs)-1].cond, Then: pairs[len(pairs)-1].body, Else: elseB, Pos: t.Pos}
+			for i := len(pairs) - 2; i >= 0; i-- {
+				stmt = &ifelseStmt{Cond: pairs[i].cond, Then: pairs[i].body, Else: []Stmt{stmt}, Pos: t.Pos}
+			}
+			return stmt, nil
+		}
+		cond, err := p.parseExpr(precMin, goalAny, false)
+		if err != nil {
+			return nil, err
+		}
+		body, err := p.expectCmdBlock()
+		if err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, branch{cond, body})
+		if len(pairs) > 64 {
+			return nil, p.errf(p.peek(), "too many arguments")
+		}
+	}
+	return nil, p.errf(p.peek(), "ifelse expected an else block")
 }
 
 func (p *parser) parseWhile() (Stmt, error) {
@@ -625,9 +668,13 @@ func (p *parser) parseForeach(variadic bool) (Stmt, error) {
 	var lists []Expr
 	if variadic {
 		for p.peek().Kind != TokRParen && p.peek().Kind != TokEOF {
-			// The last argument is the task. We can't know until we see it,
-			// so parse expressions and if the next is ')' the last is the task.
-			e, err := p.parseExpr(precMin, goalAny, false)
+			// The last argument is the command task, including a bare name
+			// such as `(foreach xs print)`.
+			g := goalAny
+			if p.taskArgNext() {
+				g = goalCmdTask
+			}
+			e, err := p.parseExpr(precMin, g, false)
 			if err != nil {
 				return nil, err
 			}
@@ -860,6 +907,13 @@ func (p *parser) parseIdentExpr(t Token, g goal, variadic bool) (Expr, error) {
 		p.next()
 		return &nobodyExpr{Pos: t.Pos}, nil
 	}
+	// Concise task syntax: `map abs xs`, `reduce + xs`, `foreach xs print`.
+	// The name is the task; its inputs come from the higher-order primitive.
+	if g == goalRepTask || g == goalCmdTask {
+		if e, ok := p.taskName(t, g); ok {
+			return e, nil
+		}
+	}
 	if inf, ok := infixOps[name]; ok {
 		if name == "-" && (variadic || p.wantUnaryMinus()) {
 			p.next()
@@ -874,10 +928,8 @@ func (p *parser) parseIdentExpr(t Token, g goal, variadic bool) (Expr, error) {
 	}
 	if spec, ok := p.lookupRep(name); ok {
 		p.next()
-		// ifelse-value in a variadic context has a repeating pattern; the
-		// generic vararg walker is fine because goals beyond the spec are Any
-		// and the brackets carry their own structure via pending+of, but the
-		// block arguments need reporter-block goals. Handle it explicitly.
+		// Parenthesized ifelse-value repeats (condition, reporter block)
+		// and ends with an else reporter block. Those brackets are not lists.
 		if name == "ifelse-value" && variadic {
 			args, err := p.parseIfelseValueVar()
 			if err != nil {
@@ -912,23 +964,152 @@ func (p *parser) wantUnaryMinus() bool {
 
 func (p *parser) parseIfelseValueVar() ([]Expr, error) {
 	var args []Expr
-	for p.peek().Kind != TokRParen && p.peek().Kind != TokEOF {
-		// Alternate boolean, block, and treat the final block as else.
-		// We parse an expression; if it is followed by another expression
-		// before ')', keep going. Blocks are just expressions here.
-		e, err := p.parseExpr(3, goalAny, false)
+	for {
+		if p.peek().Kind == TokRParen || p.peek().Kind == TokEOF {
+			break
+		}
+		// A bracket where a condition would start is the else reporter.
+		if p.peek().Kind == TokLBrack {
+			e, err := p.parseBracket(goalRepBlock)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, e)
+			if p.peek().Kind != TokRParen && p.peek().Kind != TokEOF {
+				return nil, p.errf(p.peek(), "ifelse-value else block must be the last input")
+			}
+			break
+		}
+		cond, err := p.parseExpr(precMin, goalAny, false)
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, e)
+		args = append(args, cond)
+		if p.peek().Kind != TokLBrack {
+			return nil, p.errf(p.peek(), "ifelse-value expected a reporter block")
+		}
+		blk, err := p.parseBracket(goalRepBlock)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, blk)
 		if len(args) > 64 {
 			return nil, p.errf(p.peek(), "too many arguments")
 		}
 	}
-	if len(args) < 3 {
+	if len(args) < 3 || len(args)%2 == 0 {
 		return nil, p.errf(p.peek(), "ifelse-value expected at least 3 inputs")
 	}
 	return args, nil
+}
+
+// taskArgNext reports whether the next foreach argument is the last one
+// and should be parsed as a command task.
+func (p *parser) taskArgNext() bool {
+	if p.i >= len(p.toks) {
+		return false
+	}
+	kind := p.toks[p.i].Kind
+	switch kind {
+	case TokIdent:
+		return p.i+1 < len(p.toks) && p.toks[p.i+1].Kind == TokRParen
+	case TokLBrack, TokLParen:
+		closer := TokRBrack
+		if kind == TokLParen {
+			closer = TokRParen
+		}
+		depth := 0
+		for i := p.i; i < len(p.toks); i++ {
+			switch p.toks[i].Kind {
+			case kind:
+				depth++
+			case closer:
+				depth--
+				if depth == 0 {
+					return i+1 < len(p.toks) && p.toks[i+1].Kind == TokRParen
+				}
+			}
+		}
+	}
+	return false
+}
+
+// taskName parses a bare reporter or command name used as a task.
+// Unknown names are left alone so a variable holding a task still works.
+func (p *parser) taskName(t Token, g goal) (Expr, bool) {
+	name := t.Lit
+	if g == goalRepTask {
+		if infixTaskOp(name) {
+			p.next()
+			return infixTask(name, t.Pos), true
+		}
+		if spec, ok := p.lookupRep(name); ok {
+			p.next()
+			return reporterTask(name, spec.argc, t.Pos), true
+		}
+		if proc := p.lookupProc(name); proc != nil && proc.IsReporter {
+			p.next()
+			return reporterTask(name, len(proc.Params), t.Pos), true
+		}
+		if zeroArgReporters[name] {
+			p.next()
+			return reporterTask(name, 0, t.Pos), true
+		}
+		return nil, false
+	}
+	if spec, ok := p.lookupCmd(name); ok {
+		p.next()
+		return commandTask(name, spec.argc, t.Pos), true
+	}
+	if proc := p.lookupProc(name); proc != nil && !proc.IsReporter {
+		p.next()
+		return commandTask(name, len(proc.Params), t.Pos), true
+	}
+	return nil, false
+}
+
+func taskParams(argc int, pos Pos) ([]string, []Expr) {
+	params := make([]string, argc)
+	args := make([]Expr, argc)
+	for i := 0; i < argc; i++ {
+		params[i] = fmt.Sprintf("?%d", i+1)
+		args[i] = &identExpr{Name: params[i], Pos: pos}
+	}
+	return params, args
+}
+
+func reporterTask(name string, argc int, pos Pos) Expr {
+	params, args := taskParams(argc, pos)
+	var body Expr
+	if argc == 0 {
+		body = &identExpr{Name: name, Pos: pos}
+	} else {
+		body = &callExpr{Name: name, Args: args, Pos: pos}
+	}
+	return &lambdaExpr{Params: params, Rep: body, Pos: pos}
+}
+
+func commandTask(name string, argc int, pos Pos) Expr {
+	params, args := taskParams(argc, pos)
+	return &lambdaExpr{
+		Params:    params,
+		IsCommand: true,
+		Body:      []Stmt{&cmdStmt{Name: name, Args: args, Pos: pos}},
+		Pos:       pos,
+	}
+}
+
+func infixTask(op string, pos Pos) Expr {
+	return &lambdaExpr{
+		Params: []string{"?1", "?2"},
+		Rep: &infixExpr{
+			Op:    op,
+			Left:  &identExpr{Name: "?1", Pos: pos},
+			Right: &identExpr{Name: "?2", Pos: pos},
+			Pos:   pos,
+		},
+		Pos: pos,
+	}
 }
 
 func (p *parser) parseMore(left Expr, minPrec int) (Expr, error) {
