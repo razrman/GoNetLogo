@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -64,8 +64,10 @@ export function App() {
   const [commandError, setCommandError] = useState<string | null>(null)
   const [active, setActive] = useState<number | null>(null)
   const [booting, setBooting] = useState(true)
+  const [outputText, setOutputText] = useState('')
   const [dropping, setDropping] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
+  const outputState = useRef({ epoch: -1, seq: 0, lines: [] as string[], partial: '' })
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [settingsQ] = useQuery<{ worldSettings: WorldView }>({
@@ -239,6 +241,11 @@ export function App() {
     return res.error?.message ?? null
   }
 
+  const onFrame = useCallback((next: Frame) => {
+    absorbOutput(outputState.current, next, setOutputText)
+    setFrame(next)
+  }, [])
+
   const widgets = frame?.widgets ?? []
   const libraryNames = models.data?.models ?? []
   const modelOptions = libraryNames.includes(modelName) || !modelName ? libraryNames : [modelName, ...libraryNames]
@@ -345,7 +352,7 @@ export function App() {
       </header>
 
       {sessionId && (
-        <FrameBridge sessionId={sessionId} onFrame={setFrame} onError={setBanner} />
+        <FrameBridge sessionId={sessionId} onFrame={onFrame} onError={setBanner} />
       )}
 
       {models.error && <div className="banner">{models.error.message}</div>}
@@ -441,6 +448,7 @@ export function App() {
                   key={`${modelName}-${w.index}`}
                   widget={w}
                   live={running && active === w.index}
+                  outputText={outputText}
                   onPress={() => void onPress(w)}
                   onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
                   onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
@@ -657,9 +665,43 @@ function foreverIndex(widgets: { index: number; kind: string; display: string; f
   return go?.index ?? widgets.find((w) => w.kind === 'button' && w.forever)?.index ?? null
 }
 
+type OutputCursor = { epoch: number; seq: number; lines: string[]; partial: string }
+
+function absorbOutput(state: OutputCursor, frame: Frame, setText: (text: string) => void) {
+  let lines = state.lines
+  if (frame.outputReset || frame.outputEpoch !== state.epoch || frame.outputSeq < state.seq) {
+    lines = frame.outputAppend ?? []
+  } else if (frame.outputSeq !== state.seq) {
+    const append = frame.outputAppend ?? []
+    const delta = frame.outputSeq - state.seq
+    const extra = append.length - delta
+    lines = state.lines.concat(extra > 0 ? append.slice(extra) : append)
+  }
+  if (lines.length > 2000) lines = lines.slice(-2000)
+  const partial = frame.outputPartial ?? ''
+  const same =
+    lines === state.lines &&
+    frame.outputEpoch === state.epoch &&
+    frame.outputSeq === state.seq &&
+    partial === state.partial
+  state.epoch = frame.outputEpoch
+  state.seq = frame.outputSeq
+  state.lines = lines
+  state.partial = partial
+  if (same) return
+  setText(joinOutput(lines, partial))
+}
+
+function joinOutput(lines: string[], partial: string) {
+  if (!partial) return lines.join('\n')
+  if (lines.length === 0) return partial
+  return lines.join('\n') + '\n' + partial
+}
+
 function WidgetView({
   widget,
   live,
+  outputText,
   onPress,
   onSlider,
   onSwitch,
@@ -668,6 +710,7 @@ function WidgetView({
 }: {
   widget: Widget
   live: boolean
+  outputText: string
   onPress: () => void
   onSlider: (value: number) => void
   onSwitch: (on: boolean) => void
@@ -776,6 +819,10 @@ function WidgetView({
     )
   }
 
+  if (widget.kind === 'output') {
+    return <OutputPanel widget={widget} text={outputText} />
+  }
+
   if (widget.kind === 'note') {
     return <p className="note">{widget.display}</p>
   }
@@ -785,6 +832,24 @@ function WidgetView({
   }
 
   return null
+}
+
+function OutputPanel({ widget, text }: { widget: Widget; text: string }) {
+  const ref = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [text])
+  const fontSize = widget.fontSize > 0 ? Math.min(28, Math.max(10, widget.fontSize)) : 12
+  const height = widget.height > 0 ? Math.min(200, Math.max(72, widget.height)) : 120
+  return (
+    <div className="output-panel" aria-label="Output">
+      <div className="label">Output</div>
+      <pre ref={ref} style={{ fontSize, maxHeight: height }}>
+        {text}
+      </pre>
+    </div>
+  )
 }
 
 function FrameBridge({

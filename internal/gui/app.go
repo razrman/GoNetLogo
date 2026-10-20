@@ -50,6 +50,14 @@ type control struct {
 	stmts   []nl.Stmt
 }
 
+// outputView is the model's output area: a scrolling monospace log.
+type outputView struct {
+	text     *canvas.Text
+	scroll   *container.Scroll
+	box      fyne.CanvasObject
+	fontSize float32
+}
+
 type session struct {
 	win       fyne.Window
 	modelsFS  fs.FS
@@ -86,6 +94,7 @@ type session struct {
 	goBtn     *widget.Button
 
 	ctls    []control
+	areas   []*outputView
 	running int
 	frame   int
 	anim    *fyne.Animation
@@ -470,6 +479,7 @@ func (s *session) load(name, content string) {
 	s.model = m
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
+	s.vm.OnClear = func() { s.clearLog() }
 	s.code.SetText(m.Code)
 	s.rebuildSide()
 	s.publishViewLocked()
@@ -489,6 +499,7 @@ func (s *session) load(name, content string) {
 
 func (s *session) rebuildSide() {
 	s.ctls = nil
+	s.areas = nil
 	var objs []fyne.CanvasObject
 	if s.model == nil {
 		s.side.Objects = nil
@@ -612,6 +623,10 @@ func (s *session) rebuildSide() {
 			objs = append(objs, widget.NewLabel(w.Display), ent)
 		case "note":
 			objs = append(objs, widget.NewLabel(w.Display))
+		case "output":
+			view := newOutputView(w)
+			s.areas = append(s.areas, view)
+			objs = append(objs, view.box)
 		case "plot":
 			objs = append(objs, widget.NewLabel("plot not available: "+w.Display))
 		}
@@ -776,6 +791,7 @@ func (s *session) tick() {
 		}
 	}
 	s.refreshRunLabels()
+	s.refreshOutputLocked()
 }
 
 func stepsFor(speed float64, frame int) int {
@@ -805,7 +821,55 @@ func (s *session) refreshReadouts() {
 	}
 	s.refreshRunLabels()
 	s.refreshMonitorsLocked()
+	s.refreshOutputLocked()
 	s.noteWorld()
+}
+
+// refreshOutputLocked copies the output area into the sidebar panel.
+// Caller holds s.mu.
+func (s *session) refreshOutputLocked() {
+	if s.vm == nil || len(s.areas) == 0 {
+		return
+	}
+	body := s.vm.OutputText()
+	for _, area := range s.areas {
+		if area.text.Text == body {
+			continue
+		}
+		area.text.Text = body
+		area.text.Refresh()
+		area.scroll.ScrollToBottom()
+	}
+}
+
+func newOutputView(w nl.Widget) *outputView {
+	fs := w.FontSize
+	if fs <= 0 {
+		fs = 12
+	}
+	if fs < 8 {
+		fs = 8
+	}
+	if fs > 32 {
+		fs = 32
+	}
+	h := w.H
+	if h < 72 {
+		h = 96
+	}
+	if h > 200 {
+		h = 200
+	}
+	text := canvas.NewText("", color.NRGBA{R: 0xf4, G: 0xef, B: 0xe4, A: 0xff})
+	text.TextStyle = fyne.TextStyle{Monospace: true}
+	text.TextSize = float32(fs)
+	text.Alignment = fyne.TextAlignLeading
+	bg := canvas.NewRectangle(color.NRGBA{R: 0x24, G: 0x1f, B: 0x18, A: 0xff})
+	scroll := container.NewScroll(container.NewPadded(text))
+	// GridWrap gives the log a compact fixed box. The rectangle fills that
+	// box behind the scroll so a short log still looks like a panel.
+	box := container.NewGridWrap(fyne.NewSize(220, float32(h)), container.NewStack(bg, scroll))
+	return &outputView{text: text, scroll: scroll, box: box, fontSize: text.TextSize}
 }
 
 // refreshRunLabels updates the toolbar clock and drop count. Caller holds s.mu.
@@ -900,6 +964,7 @@ func (s *session) applyCodeLocked() error {
 	s.clock = nl.RunClock{}
 	s.vm = vm
 	s.vm.OnPrint = func(line string) { s.log(line) }
+	s.vm.OnClear = func() { s.clearLog() }
 	s.rebuildSide()
 	s.publishViewLocked()
 	s.noteWorld()
@@ -947,6 +1012,13 @@ func (s *session) log(line string) {
 		s.output.SetText(s.output.Text + "\n" + line)
 	}
 	s.output.CursorRow = strings.Count(s.output.Text, "\n")
+}
+
+func (s *session) clearLog() {
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
+	s.output.SetText("")
+	s.output.CursorRow = 0
 }
 
 func (s *session) logf(f string, args ...any) {

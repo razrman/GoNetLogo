@@ -93,6 +93,12 @@ type Session {
   speed: Float!
   notes: [String!]!
   log: [String!]!
+  """True when the model has an output widget. Otherwise output-* uses the command center."""
+  hasOutput: Boolean!
+  """Completed output-area lines, capped at the last 2000."""
+  output: [String!]!
+  """Text from output-type / output-write that has not ended a line yet."""
+  outputPartial: String!
   widgets: [Widget!]!
   world: World!
 }
@@ -129,6 +135,22 @@ type Frame {
   running: Boolean!
   speed: Float!
   log: [String!]!
+  """True when the model has an output widget. Otherwise output-* uses the command center."""
+  hasOutput: Boolean!
+  """
+  Completed lines this subscriber has not applied yet.
+  When outputReset is true, replace the previous text with these lines.
+  The server retains at most the last 2000 lines.
+  """
+  outputAppend: [String!]!
+  """Text from output-type / output-write that has not ended a line yet."""
+  outputPartial: String!
+  """True when the client should discard previous output text before applying outputAppend."""
+  outputReset: Boolean!
+  """Increments when the output area is cleared or the model is replaced."""
+  outputEpoch: Int!
+  """Completed lines in this epoch, including lines dropped by the 2000-line cap."""
+  outputSeq: Int!
   widgets: [Widget!]!
   world: World!
 }
@@ -150,6 +172,13 @@ type Widget {
   choices: [String!]
   current: Int
   text: String
+  """Interface position in pixels. Zero when the file did not specify it."""
+  x: Int!
+  y: Int!
+  width: Int!
+  height: Int!
+  """Point size for an output widget. Zero for widgets that do not use it."""
+  fontSize: Int!
 }
 
 type WorldSettings {

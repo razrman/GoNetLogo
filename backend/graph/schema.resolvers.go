@@ -6,7 +6,6 @@ package graph
 
 import (
 	"context"
-
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
 )
@@ -200,23 +199,36 @@ func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-
 	go func() {
 		defer cancel()
 		defer close(out)
+		// epoch/seq is the last frame this subscriber actually received.
+		// An unread payload still in out is replaced, and the replacement
+		// is computed from that same cursor so the dropped lines are not lost.
+		epoch, seq := -1, 0
+		var queued *struct{ epoch, seq int }
 		send := func() bool {
 			select {
 			case <-ctx.Done():
 				return false
 			default:
 			}
-			frame := s.Frame()
-			// Keep at most one pending frame. A client that is behind
-			// loses the older payload instead of stalling the model.
+			fromEpoch, fromSeq := epoch, seq
 			select {
 			case <-out:
+				queued = nil
 			default:
+				if queued != nil {
+					epoch, seq = queued.epoch, queued.seq
+					fromEpoch, fromSeq = epoch, seq
+					queued = nil
+				}
 			}
+			frame, nextEpoch, nextSeq := s.FrameSince(fromEpoch, fromSeq)
+			// Keep at most one pending frame. A client that is behind
+			// loses the older payload instead of stalling the model.
 			select {
 			case <-ctx.Done():
 				return false
 			case out <- frame:
+				queued = &struct{ epoch, seq int }{nextEpoch, nextSeq}
 				return true
 			default:
 				return true

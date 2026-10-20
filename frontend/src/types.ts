@@ -15,6 +15,11 @@ export type Widget = {
   choices: string[] | null
   current: number | null
   text: string | null
+  x: number
+  y: number
+  width: number
+  height: number
+  fontSize: number
 }
 
 export type DrawingMark = {
@@ -100,6 +105,12 @@ export type Frame = {
   running: boolean
   speed: number
   log: string[]
+  hasOutput: boolean
+  outputAppend: string[]
+  outputPartial: string
+  outputReset: boolean
+  outputEpoch: number
+  outputSeq: number
   widgets: Widget[]
   world: World
 }
