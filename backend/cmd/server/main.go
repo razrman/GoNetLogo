@@ -26,6 +26,11 @@ func main() {
 	flag.Parse()
 
 	store := session.NewStore()
+	if dir, err := session.ModelsDir(); err != nil {
+		log.Printf("model files: %v (embedded demos still load)", err)
+	} else {
+		log.Printf("model files confined to %s", dir)
+	}
 	srv := newHandler(store)
 
 	ui, err := openUI(*webDir)

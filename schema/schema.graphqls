@@ -11,7 +11,25 @@ type Query {
 
 type Mutation {
   createSession(model: String!): Session!
+  """
+  Load one embedded demo by file name, for example fire.nlogo.
+  A path separator or .. is rejected. This does not read the filesystem.
+  """
   loadModel(sessionId: ID!, model: String!): Session!
+  """
+  Replace the session with a .nlogo or .nlogox model sent as file contents.
+  filename is the original file name. The extension picks a parser when the
+  text is ambiguous; a document that is clearly one format is parsed as that
+  format. A compile error includes a line number and leaves the current model
+  in place.
+  """
+  loadModelSource(sessionId: ID!, filename: String!, source: String!): Session!
+  """
+  Load a model file from the server models directory.
+  That directory is MODELS_DIR, or ./models when the variable is unset.
+  path is relative to it. Absolute paths and any .. segment are rejected.
+  """
+  loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
   runCommand(sessionId: ID!, text: String!): CommandResult!
   setup(sessionId: ID!): Session!

@@ -332,9 +332,32 @@ func (s *Session) compileButtonsLocked() {
 	}
 }
 
-// LoadModel replaces the program and rebuilds the world.
+// LoadModel replaces the program with an embedded demo and rebuilds the world.
 func (s *Session) LoadModel(modelName string) error {
 	name, content, err := readModel(modelName)
+	if err != nil {
+		return err
+	}
+	return s.useModel(name, content)
+}
+
+// LoadModelSource replaces the program with the contents of a .nlogo or
+// .nlogox file. filename is the original name; it is not a filesystem path.
+// A compile error leaves the current model in place.
+func (s *Session) LoadModelSource(filename, source string) error {
+	if len(source) > maxModelBytes {
+		return fmt.Errorf("model file is too large")
+	}
+	if strings.TrimSpace(source) == "" {
+		return fmt.Errorf("model file is empty")
+	}
+	return s.useModel(modelDisplayName(filename), source)
+}
+
+// LoadModelFile reads one model from the server models directory
+// (MODELS_DIR, default ./models). Paths that leave that directory are rejected.
+func (s *Session) LoadModelFile(path string) error {
+	name, content, err := readModelFile(path)
 	if err != nil {
 		return err
 	}

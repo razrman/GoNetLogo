@@ -76,6 +76,18 @@ export const LoadModel = `
   }
 `
 
+export const LoadModelSource = `
+  mutation LoadModelSource($id: ID!, $filename: String!, $source: String!) {
+    loadModelSource(sessionId: $id, filename: $filename, source: $source) {
+      id
+      modelName
+      code
+      notes
+      widgets { index kind display forever }
+    }
+  }
+`
+
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
     setCode(sessionId: $id, code: $code) { ok error }
