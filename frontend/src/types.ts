@@ -17,6 +17,31 @@ export type Widget = {
   text: string | null
 }
 
+export type DrawingMark = {
+  pen: boolean
+  erase: boolean
+  x: number
+  y: number
+  x2: number
+  y2: number
+  heading: number
+  size: number
+  shape: string
+  r: number
+  g: number
+  b: number
+}
+
+export type AgentLabel = {
+  who: number | null
+  px: number | null
+  py: number | null
+  text: string
+  r: number
+  g: number
+  b: number
+}
+
 export type Turtle = {
   who: number
   x: number
@@ -54,6 +79,8 @@ export type World = WorldView & {
   width: number
   height: number
   patchColors: string
+  drawing: DrawingMark[]
+  labels: AgentLabel[]
   turtles: Turtle[]
   links: Link[]
 }

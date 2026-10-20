@@ -232,6 +232,8 @@ var commands = map[string]primSpec{
 	"home":     {argc: 0},
 	"pen-down": {argc: 0}, "pd": {argc: 0},
 	"pen-up": {argc: 0}, "pu": {argc: 0},
+	"stamp":       {argc: 0},
+	"stamp-erase": {argc: 0},
 	"hide-turtle": {argc: 0}, "ht": {argc: 0},
 	"show-turtle": {argc: 0}, "st": {argc: 0},
 	"print":             {argc: 1},

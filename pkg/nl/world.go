@@ -50,8 +50,11 @@ type World struct {
 	rng  *rand.Rand
 	seed int64
 
-	// Drawing is a patch-resolution stamp of pen trails. Nil until first use.
-	drawing []colorRGBA
+	// marks is the drawing layer: pen strokes and stamps, oldest first.
+	// clear-drawing and clear-all drop it. Nil until something is drawn.
+	// Turtle.Label and Patch.Label stay plain strings; the view formats
+	// them when it paints. label-color and plabel-color stay in Vars.
+	marks []Mark
 
 	// mu guards mutation of the world against a concurrent render.
 	// The desktop draw thread never holds it: it paints the last view
@@ -204,7 +207,7 @@ func (w *World) recreatePatches() {
 			w.patchOrder = append(w.patchOrder, p)
 		}
 	}
-	w.drawing = nil
+	w.marks = nil
 }
 
 func (w *World) patchIndex(px, py int) int {
@@ -497,7 +500,7 @@ func (w *World) ClearAll() {
 	w.ClearTurtles()
 	w.ClearLinks()
 	w.ClearPatches()
-	w.drawing = nil
+	w.ClearDrawing()
 }
 
 func (w *World) ClearGlobals() {
@@ -1231,38 +1234,121 @@ func (w *World) patchOwns(name string) bool {
 	return false
 }
 
-// --- pen drawing ---
+// --- pen drawing and stamps ---
 
-func (w *World) drawLine(x1, y1, x2, y2, col, size float64) {
-	if w.drawing == nil {
-		w.drawing = make([]colorRGBA, w.width*w.height)
-	}
-	// Sample the segment at patch resolution.
-	steps := int(math.Hypot(x2-x1, y2-y1)*2) + 1
-	c := ColorRGBA(col)
-	cr := colorRGBA{c.R, c.G, c.B, c.A}
-	for i := 0; i <= steps; i++ {
-		f := float64(i) / float64(steps)
-		x := x1 + (x2-x1)*f
-		y := y1 + (y2-y1)*f
-		p := w.PatchAt(x, y)
-		if p == nil {
-			continue
-		}
-		w.drawing[w.patchIndex(p.PX, p.PY)] = cr
-	}
-	_ = size
+// Mark is one operation on the drawing layer. Pen is a stroke from
+// (X, Y) to (X2, Y2). A stamp leaves the turtle's shape at (X, Y).
+type Mark struct {
+	Pen, Erase    bool
+	X, Y, X2, Y2  float64
+	Heading, Size float64
+	Color         float64
+	Shape         string
 }
 
+// Stamp records the turtle's shape, color, size, and heading on the
+// drawing layer. erase removes drawing under that shape.
+func (w *World) Stamp(t *Turtle, erase bool) {
+	if t == nil || t.dead {
+		return
+	}
+	shape := t.Shape
+	if shape == "" {
+		shape = "default"
+	}
+	w.marks = append(w.marks, Mark{
+		Erase:   erase,
+		X:       t.X,
+		Y:       t.Y,
+		X2:      t.X,
+		Y2:      t.Y,
+		Heading: t.Heading,
+		Size:    t.Size,
+		Color:   t.Color,
+		Shape:   shape,
+	})
+}
+
+// Marks returns a copy of the drawing layer, oldest first.
+func (w *World) Marks() []Mark {
+	if len(w.marks) == 0 {
+		return nil
+	}
+	out := make([]Mark, len(w.marks))
+	copy(out, w.marks)
+	return out
+}
+
+// ClearDrawing drops pen trails and stamps. Turtles, labels, and patch
+// colors stay. clear-all clears the drawing too.
+func (w *World) ClearDrawing() {
+	w.marks = nil
+}
+
+func (w *World) drawLine(x1, y1, x2, y2, col, size float64) {
+	if size <= 0 {
+		size = 1
+	}
+	w.marks = append(w.marks, Mark{
+		Pen:   true,
+		X:     x1,
+		Y:     y1,
+		X2:    x2,
+		Y2:    y2,
+		Size:  size,
+		Color: col,
+	})
+}
+
+// DrawingAt reports the ink on a patch after replaying the drawing layer.
+// The center of the patch is what counts. ok is false when that point is bare.
 func (w *World) DrawingAt(px, py int) (colorRGBA, bool) {
-	if w.drawing == nil || !w.inBounds(px, py) {
+	if !w.inBounds(px, py) {
 		return colorRGBA{}, false
 	}
-	c := w.drawing[w.patchIndex(px, py)]
-	if c.A == 0 {
-		return c, false
+	var cur colorRGBA
+	hit := false
+	for i := range w.marks {
+		m := &w.marks[i]
+		if m.Pen {
+			if !w.segmentHitsPatch(m, px, py) {
+				continue
+			}
+			c := ColorRGBA(m.Color)
+			cur = colorRGBA{c.R, c.G, c.B, 255}
+			hit = true
+			continue
+		}
+		if !shapeCovers(*m, px, py) {
+			continue
+		}
+		if m.Erase {
+			cur = colorRGBA{}
+			hit = false
+			continue
+		}
+		c := ColorRGBA(m.Color)
+		cur = colorRGBA{c.R, c.G, c.B, 255}
+		hit = true
 	}
-	return c, true
+	return cur, hit
+}
+
+func (w *World) segmentHitsPatch(m *Mark, px, py int) bool {
+	steps := int(math.Hypot(m.X2-m.X, m.Y2-m.Y)*2) + 1
+	if steps < 1 {
+		steps = 1
+	}
+	for i := 0; i <= steps; i++ {
+		f := float64(i) / float64(steps)
+		x := m.X + (m.X2-m.X)*f
+		y := m.Y + (m.Y2-m.Y)*f
+		p := w.PatchAt(x, y)
+		if p != nil && p.PX == px && p.PY == py {
+			return true
+		}
+	}
+	return false
 }
 
 // Shuffle copies agents and shuffles them with the world RNG.

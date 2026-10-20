@@ -811,7 +811,12 @@ func (s *Session) sessionLocked() *model.Session {
 		Log:       append([]string(nil), s.log...),
 		Notes:     []string{},
 		Widgets:   []model.Widget{},
-		World:     model.World{Turtles: []model.Turtle{}, Links: []model.Link{}},
+		World: model.World{
+			Turtles: []model.Turtle{},
+			Links:   []model.Link{},
+			Drawing: []model.DrawingMark{},
+			Labels:  []model.AgentLabel{},
+		},
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
@@ -919,6 +924,8 @@ func worldLocked(w *nl.World) model.World {
 		PatchColors: patchColors(w),
 		Turtles:     []model.Turtle{},
 		Links:       []model.Link{},
+		Drawing:     drawingMarks(w),
+		Labels:      viewLabels(w),
 	}
 	if turtles := w.Turtles(); turtles != nil {
 		for _, a := range turtles.Alive() {
@@ -981,6 +988,42 @@ func patchColors(w *nl.World) string {
 		}
 	}
 	return base64.StdEncoding.EncodeToString(raw)
+}
+
+func drawingMarks(w *nl.World) []model.DrawingMark {
+	marks := w.Marks()
+	out := make([]model.DrawingMark, 0, len(marks))
+	for _, m := range marks {
+		c := nl.ColorRGBA(m.Color)
+		out = append(out, model.DrawingMark{
+			Pen: m.Pen, Erase: m.Erase,
+			X: m.X, Y: m.Y, X2: m.X2, Y2: m.Y2,
+			Heading: m.Heading, Size: m.Size, Shape: m.Shape,
+			R: int(c.R), G: int(c.G), B: int(c.B),
+		})
+	}
+	return out
+}
+
+func viewLabels(w *nl.World) []model.AgentLabel {
+	labels := w.ViewLabels()
+	out := make([]model.AgentLabel, 0, len(labels))
+	for _, lb := range labels {
+		item := model.AgentLabel{
+			Text: lb.Text,
+			R:    int(lb.R), G: int(lb.G), B: int(lb.B),
+		}
+		if lb.Turtle {
+			who := lb.Who
+			item.Who = &who
+		} else {
+			px, py := lb.PX, lb.PY
+			item.Px = &px
+			item.Py = &py
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func colorOf(hasRGB bool, rgb color.RGBA, colorNum float64) (int, int, int) {

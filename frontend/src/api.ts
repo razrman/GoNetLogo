@@ -228,6 +228,8 @@ export const Frames = `
         wrapX
         wrapY
         patchColors
+        drawing { pen erase x y x2 y2 heading size shape r g b }
+        labels { who px py text r g b }
         turtles { who x y heading size shape hidden r g b }
         links { x1 y1 x2 y2 hidden r g b }
       }
