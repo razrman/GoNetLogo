@@ -26,7 +26,8 @@ func DefaultView() ViewSpec {
 	return ViewSpec{MinPxcor: -16, MaxPxcor: 16, MinPycor: -16, MaxPycor: 16, WrapX: true, WrapY: true, PatchSize: 13, Set: true}
 }
 
-// Widget is one interface widget. Plots are recorded as Kind "plot" and are not run.
+// Widget is one interface widget. A plot widget's pens and ranges are in
+// the plot fields; the interpreter copies them onto the VM.
 type Widget struct {
 	Kind     string // button, slider, switch, monitor, chooser, input, note, plot, output
 	X, Y     int
@@ -50,6 +51,14 @@ type Widget struct {
 	DisableUntilTicks bool
 	// FontSize is the output widget's point size. Other widgets leave it 0.
 	FontSize int
+	// Plot widget. XMin/XMax/YMin/YMax are the starting ranges. AutoPlot
+	// grows them when a pen-down sample falls outside.
+	XLabel, YLabel        string
+	XMin, XMax            float64
+	YMin, YMax            float64
+	AutoPlot, Legend      bool
+	PlotSetup, PlotUpdate string
+	Pens                  []PlotPenSpec
 }
 
 // FileModel is a program plus the widgets parsed from a .nlogo or .nlogox file.
@@ -58,7 +67,7 @@ type FileModel struct {
 	Code    string
 	View    ViewSpec
 	Widgets []Widget
-	// Notes lists widgets this milestone does not run (plots, and anything unrecognized).
+	// Notes lists widgets this loader does not run.
 	Notes []string
 }
 
@@ -212,12 +221,7 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 			X: atoi(lineAt(lines, 1)), Y: atoi(lineAt(lines, 2)),
 		})
 	case "PLOT":
-		name := optString(lineAt(lines, 5))
-		if name == "" {
-			name = "plot"
-		}
-		m.Notes = append(m.Notes, "plot not implemented: "+name)
-		m.Widgets = append(m.Widgets, Widget{Kind: "plot", Display: name})
+		m.Widgets = append(m.Widgets, parsePlotLines(lines))
 	case "OUTPUT":
 		m.Widgets = append(m.Widgets, parseOutputLines(lines))
 	default:
@@ -496,15 +500,11 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			}
 			m.Widgets = append(m.Widgets, Widget{Kind: "note", Display: text})
 		case "plot":
-			disp := attr(se, "display")
-			if disp == "" {
-				disp = "plot"
-			}
-			m.Notes = append(m.Notes, "plot not implemented: "+disp)
-			m.Widgets = append(m.Widgets, Widget{Kind: "plot", Display: disp})
-			if err := dec.Skip(); err != nil {
+			w, err := plotFromXML(dec, se)
+			if err != nil {
 				return nil, err
 			}
+			m.Widgets = append(m.Widgets, w)
 		case "output":
 			m.Widgets = append(m.Widgets, outputFromXML(se))
 			if err := dec.Skip(); err != nil {
@@ -660,6 +660,337 @@ func choiceValue(typ, value, text string) Value {
 	}
 }
 
+func parsePlotLines(lines []string) Widget {
+	x1 := atoi(lineAt(lines, 1))
+	y1 := atoi(lineAt(lines, 2))
+	x2 := atoi(lineAt(lines, 3))
+	y2 := atoi(lineAt(lines, 4))
+	w := x2 - x1
+	h := y2 - y1
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	rest := lines[5:]
+	pensAt := -1
+	for i, line := range rest {
+		if strings.EqualFold(strings.TrimSpace(line), "PENS") {
+			pensAt = i
+			break
+		}
+	}
+	header := rest
+	var penLines []string
+	if pensAt >= 0 {
+		header = rest[:pensAt]
+		penLines = rest[pensAt+1:]
+	}
+	name := optString(lineAt(header, 0))
+	if name == "" {
+		name = "plot"
+	}
+	xMin := atof(lineAt(header, 3))
+	xMax := atof(lineAt(header, 4))
+	yMin := atof(lineAt(header, 5))
+	yMax := atof(lineAt(header, 6))
+	if xMax <= xMin {
+		xMin, xMax = 0, 10
+	}
+	if yMax <= yMin {
+		yMin, yMax = 0, 10
+	}
+	auto := true
+	if len(header) > 7 && strings.EqualFold(lineAt(header, 7), "false") {
+		auto = false
+	}
+	legend := false
+	if len(header) > 8 && strings.EqualFold(lineAt(header, 8), "true") {
+		legend = true
+	}
+	setup, update := "", ""
+	if len(header) > 9 {
+		setup, update = plotCodePair(lineAt(header, 9))
+	}
+	pens := make([]PlotPenSpec, 0, len(penLines))
+	for _, line := range penLines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if pen, ok := parsePenLine(line); ok {
+			pens = append(pens, pen)
+		}
+	}
+	return Widget{
+		Kind: "plot", Display: name,
+		X: x1, Y: y1, W: w, H: h,
+		XLabel: optString(lineAt(header, 1)), YLabel: optString(lineAt(header, 2)),
+		XMin: xMin, XMax: xMax, YMin: yMin, YMax: yMax,
+		AutoPlot: auto, Legend: legend,
+		PlotSetup: setup, PlotUpdate: update,
+		Pens: pens,
+	}
+}
+
+func plotCodePair(line string) (setup, update string) {
+	toks := scanPlotTokens(line)
+	if len(toks) > 0 {
+		setup = toks[0]
+	}
+	if len(toks) > 1 {
+		update = toks[1]
+	}
+	return setup, update
+}
+
+func parsePenLine(line string) (PlotPenSpec, bool) {
+	toks := scanPlotTokens(line)
+	if len(toks) == 0 {
+		return PlotPenSpec{}, false
+	}
+	pen := PlotPenSpec{
+		Name: toks[0], Interval: 1, Mode: 0, Color: defaultPenColor, InLegend: true,
+	}
+	if len(toks) > 1 {
+		pen.Interval = atof(toks[1])
+		if pen.Interval == 0 {
+			pen.Interval = 1
+		}
+	}
+	if len(toks) > 2 {
+		pen.Mode = atoi(toks[2])
+	}
+	if len(toks) > 3 {
+		pen.Color = int32(atoi(toks[3]))
+		if pen.Color == 0 {
+			pen.Color = defaultPenColor
+		}
+	}
+	if len(toks) > 4 {
+		pen.InLegend = !strings.EqualFold(toks[4], "false")
+	}
+	if len(toks) > 5 {
+		pen.Setup = toks[5]
+	}
+	if len(toks) > 6 {
+		pen.Update = toks[6]
+	}
+	return pen, true
+}
+
+// scanPlotTokens splits a pen line or a "setup" "update" pair. Quoted
+// strings keep their contents, including spaces. \" \\ \n \t \r are escapes.
+func scanPlotTokens(s string) []string {
+	var out []string
+	i := 0
+	for i < len(s) {
+		if s[i] == ' ' || s[i] == '\t' {
+			i++
+			continue
+		}
+		if s[i] == '"' {
+			var b strings.Builder
+			i++
+			for i < len(s) {
+				if s[i] == '\\' && i+1 < len(s) {
+					switch s[i+1] {
+					case 'n':
+						b.WriteByte('\n')
+					case 't':
+						b.WriteByte('\t')
+					case 'r':
+						b.WriteByte('\r')
+					default:
+						b.WriteByte(s[i+1])
+					}
+					i += 2
+					continue
+				}
+				if s[i] == '"' {
+					i++
+					break
+				}
+				b.WriteByte(s[i])
+				i++
+			}
+			out = append(out, b.String())
+			continue
+		}
+		j := i
+		for j < len(s) && s[j] != ' ' && s[j] != '\t' {
+			j++
+		}
+		out = append(out, s[i:j])
+		i = j
+	}
+	return out
+}
+
+func plotFromXML(dec *xml.Decoder, se xml.StartElement) (Widget, error) {
+	name := firstAttr(se, "display", "name")
+	if name == "" {
+		name = "plot"
+	}
+	x := atoi(firstAttr(se, "x", "left"))
+	y := atoi(firstAttr(se, "y", "top"))
+	w := atoi(firstAttr(se, "width"))
+	h := atoi(firstAttr(se, "height"))
+	if w == 0 && h == 0 {
+		right := atoi(firstAttr(se, "right"))
+		bottom := atoi(firstAttr(se, "bottom"))
+		if right != 0 || bottom != 0 {
+			w = right - x
+			h = bottom - y
+		}
+	}
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	xMin := atof(firstAttr(se, "xMin", "xmin"))
+	xMax := atof(firstAttr(se, "xMax", "xmax"))
+	yMin := atof(firstAttr(se, "yMin", "ymin"))
+	yMax := atof(firstAttr(se, "yMax", "ymax"))
+	if xMax <= xMin {
+		xMin, xMax = 0, 10
+	}
+	if yMax <= yMin {
+		yMin, yMax = 0, 10
+	}
+	auto := true
+	if a := firstAttr(se, "autoPlot", "autoPlotOn"); a != "" {
+		auto = !strings.EqualFold(a, "false")
+	}
+	legend := false
+	if a := firstAttr(se, "legend", "legendOn"); strings.EqualFold(a, "true") {
+		legend = true
+	}
+	widget := Widget{
+		Kind: "plot", Display: name, X: x, Y: y, W: w, H: h,
+		XLabel: firstAttr(se, "xLabel", "xlabel", "xAxis"),
+		YLabel: firstAttr(se, "yLabel", "ylabel", "yAxis"),
+		XMin:   xMin, XMax: xMax, YMin: yMin, YMax: yMax,
+		AutoPlot: auto, Legend: legend,
+	}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return Widget{}, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "setup":
+				text, err := xmlText(dec, t)
+				if err != nil {
+					return Widget{}, err
+				}
+				widget.PlotSetup = strings.TrimSpace(text)
+			case "update":
+				text, err := xmlText(dec, t)
+				if err != nil {
+					return Widget{}, err
+				}
+				widget.PlotUpdate = strings.TrimSpace(text)
+			case "pen":
+				pen, err := penFromXML(dec, t)
+				if err != nil {
+					return Widget{}, err
+				}
+				widget.Pens = append(widget.Pens, pen)
+			default:
+				if err := dec.Skip(); err != nil {
+					return Widget{}, err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == "plot" {
+				return widget, nil
+			}
+		}
+	}
+}
+
+func penFromXML(dec *xml.Decoder, se xml.StartElement) (PlotPenSpec, error) {
+	name := firstAttr(se, "name", "display")
+	if name == "" {
+		name = "default"
+	}
+	interval := atof(attr(se, "interval"))
+	if interval == 0 {
+		interval = 1
+	}
+	color := int32(atoi(attr(se, "color")))
+	if attr(se, "color") == "" || color == 0 {
+		color = defaultPenColor
+	}
+	pen := PlotPenSpec{
+		Name: name, Interval: interval, Mode: atoi(attr(se, "mode")), Color: color,
+		InLegend: !strings.EqualFold(firstAttr(se, "legend", "inLegend"), "false"),
+		Setup:    attr(se, "setup"), Update: attr(se, "update"),
+	}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return PlotPenSpec{}, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			text, err := xmlText(dec, t)
+			if err != nil {
+				return PlotPenSpec{}, err
+			}
+			switch t.Name.Local {
+			case "setup":
+				pen.Setup = strings.TrimSpace(text)
+			case "update":
+				pen.Update = strings.TrimSpace(text)
+			}
+		case xml.EndElement:
+			if t.Name.Local == "pen" {
+				return pen, nil
+			}
+		}
+	}
+}
+
+func xmlText(dec *xml.Decoder, se xml.StartElement) (string, error) {
+	var text string
+	if err := dec.DecodeElement(&text, &se); err != nil {
+		return "", err
+	}
+	return text, nil
+}
+
+func firstAttr(se xml.StartElement, names ...string) string {
+	for _, name := range names {
+		if v := attr(se, name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func plotSpecs(widgets []Widget) []PlotSpec {
+	var out []PlotSpec
+	for _, w := range widgets {
+		if w.Kind != "plot" {
+			continue
+		}
+		out = append(out, PlotSpec{
+			Name: w.Display, XLabel: w.XLabel, YLabel: w.YLabel,
+			XMin: w.XMin, XMax: w.XMax, YMin: w.YMin, YMax: w.YMax,
+			AutoPlot: w.AutoPlot, Legend: w.Legend,
+			Setup: w.PlotSetup, Update: w.PlotUpdate,
+			Pens: append([]PlotPenSpec(nil), w.Pens...),
+		})
+	}
+	return out
+}
+
 func parseOutputLines(lines []string) Widget {
 	// NetLogo writes left, top, right, bottom, then the font size.
 	x1 := atoi(lineAt(lines, 1))
@@ -766,9 +1097,11 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 	return vm, nil
 }
 
-// Apply copies slider, switch, chooser, and input values into globals.
+// Apply copies slider, switch, chooser, and input values into globals,
+// and installs plot widgets on the VM.
 func (m *FileModel) Apply(vm *VM) {
 	vm.SetHasOutput(m.HasOutput())
+	vm.InstallPlots(plotSpecs(m.Widgets))
 	for i := range m.Widgets {
 		w := &m.Widgets[i]
 		if w.Variable == "" {

@@ -100,6 +100,8 @@ type ComplexityRoot struct {
 		OutputPartial func(childComplexity int) int
 		OutputReset   func(childComplexity int) int
 		OutputSeq     func(childComplexity int) int
+		PlotAppend    func(childComplexity int) int
+		Plots         func(childComplexity int) int
 		PublishedFps  func(childComplexity int) int
 		Running       func(childComplexity int) int
 		SessionID     func(childComplexity int) int
@@ -142,6 +144,45 @@ type ComplexityRoot struct {
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
 		Stop            func(childComplexity int, sessionID string) int
+	}
+
+	PlotPenDelta struct {
+		Epoch     func(childComplexity int) int
+		PenIndex  func(childComplexity int) int
+		PlotIndex func(childComplexity int) int
+		Points    func(childComplexity int) int
+		Reset     func(childComplexity int) int
+		Seq       func(childComplexity int) int
+	}
+
+	PlotPenView struct {
+		B        func(childComplexity int) int
+		G        func(childComplexity int) int
+		Interval func(childComplexity int) int
+		Mode     func(childComplexity int) int
+		Name     func(childComplexity int) int
+		R        func(childComplexity int) int
+	}
+
+	PlotPoint struct {
+		Down func(childComplexity int) int
+		X    func(childComplexity int) int
+		Y    func(childComplexity int) int
+	}
+
+	PlotView struct {
+		AutoPlot func(childComplexity int) int
+		Error    func(childComplexity int) int
+		Index    func(childComplexity int) int
+		Legend   func(childComplexity int) int
+		Name     func(childComplexity int) int
+		Pens     func(childComplexity int) int
+		XLabel   func(childComplexity int) int
+		XMax     func(childComplexity int) int
+		XMin     func(childComplexity int) int
+		YLabel   func(childComplexity int) int
+		YMax     func(childComplexity int) int
+		YMin     func(childComplexity int) int
 	}
 
 	Query struct {
@@ -557,6 +598,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Frame.OutputSeq(childComplexity), true
 
+	case "Frame.plotAppend":
+		if e.complexity.Frame.PlotAppend == nil {
+			break
+		}
+
+		return e.complexity.Frame.PlotAppend(childComplexity), true
+
+	case "Frame.plots":
+		if e.complexity.Frame.Plots == nil {
+			break
+		}
+
+		return e.complexity.Frame.Plots(childComplexity), true
+
 	case "Frame.publishedFps":
 		if e.complexity.Frame.PublishedFps == nil {
 			break
@@ -898,6 +953,195 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.Stop(childComplexity, args["sessionId"].(string)), true
+
+	case "PlotPenDelta.epoch":
+		if e.complexity.PlotPenDelta.Epoch == nil {
+			break
+		}
+
+		return e.complexity.PlotPenDelta.Epoch(childComplexity), true
+
+	case "PlotPenDelta.penIndex":
+		if e.complexity.PlotPenDelta.PenIndex == nil {
+			break
+		}
+
+		return e.complexity.PlotPenDelta.PenIndex(childComplexity), true
+
+	case "PlotPenDelta.plotIndex":
+		if e.complexity.PlotPenDelta.PlotIndex == nil {
+			break
+		}
+
+		return e.complexity.PlotPenDelta.PlotIndex(childComplexity), true
+
+	case "PlotPenDelta.points":
+		if e.complexity.PlotPenDelta.Points == nil {
+			break
+		}
+
+		return e.complexity.PlotPenDelta.Points(childComplexity), true
+
+	case "PlotPenDelta.reset":
+		if e.complexity.PlotPenDelta.Reset == nil {
+			break
+		}
+
+		return e.complexity.PlotPenDelta.Reset(childComplexity), true
+
+	case "PlotPenDelta.seq":
+		if e.complexity.PlotPenDelta.Seq == nil {
+			break
+		}
+
+		return e.complexity.PlotPenDelta.Seq(childComplexity), true
+
+	case "PlotPenView.b":
+		if e.complexity.PlotPenView.B == nil {
+			break
+		}
+
+		return e.complexity.PlotPenView.B(childComplexity), true
+
+	case "PlotPenView.g":
+		if e.complexity.PlotPenView.G == nil {
+			break
+		}
+
+		return e.complexity.PlotPenView.G(childComplexity), true
+
+	case "PlotPenView.interval":
+		if e.complexity.PlotPenView.Interval == nil {
+			break
+		}
+
+		return e.complexity.PlotPenView.Interval(childComplexity), true
+
+	case "PlotPenView.mode":
+		if e.complexity.PlotPenView.Mode == nil {
+			break
+		}
+
+		return e.complexity.PlotPenView.Mode(childComplexity), true
+
+	case "PlotPenView.name":
+		if e.complexity.PlotPenView.Name == nil {
+			break
+		}
+
+		return e.complexity.PlotPenView.Name(childComplexity), true
+
+	case "PlotPenView.r":
+		if e.complexity.PlotPenView.R == nil {
+			break
+		}
+
+		return e.complexity.PlotPenView.R(childComplexity), true
+
+	case "PlotPoint.down":
+		if e.complexity.PlotPoint.Down == nil {
+			break
+		}
+
+		return e.complexity.PlotPoint.Down(childComplexity), true
+
+	case "PlotPoint.x":
+		if e.complexity.PlotPoint.X == nil {
+			break
+		}
+
+		return e.complexity.PlotPoint.X(childComplexity), true
+
+	case "PlotPoint.y":
+		if e.complexity.PlotPoint.Y == nil {
+			break
+		}
+
+		return e.complexity.PlotPoint.Y(childComplexity), true
+
+	case "PlotView.autoPlot":
+		if e.complexity.PlotView.AutoPlot == nil {
+			break
+		}
+
+		return e.complexity.PlotView.AutoPlot(childComplexity), true
+
+	case "PlotView.error":
+		if e.complexity.PlotView.Error == nil {
+			break
+		}
+
+		return e.complexity.PlotView.Error(childComplexity), true
+
+	case "PlotView.index":
+		if e.complexity.PlotView.Index == nil {
+			break
+		}
+
+		return e.complexity.PlotView.Index(childComplexity), true
+
+	case "PlotView.legend":
+		if e.complexity.PlotView.Legend == nil {
+			break
+		}
+
+		return e.complexity.PlotView.Legend(childComplexity), true
+
+	case "PlotView.name":
+		if e.complexity.PlotView.Name == nil {
+			break
+		}
+
+		return e.complexity.PlotView.Name(childComplexity), true
+
+	case "PlotView.pens":
+		if e.complexity.PlotView.Pens == nil {
+			break
+		}
+
+		return e.complexity.PlotView.Pens(childComplexity), true
+
+	case "PlotView.xLabel":
+		if e.complexity.PlotView.XLabel == nil {
+			break
+		}
+
+		return e.complexity.PlotView.XLabel(childComplexity), true
+
+	case "PlotView.xMax":
+		if e.complexity.PlotView.XMax == nil {
+			break
+		}
+
+		return e.complexity.PlotView.XMax(childComplexity), true
+
+	case "PlotView.xMin":
+		if e.complexity.PlotView.XMin == nil {
+			break
+		}
+
+		return e.complexity.PlotView.XMin(childComplexity), true
+
+	case "PlotView.yLabel":
+		if e.complexity.PlotView.YLabel == nil {
+			break
+		}
+
+		return e.complexity.PlotView.YLabel(childComplexity), true
+
+	case "PlotView.yMax":
+		if e.complexity.PlotView.YMax == nil {
+			break
+		}
+
+		return e.complexity.PlotView.YMax(childComplexity), true
+
+	case "PlotView.yMin":
+		if e.complexity.PlotView.YMin == nil {
+			break
+		}
+
+		return e.complexity.PlotView.YMin(childComplexity), true
 
 	case "Query.models":
 		if e.complexity.Query.Models == nil {
@@ -1729,6 +1973,62 @@ type Frame {
   outputSeq: Int!
   widgets: [Widget!]!
   world: World!
+  """Plots in widget order. Points are not included; see plotAppend."""
+  plots: [PlotView!]!
+  """
+  Samples added since this subscriber's previous frame.
+  A pen with nothing new is omitted. reset replaces that pen's samples.
+  """
+  plotAppend: [PlotPenDelta!]!
+}
+
+"""Axes and pens for one plot. The point history is not in this object."""
+type PlotView {
+  index: Int!
+  name: String!
+  xLabel: String!
+  yLabel: String!
+  xMin: Float!
+  xMax: Float!
+  yMin: Float!
+  yMax: Float!
+  """True when a pen-down sample outside the range grows that range."""
+  autoPlot: Boolean!
+  legend: Boolean!
+  """Compile or runtime error from the plot or a pen. Empty when healthy."""
+  error: String!
+  pens: [PlotPenView!]!
+}
+
+"""One pen, without its samples."""
+type PlotPenView {
+  name: String!
+  r: Int!
+  g: Int!
+  b: Int!
+  """line, bar, or point."""
+  mode: String!
+  interval: Float!
+}
+
+"""One sample. down is false when the pen was up, which breaks the line."""
+type PlotPoint {
+  x: Float!
+  y: Float!
+  down: Boolean!
+}
+
+"""Samples one pen gained since the subscriber's cursor."""
+type PlotPenDelta {
+  plotIndex: Int!
+  penIndex: Int!
+  """Changes when the pen is cleared."""
+  epoch: Int!
+  """Samples added in this epoch, including ones dropped from the retained window."""
+  seq: Int!
+  """True when the subscriber should discard this pen's previous samples."""
+  reset: Boolean!
+  points: [PlotPoint!]!
 }
 
 type Widget {
@@ -4699,6 +4999,134 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 	return fc, nil
 }
 
+func (ec *executionContext) _Frame_plots(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_plots(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Plots, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.PlotView)
+	fc.Result = res
+	return ec.marshalNPlotView2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotViewᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_plots(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "index":
+				return ec.fieldContext_PlotView_index(ctx, field)
+			case "name":
+				return ec.fieldContext_PlotView_name(ctx, field)
+			case "xLabel":
+				return ec.fieldContext_PlotView_xLabel(ctx, field)
+			case "yLabel":
+				return ec.fieldContext_PlotView_yLabel(ctx, field)
+			case "xMin":
+				return ec.fieldContext_PlotView_xMin(ctx, field)
+			case "xMax":
+				return ec.fieldContext_PlotView_xMax(ctx, field)
+			case "yMin":
+				return ec.fieldContext_PlotView_yMin(ctx, field)
+			case "yMax":
+				return ec.fieldContext_PlotView_yMax(ctx, field)
+			case "autoPlot":
+				return ec.fieldContext_PlotView_autoPlot(ctx, field)
+			case "legend":
+				return ec.fieldContext_PlotView_legend(ctx, field)
+			case "error":
+				return ec.fieldContext_PlotView_error(ctx, field)
+			case "pens":
+				return ec.fieldContext_PlotView_pens(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PlotView", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_plotAppend(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_plotAppend(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PlotAppend, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.PlotPenDelta)
+	fc.Result = res
+	return ec.marshalNPlotPenDelta2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenDeltaᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_plotAppend(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "plotIndex":
+				return ec.fieldContext_PlotPenDelta_plotIndex(ctx, field)
+			case "penIndex":
+				return ec.fieldContext_PlotPenDelta_penIndex(ctx, field)
+			case "epoch":
+				return ec.fieldContext_PlotPenDelta_epoch(ctx, field)
+			case "seq":
+				return ec.fieldContext_PlotPenDelta_seq(ctx, field)
+			case "reset":
+				return ec.fieldContext_PlotPenDelta_reset(ctx, field)
+			case "points":
+				return ec.fieldContext_PlotPenDelta_points(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PlotPenDelta", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Link_x1(ctx context.Context, field graphql.CollectedField, obj *model.Link) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Link_x1(ctx, field)
 	if err != nil {
@@ -6731,6 +7159,1216 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _PlotPenDelta_plotIndex(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenDelta) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenDelta_plotIndex(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PlotIndex, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenDelta_plotIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenDelta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenDelta_penIndex(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenDelta) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenDelta_penIndex(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PenIndex, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenDelta_penIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenDelta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenDelta_epoch(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenDelta) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenDelta_epoch(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Epoch, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenDelta_epoch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenDelta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenDelta_seq(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenDelta) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenDelta_seq(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Seq, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenDelta_seq(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenDelta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenDelta_reset(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenDelta) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenDelta_reset(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Reset, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenDelta_reset(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenDelta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenDelta_points(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenDelta) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenDelta_points(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Points, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.PlotPoint)
+	fc.Result = res
+	return ec.marshalNPlotPoint2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPointᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenDelta_points(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenDelta",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "x":
+				return ec.fieldContext_PlotPoint_x(ctx, field)
+			case "y":
+				return ec.fieldContext_PlotPoint_y(ctx, field)
+			case "down":
+				return ec.fieldContext_PlotPoint_down(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PlotPoint", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenView_name(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenView_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenView_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenView_r(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenView_r(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.R, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenView_r(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenView_g(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenView_g(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.G, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenView_g(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenView_b(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenView_b(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.B, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenView_b(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenView_mode(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenView_mode(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Mode, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenView_mode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPenView_interval(ctx context.Context, field graphql.CollectedField, obj *model.PlotPenView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPenView_interval(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Interval, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPenView_interval(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPenView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPoint_x(ctx context.Context, field graphql.CollectedField, obj *model.PlotPoint) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPoint_x(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.X, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPoint_x(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPoint",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPoint_y(ctx context.Context, field graphql.CollectedField, obj *model.PlotPoint) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPoint_y(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Y, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPoint_y(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPoint",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotPoint_down(ctx context.Context, field graphql.CollectedField, obj *model.PlotPoint) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotPoint_down(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Down, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotPoint_down(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotPoint",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_index(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_index(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Index, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_index(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_name(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_xLabel(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_xLabel(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.XLabel, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_xLabel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_yLabel(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_yLabel(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.YLabel, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_yLabel(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_xMin(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_xMin(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.XMin, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_xMin(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_xMax(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_xMax(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.XMax, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_xMax(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_yMin(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_yMin(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.YMin, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_yMin(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_yMax(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_yMax(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.YMax, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_yMax(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_autoPlot(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_autoPlot(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.AutoPlot, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_autoPlot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_legend(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_legend(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Legend, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_legend(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_error(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_error(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Error, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PlotView_pens(ctx context.Context, field graphql.CollectedField, obj *model.PlotView) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PlotView_pens(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Pens, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.PlotPenView)
+	fc.Result = res
+	return ec.marshalNPlotPenView2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenViewᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PlotView_pens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PlotView",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_PlotPenView_name(ctx, field)
+			case "r":
+				return ec.fieldContext_PlotPenView_r(ctx, field)
+			case "g":
+				return ec.fieldContext_PlotPenView_g(ctx, field)
+			case "b":
+				return ec.fieldContext_PlotPenView_b(ctx, field)
+			case "mode":
+				return ec.fieldContext_PlotPenView_mode(ctx, field)
+			case "interval":
+				return ec.fieldContext_PlotPenView_interval(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PlotPenView", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_models(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Query_models(ctx, field)
 	if err != nil {
@@ -8115,6 +9753,10 @@ func (ec *executionContext) fieldContext_Subscription_frames(ctx context.Context
 				return ec.fieldContext_Frame_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Frame_world(ctx, field)
+			case "plots":
+				return ec.fieldContext_Frame_plots(ctx, field)
+			case "plotAppend":
+				return ec.fieldContext_Frame_plotAppend(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Frame", field.Name)
 		},
@@ -12659,6 +14301,16 @@ func (ec *executionContext) _Frame(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "plots":
+			out.Values[i] = ec._Frame_plots(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "plotAppend":
+			out.Values[i] = ec._Frame_plotAppend(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -12898,6 +14550,277 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setWorld(ctx, field)
 			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var plotPenDeltaImplementors = []string{"PlotPenDelta"}
+
+func (ec *executionContext) _PlotPenDelta(ctx context.Context, sel ast.SelectionSet, obj *model.PlotPenDelta) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, plotPenDeltaImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PlotPenDelta")
+		case "plotIndex":
+			out.Values[i] = ec._PlotPenDelta_plotIndex(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "penIndex":
+			out.Values[i] = ec._PlotPenDelta_penIndex(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "epoch":
+			out.Values[i] = ec._PlotPenDelta_epoch(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "seq":
+			out.Values[i] = ec._PlotPenDelta_seq(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reset":
+			out.Values[i] = ec._PlotPenDelta_reset(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "points":
+			out.Values[i] = ec._PlotPenDelta_points(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var plotPenViewImplementors = []string{"PlotPenView"}
+
+func (ec *executionContext) _PlotPenView(ctx context.Context, sel ast.SelectionSet, obj *model.PlotPenView) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, plotPenViewImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PlotPenView")
+		case "name":
+			out.Values[i] = ec._PlotPenView_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "r":
+			out.Values[i] = ec._PlotPenView_r(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "g":
+			out.Values[i] = ec._PlotPenView_g(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "b":
+			out.Values[i] = ec._PlotPenView_b(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "mode":
+			out.Values[i] = ec._PlotPenView_mode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "interval":
+			out.Values[i] = ec._PlotPenView_interval(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var plotPointImplementors = []string{"PlotPoint"}
+
+func (ec *executionContext) _PlotPoint(ctx context.Context, sel ast.SelectionSet, obj *model.PlotPoint) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, plotPointImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PlotPoint")
+		case "x":
+			out.Values[i] = ec._PlotPoint_x(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "y":
+			out.Values[i] = ec._PlotPoint_y(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "down":
+			out.Values[i] = ec._PlotPoint_down(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var plotViewImplementors = []string{"PlotView"}
+
+func (ec *executionContext) _PlotView(ctx context.Context, sel ast.SelectionSet, obj *model.PlotView) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, plotViewImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PlotView")
+		case "index":
+			out.Values[i] = ec._PlotView_index(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._PlotView_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "xLabel":
+			out.Values[i] = ec._PlotView_xLabel(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "yLabel":
+			out.Values[i] = ec._PlotView_yLabel(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "xMin":
+			out.Values[i] = ec._PlotView_xMin(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "xMax":
+			out.Values[i] = ec._PlotView_xMax(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "yMin":
+			out.Values[i] = ec._PlotView_yMin(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "yMax":
+			out.Values[i] = ec._PlotView_yMax(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "autoPlot":
+			out.Values[i] = ec._PlotView_autoPlot(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "legend":
+			out.Values[i] = ec._PlotView_legend(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._PlotView_error(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pens":
+			out.Values[i] = ec._PlotView_pens(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -14109,6 +16032,198 @@ func (ec *executionContext) marshalNLink2ᚕgonetlogoᚋbackendᚋgraphᚋmodel�
 				defer wg.Done()
 			}
 			ret[i] = ec.marshalNLink2gonetlogoᚋbackendᚋgraphᚋmodelᚐLink(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNPlotPenDelta2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenDelta(ctx context.Context, sel ast.SelectionSet, v model.PlotPenDelta) graphql.Marshaler {
+	return ec._PlotPenDelta(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPlotPenDelta2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenDeltaᚄ(ctx context.Context, sel ast.SelectionSet, v []model.PlotPenDelta) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNPlotPenDelta2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenDelta(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNPlotPenView2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenView(ctx context.Context, sel ast.SelectionSet, v model.PlotPenView) graphql.Marshaler {
+	return ec._PlotPenView(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPlotPenView2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenViewᚄ(ctx context.Context, sel ast.SelectionSet, v []model.PlotPenView) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNPlotPenView2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPenView(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNPlotPoint2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPoint(ctx context.Context, sel ast.SelectionSet, v model.PlotPoint) graphql.Marshaler {
+	return ec._PlotPoint(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPlotPoint2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPointᚄ(ctx context.Context, sel ast.SelectionSet, v []model.PlotPoint) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNPlotPoint2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotPoint(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNPlotView2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotView(ctx context.Context, sel ast.SelectionSet, v model.PlotView) graphql.Marshaler {
+	return ec._PlotView(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPlotView2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPlotViewᚄ(ctx context.Context, sel ast.SelectionSet, v []model.PlotView) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNPlotView2gonetlogoᚋbackendᚋgraphᚋmodelᚐPlotView(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)

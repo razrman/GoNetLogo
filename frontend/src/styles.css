@@ -466,12 +466,47 @@ canvas.world {
 }
 
 .note { color: var(--muted); font-size: 0.85rem; white-space: pre-wrap; }
-.plot {
-  font-size: 0.85rem;
+
+.plot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.plot-card .label {
+  font-size: 0.82rem;
+  color: var(--ink);
+  font-weight: 650;
+}
+.plot-card .plot-axes {
+  font-size: 0.72rem;
   color: var(--muted);
-  border: 1px dashed var(--line);
+}
+.plot-card canvas {
+  width: 100%;
+  height: 150px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 8px;
+}
+.plot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.plot-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.plot-legend i {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
 }
 
 .code-panel {

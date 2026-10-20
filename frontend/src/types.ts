@@ -113,6 +113,47 @@ export type Frame = {
   outputSeq: number
   widgets: Widget[]
   world: World
+  plots: PlotView[]
+  plotAppend: PlotPenDelta[]
+}
+
+export type PlotPoint = {
+  x: number
+  y: number
+  down: boolean
+}
+
+export type PlotPenView = {
+  name: string
+  r: number
+  g: number
+  b: number
+  mode: string
+  interval: number
+}
+
+export type PlotView = {
+  index: number
+  name: string
+  xLabel: string
+  yLabel: string
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  autoPlot: boolean
+  legend: boolean
+  error: string
+  pens: PlotPenView[]
+}
+
+export type PlotPenDelta = {
+  plotIndex: number
+  penIndex: number
+  epoch: number
+  seq: number
+  reset: boolean
+  points: PlotPoint[]
 }
 
 export type SessionInfo = {
