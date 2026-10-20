@@ -48,6 +48,8 @@ type Widget struct {
 	InputType         string
 	Text              string
 	DisableUntilTicks bool
+	// FontSize is the output widget's point size. Other widgets leave it 0.
+	FontSize int
 }
 
 // FileModel is a program plus the widgets parsed from a .nlogo or .nlogox file.
@@ -195,7 +197,7 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 		m.Notes = append(m.Notes, "plot not implemented: "+name)
 		m.Widgets = append(m.Widgets, Widget{Kind: "plot", Display: name})
 	case "OUTPUT":
-		m.Notes = append(m.Notes, "output widget is not separate from the command center")
+		m.Widgets = append(m.Widgets, parseOutputLines(lines))
 	default:
 		m.Notes = append(m.Notes, "skipped widget "+kind)
 	}
@@ -481,6 +483,11 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			if err := dec.Skip(); err != nil {
 				return nil, err
 			}
+		case "output":
+			m.Widgets = append(m.Widgets, outputFromXML(se))
+			if err := dec.Skip(); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if strings.TrimSpace(m.Code) == "" {
@@ -631,6 +638,47 @@ func choiceValue(typ, value, text string) Value {
 	}
 }
 
+func parseOutputLines(lines []string) Widget {
+	// NetLogo writes left, top, right, bottom, then the font size.
+	x1 := atoi(lineAt(lines, 1))
+	y1 := atoi(lineAt(lines, 2))
+	x2 := atoi(lineAt(lines, 3))
+	y2 := atoi(lineAt(lines, 4))
+	w := x2 - x1
+	h := y2 - y1
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	fs := atoi(lineAt(lines, 5))
+	if fs <= 0 {
+		fs = 12
+	}
+	return Widget{Kind: "output", Display: "Output", X: x1, Y: y1, W: w, H: h, FontSize: fs}
+}
+
+func outputFromXML(se xml.StartElement) Widget {
+	fs := atoi(attr(se, "fontSize"))
+	if fs <= 0 {
+		fs = 12
+	}
+	w := atoi(attr(se, "width"))
+	h := atoi(attr(se, "height"))
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	return Widget{
+		Kind: "output", Display: "Output",
+		X: atoi(attr(se, "x")), Y: atoi(attr(se, "y")),
+		W: w, H: h, FontSize: fs,
+	}
+}
+
 func inputFromXML(se xml.StartElement, text string) Widget {
 	variable := attr(se, "variable")
 	typ := attr(se, "type")
@@ -698,6 +746,7 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 
 // Apply copies slider, switch, chooser, and input values into globals.
 func (m *FileModel) Apply(vm *VM) {
+	vm.SetHasOutput(m.HasOutput())
 	for i := range m.Widgets {
 		w := &m.Widgets[i]
 		if w.Variable == "" {
@@ -720,6 +769,16 @@ func (m *FileModel) Apply(vm *VM) {
 			}
 		}
 	}
+}
+
+// HasOutput reports whether the model defines an output widget.
+func (m *FileModel) HasOutput() bool {
+	for i := range m.Widgets {
+		if m.Widgets[i].Kind == "output" {
+			return true
+		}
+	}
+	return false
 }
 
 // ButtonByName finds a button whose display or source equals name.

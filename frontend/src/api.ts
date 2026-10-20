@@ -199,6 +199,12 @@ export const Frames = `
       running
       speed
       log
+      hasOutput
+      outputAppend
+      outputPartial
+      outputReset
+      outputEpoch
+      outputSeq
       widgets {
         index
         kind
@@ -216,6 +222,11 @@ export const Frames = `
         choices
         current
         text
+        x
+        y
+        width
+        height
+        fontSize
       }
       world {
         minPxcor

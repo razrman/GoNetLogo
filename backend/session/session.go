@@ -311,6 +311,9 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 		// Called while s.mu is held by the command that is running.
 		s.appendLogLocked(line)
 	}
+	vm.OnClear = func() {
+		s.log = nil
+	}
 	s.compileButtonsLocked()
 }
 
@@ -755,13 +758,32 @@ func (s *Session) Session() *model.Session {
 	return s.sessionLocked()
 }
 
-// Frame builds one subscription payload. It omits the source code so a
-// running model does not reset the editor on every tick.
+// Frame builds one subscription payload from a fresh subscriber.
+// It omits the source code so a running model does not reset the editor
+// on every tick. Output lines are the full retained buffer.
 func (s *Session) Frame() *model.Frame {
+	frame, _, _ := s.FrameSince(-1, 0)
+	return frame
+}
+
+// FrameSince builds one payload whose outputAppend is the completed lines
+// after the subscriber's previous epoch and sequence. nextEpoch and nextSeq
+// are the cursor to pass on the following call. Caller does not hold s.mu.
+func (s *Session) FrameSince(epoch, seq int) (frame *model.Frame, nextEpoch, nextSeq int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap := s.sessionLocked()
-	return &model.Frame{
+	upd := outputUpdate{reset: true, lines: []string{}}
+	if s.vm != nil {
+		reset, e, q, lines, partial := s.vm.OutputDelta(epoch, seq)
+		upd = outputUpdate{reset: reset, epoch: e, seq: q, lines: lines, partial: partial}
+	} else if epoch == 0 && seq == 0 {
+		upd.reset = false
+	}
+	if upd.lines == nil {
+		upd.lines = []string{}
+	}
+	frame = &model.Frame{
 		SessionID:     snap.ID,
 		Ticks:         snap.Ticks,
 		TicksStarted:  snap.TicksStarted,
@@ -774,9 +796,24 @@ func (s *Session) Frame() *model.Frame {
 		Running:       snap.Running,
 		Speed:         snap.Speed,
 		Log:           snap.Log,
+		HasOutput:     snap.HasOutput,
+		OutputAppend:  upd.lines,
+		OutputPartial: upd.partial,
+		OutputReset:   upd.reset,
+		OutputEpoch:   upd.epoch,
+		OutputSeq:     upd.seq,
 		Widgets:       snap.Widgets,
 		World:         snap.World,
 	}
+	return frame, upd.epoch, upd.seq
+}
+
+type outputUpdate struct {
+	reset   bool
+	epoch   int
+	seq     int
+	lines   []string
+	partial string
 }
 
 // syncClockLocked samples the shared run clock. Caller holds s.mu.
@@ -810,8 +847,15 @@ func (s *Session) sessionLocked() *model.Session {
 		Running:   s.running >= 0,
 		Log:       append([]string(nil), s.log...),
 		Notes:     []string{},
+		Output:    []string{},
 		Widgets:   []model.Widget{},
 		World:     model.World{Turtles: []model.Turtle{}, Links: []model.Link{}},
+	}
+	if s.vm != nil {
+		lines, partial := s.vm.OutputArea()
+		out.HasOutput = s.vm.HasOutput()
+		out.Output = lines
+		out.OutputPartial = partial
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
@@ -847,10 +891,15 @@ func (s *Session) widgetsLocked() []model.Widget {
 	out := make([]model.Widget, 0, len(s.model.Widgets))
 	for i, w := range s.model.Widgets {
 		item := model.Widget{
-			Index:   i,
-			Kind:    w.Kind,
-			Display: w.Display,
-			Forever: w.Forever,
+			Index:    i,
+			Kind:     w.Kind,
+			Display:  w.Display,
+			Forever:  w.Forever,
+			X:        w.X,
+			Y:        w.Y,
+			Width:    w.W,
+			Height:   w.H,
+			FontSize: w.FontSize,
 		}
 		if w.Variable != "" {
 			v := w.Variable

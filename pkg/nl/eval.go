@@ -90,6 +90,16 @@ type VM struct {
 	lines   []string
 	partial string
 	OnPrint func(string)
+	// OnClear runs when clear-output or clear-all clears the command center
+	// because the model has no output widget.
+	OnClear func()
+	// hasOutput routes output-* to the output area. Without a widget those
+	// commands share the command center, matching NetLogo.
+	hasOutput     bool
+	outputLines   []string
+	outputPartial string
+	outputEpoch   int
+	outputSeq     int
 	// DisplayOn mirrors no-display / display. The GUI may skip frames when false.
 	DisplayOn bool
 	timer     time.Time
@@ -108,8 +118,85 @@ func NewVM(prog *Program, w *World) *VM {
 	return &VM{World: w, Prog: prog, DisplayOn: true, timer: time.Now()}
 }
 
+// OutputLineCap is how many completed output-area lines are retained.
+const OutputLineCap = 2000
+
 // Output returns lines produced by print, show, and user-message.
 func (vm *VM) Output() []string { return append([]string(nil), vm.lines...) }
+
+// SetHasOutput selects the output area for output-* commands.
+// Clear-all and clear-output then clear that area instead of the command center.
+func (vm *VM) SetHasOutput(on bool) { vm.hasOutput = on }
+
+// HasOutput reports whether output-* writes to the output area.
+func (vm *VM) HasOutput() bool { return vm.hasOutput }
+
+// OutputArea returns completed output-area lines and the unfinished tail
+// from output-type / output-write. The line slice is a copy capped at
+// OutputLineCap.
+func (vm *VM) OutputArea() (lines []string, partial string) {
+	lines = append([]string{}, vm.outputLines...)
+	if lines == nil {
+		lines = []string{}
+	}
+	return lines, vm.outputPartial
+}
+
+// OutputText is the output area as one string, including an unfinished line.
+func (vm *VM) OutputText() string {
+	if len(vm.outputLines) == 0 {
+		return vm.outputPartial
+	}
+	body := strings.Join(vm.outputLines, "\n")
+	if vm.outputPartial != "" {
+		body += "\n" + vm.outputPartial
+	}
+	return body
+}
+
+// OutputDelta returns output-area lines the caller has not seen.
+// clientEpoch and clientSeq are the epoch and completed-line count from
+// the caller's previous update. A mismatched epoch, a cursor past the
+// current count, or a cursor older than the retained window sets reset
+// and returns every retained line.
+func (vm *VM) OutputDelta(clientEpoch, clientSeq int) (reset bool, epoch, seq int, lines []string, partial string) {
+	epoch = vm.outputEpoch
+	seq = vm.outputSeq
+	partial = vm.outputPartial
+	full := func() []string {
+		lines := append([]string{}, vm.outputLines...)
+		if lines == nil {
+			return []string{}
+		}
+		return lines
+	}
+	if clientEpoch != epoch || clientSeq > seq {
+		return true, epoch, seq, full(), partial
+	}
+	if clientSeq == seq {
+		return false, epoch, seq, []string{}, partial
+	}
+	n := len(vm.outputLines)
+	if n == 0 {
+		return true, epoch, seq, []string{}, partial
+	}
+	first := seq - n + 1
+	if clientSeq+1 < first {
+		return true, epoch, seq, full(), partial
+	}
+	idx := clientSeq - first + 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > n {
+		idx = n
+	}
+	lines = append([]string{}, vm.outputLines[idx:]...)
+	if lines == nil {
+		lines = []string{}
+	}
+	return false, epoch, seq, lines, partial
+}
 
 // Call runs a command procedure. stopped is true when that procedure
 // executed stop, which is how a forever button knows to halt.

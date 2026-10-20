@@ -240,6 +240,8 @@ var commands = map[string]primSpec{
 	"write":             {argc: 1},
 	"output-print":      {argc: 1},
 	"output-show":       {argc: 1},
+	"output-type":       {argc: 1},
+	"output-write":      {argc: 1},
 	"user-message":      {argc: 1},
 	"resize-world":      {argc: 4},
 	"set-default-shape": {argc: 2},

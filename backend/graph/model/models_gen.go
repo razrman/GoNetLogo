@@ -34,8 +34,22 @@ type Frame struct {
 	Running      bool     `json:"running"`
 	Speed        float64  `json:"speed"`
 	Log          []string `json:"log"`
-	Widgets      []Widget `json:"widgets"`
-	World        World    `json:"world"`
+	// True when the model has an output widget. Otherwise output-* uses the command center.
+	HasOutput bool `json:"hasOutput"`
+	// Completed lines this subscriber has not applied yet.
+	// When outputReset is true, replace the previous text with these lines.
+	// The server retains at most the last 2000 lines.
+	OutputAppend []string `json:"outputAppend"`
+	// Text from output-type / output-write that has not ended a line yet.
+	OutputPartial string `json:"outputPartial"`
+	// True when the client should discard previous output text before applying outputAppend.
+	OutputReset bool `json:"outputReset"`
+	// Increments when the output area is cleared or the model is replaced.
+	OutputEpoch int `json:"outputEpoch"`
+	// Completed lines in this epoch, including lines dropped by the 2000-line cap.
+	OutputSeq int      `json:"outputSeq"`
+	Widgets   []Widget `json:"widgets"`
+	World     World    `json:"world"`
 }
 
 type Link struct {
@@ -77,8 +91,14 @@ type Session struct {
 	Speed        float64  `json:"speed"`
 	Notes        []string `json:"notes"`
 	Log          []string `json:"log"`
-	Widgets      []Widget `json:"widgets"`
-	World        World    `json:"world"`
+	// True when the model has an output widget. Otherwise output-* uses the command center.
+	HasOutput bool `json:"hasOutput"`
+	// Completed output-area lines, capped at the last 2000.
+	Output []string `json:"output"`
+	// Text from output-type / output-write that has not ended a line yet.
+	OutputPartial string   `json:"outputPartial"`
+	Widgets       []Widget `json:"widgets"`
+	World         World    `json:"world"`
 }
 
 type Subscription struct {
@@ -114,6 +134,13 @@ type Widget struct {
 	Choices  []string `json:"choices,omitempty"`
 	Current  *int     `json:"current,omitempty"`
 	Text     *string  `json:"text,omitempty"`
+	// Interface position in pixels. Zero when the file did not specify it.
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// Point size for an output widget. Zero for widgets that do not use it.
+	FontSize int `json:"fontSize"`
 }
 
 type World struct {

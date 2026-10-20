@@ -28,6 +28,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "clear-all", "ca":
 		vm.requireObserver(pos, "clear-all")
 		w.ClearAll()
+		vm.clearOutput()
 	case "clear-turtles", "ct":
 		vm.requireObserver(pos, "clear-turtles")
 		w.ClearTurtles()
@@ -46,8 +47,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "clear-drawing", "cd":
 		w.drawing = nil
 	case "clear-output":
-		vm.lines = nil
-		vm.partial = ""
+		vm.clearOutput()
 	case "reset-ticks":
 		vm.requireObserver(pos, "reset-ticks")
 		w.ResetTicks()
@@ -146,14 +146,22 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		vm.requireTurtle(pos).Hidden = true
 	case "show-turtle", "st":
 		vm.requireTurtle(pos).Hidden = false
-	case "print", "output-print":
+	case "print":
 		vm.emit(args[0].Format(false))
-	case "show", "output-show":
+	case "output-print":
+		vm.emitOutput(args[0].Format(false), true)
+	case "show":
 		vm.emit(vm.agentTag() + ": " + args[0].Format(false))
+	case "output-show":
+		vm.emitOutput(vm.agentTag()+": "+args[0].Format(false), true)
 	case "type":
 		vm.partial += args[0].Format(false)
 	case "write":
 		vm.partial += args[0].Format(true)
+	case "output-type":
+		vm.emitOutput(args[0].Format(false), false)
+	case "output-write":
+		vm.emitOutput(args[0].Format(true), false)
 	case "user-message":
 		vm.emit(args[0].Format(false))
 	case "resize-world":
@@ -245,6 +253,45 @@ func (vm *VM) emit(s string) {
 	if vm.OnPrint != nil {
 		vm.OnPrint(s)
 	}
+}
+
+func (vm *VM) emitOutput(s string, newline bool) {
+	if !vm.hasOutput {
+		if newline {
+			vm.emit(s)
+		} else {
+			vm.partial += s
+		}
+		return
+	}
+	if !newline {
+		vm.outputPartial += s
+		return
+	}
+	if vm.outputPartial != "" {
+		s = vm.outputPartial + s
+		vm.outputPartial = ""
+	}
+	vm.outputLines = append(vm.outputLines, s)
+	vm.outputSeq++
+	if len(vm.outputLines) > OutputLineCap {
+		vm.outputLines = append([]string(nil), vm.outputLines[len(vm.outputLines)-OutputLineCap:]...)
+	}
+}
+
+func (vm *VM) clearOutput() {
+	if !vm.hasOutput {
+		vm.lines = nil
+		vm.partial = ""
+		if vm.OnClear != nil {
+			vm.OnClear()
+		}
+		return
+	}
+	vm.outputLines = nil
+	vm.outputPartial = ""
+	vm.outputSeq = 0
+	vm.outputEpoch++
 }
 
 func (vm *VM) agentTag() string {

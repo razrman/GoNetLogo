@@ -488,6 +488,160 @@ func TestSetFrameRateClampAndDrops(t *testing.T) {
 	}
 }
 
+func TestOutputAreaReachesSubscription(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "output.nlogo")
+	sub := c.Websocket(`subscription ($id: ID!) { frames(sessionId: $id) {
+		hasOutput outputAppend outputPartial outputReset outputEpoch outputSeq log
+		widgets { kind x y width height fontSize }
+	} }`, client.Var("id", s.ID))
+	defer sub.Close()
+
+	type frame struct {
+		HasOutput     bool
+		OutputAppend  []string
+		OutputPartial string
+		OutputReset   bool
+		OutputEpoch   int
+		OutputSeq     int
+		Log           []string
+		Widgets       []struct {
+			Kind     string
+			X        int
+			Y        int
+			Width    int
+			Height   int
+			FontSize int
+		}
+	}
+	var msg struct{ Frames frame }
+	if err := sub.Next(&msg); err != nil {
+		t.Fatal(err)
+	}
+	var widgetOK bool
+	for _, w := range msg.Frames.Widgets {
+		if w.Kind != "output" {
+			continue
+		}
+		widgetOK = true
+		if w.X != 16 || w.Y != 110 || w.Width != 234 || w.Height != 120 || w.FontSize != 13 {
+			t.Fatalf("output widget %+v", w)
+		}
+	}
+	if !widgetOK || !msg.Frames.HasOutput {
+		t.Fatalf("initial frame %+v", msg.Frames)
+	}
+
+	lines, epoch, seq := applyOutput(nil, -1, 0, msg.Frames.OutputReset, msg.Frames.OutputEpoch, msg.Frames.OutputSeq, msg.Frames.OutputAppend)
+	setup(t, c, s.ID)
+	deadline := time.Now().Add(2 * time.Second)
+	for !containsLine(lines, "Output area ready.") {
+		if time.Now().After(deadline) {
+			t.Fatalf("subscription output %q", lines)
+		}
+		if err := sub.Next(&msg); err != nil {
+			t.Fatal(err)
+		}
+		lines, epoch, seq = applyOutput(lines, epoch, seq, msg.Frames.OutputReset, msg.Frames.OutputEpoch, msg.Frames.OutputSeq, msg.Frames.OutputAppend)
+		for _, line := range msg.Frames.Log {
+			if strings.Contains(line, "Output area ready.") {
+				t.Fatalf("output text landed in the command center: %q", msg.Frames.Log)
+			}
+		}
+	}
+	if !containsLine(lines, `next write is quoted: "widget"`) {
+		t.Fatalf("output %q", lines)
+	}
+
+	var q struct {
+		Session struct {
+			HasOutput     bool
+			Output        []string
+			OutputPartial string
+			Log           []string
+		}
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { hasOutput output outputPartial log } }`, &q, client.Var("id", s.ID))
+	if !q.Session.HasOutput || !containsLine(q.Session.Output, "Output area ready.") {
+		t.Fatalf("session output %+v", q.Session)
+	}
+
+	var cmd struct {
+		RunCommand struct {
+			Ok    bool
+			Error *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!) { runCommand(sessionId: $id, text: "clear-all") { ok error } }`, &cmd, client.Var("id", s.ID))
+	if !cmd.RunCommand.Ok {
+		t.Fatalf("clear-all: %v", cmd.RunCommand.Error)
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { hasOutput output outputPartial log } }`, &q, client.Var("id", s.ID))
+	if len(q.Session.Output) != 0 || q.Session.OutputPartial != "" {
+		t.Fatalf("clear-all left %+v", q.Session)
+	}
+}
+
+func TestOutputPrintFallsBackToLog(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	var cmd struct {
+		RunCommand struct {
+			Ok    bool
+			Error *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!) { runCommand(sessionId: $id, text: "output-print \"hi\"") { ok error } }`, &cmd, client.Var("id", s.ID))
+	if !cmd.RunCommand.Ok {
+		t.Fatalf("output-print: %v", cmd.RunCommand.Error)
+	}
+	var q struct {
+		Session struct {
+			HasOutput bool
+			Output    []string
+			Log       []string
+		}
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { hasOutput output log } }`, &q, client.Var("id", s.ID))
+	if q.Session.HasOutput || len(q.Session.Output) != 0 || !containsLine(q.Session.Log, "hi") {
+		t.Fatalf("fallback %+v", q.Session)
+	}
+	c.MustPost(`mutation ($id: ID!) { runCommand(sessionId: $id, text: "clear-output") { ok error } }`, &cmd, client.Var("id", s.ID))
+	if !cmd.RunCommand.Ok {
+		t.Fatalf("clear-output: %v", cmd.RunCommand.Error)
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { hasOutput output log } }`, &q, client.Var("id", s.ID))
+	if containsLine(q.Session.Log, "hi") {
+		t.Fatalf("clear-output left the command center: %+v", q.Session.Log)
+	}
+}
+
+func applyOutput(lines []string, epoch, seq int, reset bool, nextEpoch, nextSeq int, appendLines []string) ([]string, int, int) {
+	if reset || nextEpoch != epoch || nextSeq < seq {
+		lines = append([]string(nil), appendLines...)
+	} else if nextSeq != seq {
+		delta := nextSeq - seq
+		extra := len(appendLines) - delta
+		if extra > 0 {
+			appendLines = appendLines[extra:]
+		}
+		lines = append(lines, appendLines...)
+	}
+	if len(lines) > 2000 {
+		lines = append([]string(nil), lines[len(lines)-2000:]...)
+	}
+	return lines, nextEpoch, nextSeq
+}
+
+func containsLine(lines []string, want string) bool {
+	for _, line := range lines {
+		if line == want {
+			return true
+		}
+	}
+	return false
+}
+
 func setup(t *testing.T, c *client.Client, id string) created {
 	t.Helper()
 	var resp struct {

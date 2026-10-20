@@ -66,7 +66,13 @@ type ComplexityRoot struct {
 		DroppedFrames func(childComplexity int) int
 		DroppedSlow   func(childComplexity int) int
 		FrameRateCap  func(childComplexity int) int
+		HasOutput     func(childComplexity int) int
 		Log           func(childComplexity int) int
+		OutputAppend  func(childComplexity int) int
+		OutputEpoch   func(childComplexity int) int
+		OutputPartial func(childComplexity int) int
+		OutputReset   func(childComplexity int) int
+		OutputSeq     func(childComplexity int) int
 		PublishedFps  func(childComplexity int) int
 		Running       func(childComplexity int) int
 		SessionID     func(childComplexity int) int
@@ -120,10 +126,13 @@ type ComplexityRoot struct {
 		DroppedFrames func(childComplexity int) int
 		DroppedSlow   func(childComplexity int) int
 		FrameRateCap  func(childComplexity int) int
+		HasOutput     func(childComplexity int) int
 		ID            func(childComplexity int) int
 		Log           func(childComplexity int) int
 		ModelName     func(childComplexity int) int
 		Notes         func(childComplexity int) int
+		Output        func(childComplexity int) int
+		OutputPartial func(childComplexity int) int
 		PublishedFps  func(childComplexity int) int
 		Running       func(childComplexity int) int
 		Speed         func(childComplexity int) int
@@ -157,7 +166,9 @@ type ComplexityRoot struct {
 		Current  func(childComplexity int) int
 		Disabled func(childComplexity int) int
 		Display  func(childComplexity int) int
+		FontSize func(childComplexity int) int
 		Forever  func(childComplexity int) int
+		Height   func(childComplexity int) int
 		Index    func(childComplexity int) int
 		Kind     func(childComplexity int) int
 		Max      func(childComplexity int) int
@@ -169,6 +180,9 @@ type ComplexityRoot struct {
 		Units    func(childComplexity int) int
 		Value    func(childComplexity int) int
 		Variable func(childComplexity int) int
+		Width    func(childComplexity int) int
+		X        func(childComplexity int) int
+		Y        func(childComplexity int) int
 	}
 
 	World struct {
@@ -314,12 +328,54 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Frame.FrameRateCap(childComplexity), true
 
+	case "Frame.hasOutput":
+		if e.complexity.Frame.HasOutput == nil {
+			break
+		}
+
+		return e.complexity.Frame.HasOutput(childComplexity), true
+
 	case "Frame.log":
 		if e.complexity.Frame.Log == nil {
 			break
 		}
 
 		return e.complexity.Frame.Log(childComplexity), true
+
+	case "Frame.outputAppend":
+		if e.complexity.Frame.OutputAppend == nil {
+			break
+		}
+
+		return e.complexity.Frame.OutputAppend(childComplexity), true
+
+	case "Frame.outputEpoch":
+		if e.complexity.Frame.OutputEpoch == nil {
+			break
+		}
+
+		return e.complexity.Frame.OutputEpoch(childComplexity), true
+
+	case "Frame.outputPartial":
+		if e.complexity.Frame.OutputPartial == nil {
+			break
+		}
+
+		return e.complexity.Frame.OutputPartial(childComplexity), true
+
+	case "Frame.outputReset":
+		if e.complexity.Frame.OutputReset == nil {
+			break
+		}
+
+		return e.complexity.Frame.OutputReset(childComplexity), true
+
+	case "Frame.outputSeq":
+		if e.complexity.Frame.OutputSeq == nil {
+			break
+		}
+
+		return e.complexity.Frame.OutputSeq(childComplexity), true
 
 	case "Frame.publishedFps":
 		if e.complexity.Frame.PublishedFps == nil {
@@ -698,6 +754,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Session.FrameRateCap(childComplexity), true
 
+	case "Session.hasOutput":
+		if e.complexity.Session.HasOutput == nil {
+			break
+		}
+
+		return e.complexity.Session.HasOutput(childComplexity), true
+
 	case "Session.id":
 		if e.complexity.Session.ID == nil {
 			break
@@ -725,6 +788,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Session.Notes(childComplexity), true
+
+	case "Session.output":
+		if e.complexity.Session.Output == nil {
+			break
+		}
+
+		return e.complexity.Session.Output(childComplexity), true
+
+	case "Session.outputPartial":
+		if e.complexity.Session.OutputPartial == nil {
+			break
+		}
+
+		return e.complexity.Session.OutputPartial(childComplexity), true
 
 	case "Session.publishedFps":
 		if e.complexity.Session.PublishedFps == nil {
@@ -899,12 +976,26 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Widget.Display(childComplexity), true
 
+	case "Widget.fontSize":
+		if e.complexity.Widget.FontSize == nil {
+			break
+		}
+
+		return e.complexity.Widget.FontSize(childComplexity), true
+
 	case "Widget.forever":
 		if e.complexity.Widget.Forever == nil {
 			break
 		}
 
 		return e.complexity.Widget.Forever(childComplexity), true
+
+	case "Widget.height":
+		if e.complexity.Widget.Height == nil {
+			break
+		}
+
+		return e.complexity.Widget.Height(childComplexity), true
 
 	case "Widget.index":
 		if e.complexity.Widget.Index == nil {
@@ -982,6 +1073,27 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Widget.Variable(childComplexity), true
+
+	case "Widget.width":
+		if e.complexity.Widget.Width == nil {
+			break
+		}
+
+		return e.complexity.Widget.Width(childComplexity), true
+
+	case "Widget.x":
+		if e.complexity.Widget.X == nil {
+			break
+		}
+
+		return e.complexity.Widget.X(childComplexity), true
+
+	case "Widget.y":
+		if e.complexity.Widget.Y == nil {
+			break
+		}
+
+		return e.complexity.Widget.Y(childComplexity), true
 
 	case "World.height":
 		if e.complexity.World.Height == nil {
@@ -1321,6 +1433,12 @@ type Session {
   speed: Float!
   notes: [String!]!
   log: [String!]!
+  """True when the model has an output widget. Otherwise output-* uses the command center."""
+  hasOutput: Boolean!
+  """Completed output-area lines, capped at the last 2000."""
+  output: [String!]!
+  """Text from output-type / output-write that has not ended a line yet."""
+  outputPartial: String!
   widgets: [Widget!]!
   world: World!
 }
@@ -1357,6 +1475,22 @@ type Frame {
   running: Boolean!
   speed: Float!
   log: [String!]!
+  """True when the model has an output widget. Otherwise output-* uses the command center."""
+  hasOutput: Boolean!
+  """
+  Completed lines this subscriber has not applied yet.
+  When outputReset is true, replace the previous text with these lines.
+  The server retains at most the last 2000 lines.
+  """
+  outputAppend: [String!]!
+  """Text from output-type / output-write that has not ended a line yet."""
+  outputPartial: String!
+  """True when the client should discard previous output text before applying outputAppend."""
+  outputReset: Boolean!
+  """Increments when the output area is cleared or the model is replaced."""
+  outputEpoch: Int!
+  """Completed lines in this epoch, including lines dropped by the 2000-line cap."""
+  outputSeq: Int!
   widgets: [Widget!]!
   world: World!
 }
@@ -1378,6 +1512,13 @@ type Widget {
   choices: [String!]
   current: Int
   text: String
+  """Interface position in pixels. Zero when the file did not specify it."""
+  x: Int!
+  y: Int!
+  width: Int!
+  height: Int!
+  """Point size for an output widget. Zero for widgets that do not use it."""
+  fontSize: Int!
 }
 
 type WorldSettings {
@@ -2165,6 +2306,12 @@ func (ec *executionContext) fieldContext_CommandResult_session(_ context.Context
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -2330,6 +2477,12 @@ func (ec *executionContext) fieldContext_CompileResult_session(_ context.Context
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -2866,6 +3019,270 @@ func (ec *executionContext) fieldContext_Frame_log(_ context.Context, field grap
 	return fc, nil
 }
 
+func (ec *executionContext) _Frame_hasOutput(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_hasOutput(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.HasOutput, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_hasOutput(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_outputAppend(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_outputAppend(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.OutputAppend, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_outputAppend(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_outputPartial(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_outputPartial(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.OutputPartial, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_outputPartial(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_outputReset(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_outputReset(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.OutputReset, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_outputReset(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_outputEpoch(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_outputEpoch(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.OutputEpoch, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_outputEpoch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Frame_outputSeq(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Frame_outputSeq(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.OutputSeq, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Frame_outputSeq(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Frame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Frame_widgets(ctx context.Context, field graphql.CollectedField, obj *model.Frame) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Frame_widgets(ctx, field)
 	if err != nil {
@@ -2937,6 +3354,16 @@ func (ec *executionContext) fieldContext_Frame_widgets(_ context.Context, field 
 				return ec.fieldContext_Widget_current(ctx, field)
 			case "text":
 				return ec.fieldContext_Widget_text(ctx, field)
+			case "x":
+				return ec.fieldContext_Widget_x(ctx, field)
+			case "y":
+				return ec.fieldContext_Widget_y(ctx, field)
+			case "width":
+				return ec.fieldContext_Widget_width(ctx, field)
+			case "height":
+				return ec.fieldContext_Widget_height(ctx, field)
+			case "fontSize":
+				return ec.fieldContext_Widget_fontSize(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Widget", field.Name)
 		},
@@ -3435,6 +3862,12 @@ func (ec *executionContext) fieldContext_Mutation_createSession(ctx context.Cont
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -3526,6 +3959,12 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -3745,6 +4184,12 @@ func (ec *executionContext) fieldContext_Mutation_setup(ctx context.Context, fie
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -3836,6 +4281,12 @@ func (ec *executionContext) fieldContext_Mutation_go(ctx context.Context, field 
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -3927,6 +4378,12 @@ func (ec *executionContext) fieldContext_Mutation_stop(ctx context.Context, fiel
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4018,6 +4475,12 @@ func (ec *executionContext) fieldContext_Mutation_step(ctx context.Context, fiel
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4109,6 +4572,12 @@ func (ec *executionContext) fieldContext_Mutation_pressButton(ctx context.Contex
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4200,6 +4669,12 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4291,6 +4766,12 @@ func (ec *executionContext) fieldContext_Mutation_setFrameRate(ctx context.Conte
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4382,6 +4863,12 @@ func (ec *executionContext) fieldContext_Mutation_setSlider(ctx context.Context,
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4473,6 +4960,12 @@ func (ec *executionContext) fieldContext_Mutation_setSwitch(ctx context.Context,
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4564,6 +5057,12 @@ func (ec *executionContext) fieldContext_Mutation_setChooser(ctx context.Context
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4655,6 +5154,12 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4746,6 +5251,12 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -4878,6 +5389,12 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 				return ec.fieldContext_Session_notes(ctx, field)
 			case "log":
 				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
@@ -5759,6 +6276,138 @@ func (ec *executionContext) fieldContext_Session_log(_ context.Context, field gr
 	return fc, nil
 }
 
+func (ec *executionContext) _Session_hasOutput(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_hasOutput(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.HasOutput, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_hasOutput(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_output(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_output(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Output, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_output(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_outputPartial(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_outputPartial(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.OutputPartial, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_outputPartial(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Session_widgets(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Session_widgets(ctx, field)
 	if err != nil {
@@ -5830,6 +6479,16 @@ func (ec *executionContext) fieldContext_Session_widgets(_ context.Context, fiel
 				return ec.fieldContext_Widget_current(ctx, field)
 			case "text":
 				return ec.fieldContext_Widget_text(ctx, field)
+			case "x":
+				return ec.fieldContext_Widget_x(ctx, field)
+			case "y":
+				return ec.fieldContext_Widget_y(ctx, field)
+			case "width":
+				return ec.fieldContext_Widget_width(ctx, field)
+			case "height":
+				return ec.fieldContext_Widget_height(ctx, field)
+			case "fontSize":
+				return ec.fieldContext_Widget_fontSize(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Widget", field.Name)
 		},
@@ -5984,6 +6643,18 @@ func (ec *executionContext) fieldContext_Subscription_frames(ctx context.Context
 				return ec.fieldContext_Frame_speed(ctx, field)
 			case "log":
 				return ec.fieldContext_Frame_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Frame_hasOutput(ctx, field)
+			case "outputAppend":
+				return ec.fieldContext_Frame_outputAppend(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Frame_outputPartial(ctx, field)
+			case "outputReset":
+				return ec.fieldContext_Frame_outputReset(ctx, field)
+			case "outputEpoch":
+				return ec.fieldContext_Frame_outputEpoch(ctx, field)
+			case "outputSeq":
+				return ec.fieldContext_Frame_outputSeq(ctx, field)
 			case "widgets":
 				return ec.fieldContext_Frame_widgets(ctx, field)
 			case "world":
@@ -7112,6 +7783,226 @@ func (ec *executionContext) fieldContext_Widget_text(_ context.Context, field gr
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Widget_x(ctx context.Context, field graphql.CollectedField, obj *model.Widget) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Widget_x(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.X, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Widget_x(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Widget",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Widget_y(ctx context.Context, field graphql.CollectedField, obj *model.Widget) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Widget_y(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Y, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Widget_y(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Widget",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Widget_width(ctx context.Context, field graphql.CollectedField, obj *model.Widget) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Widget_width(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Width, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Widget_width(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Widget",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Widget_height(ctx context.Context, field graphql.CollectedField, obj *model.Widget) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Widget_height(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Height, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Widget_height(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Widget",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Widget_fontSize(ctx context.Context, field graphql.CollectedField, obj *model.Widget) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Widget_fontSize(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.FontSize, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Widget_fontSize(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Widget",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9980,6 +10871,36 @@ func (ec *executionContext) _Frame(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "hasOutput":
+			out.Values[i] = ec._Frame_hasOutput(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputAppend":
+			out.Values[i] = ec._Frame_outputAppend(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputPartial":
+			out.Values[i] = ec._Frame_outputPartial(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputReset":
+			out.Values[i] = ec._Frame_outputReset(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputEpoch":
+			out.Values[i] = ec._Frame_outputEpoch(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputSeq":
+			out.Values[i] = ec._Frame_outputSeq(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "widgets":
 			out.Values[i] = ec._Frame_widgets(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -10437,6 +11358,21 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "hasOutput":
+			out.Values[i] = ec._Session_hasOutput(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "output":
+			out.Values[i] = ec._Session_output(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "outputPartial":
+			out.Values[i] = ec._Session_outputPartial(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "widgets":
 			out.Values[i] = ec._Session_widgets(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -10632,6 +11568,31 @@ func (ec *executionContext) _Widget(ctx context.Context, sel ast.SelectionSet, o
 			out.Values[i] = ec._Widget_current(ctx, field, obj)
 		case "text":
 			out.Values[i] = ec._Widget_text(ctx, field, obj)
+		case "x":
+			out.Values[i] = ec._Widget_x(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "y":
+			out.Values[i] = ec._Widget_y(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "width":
+			out.Values[i] = ec._Widget_width(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "height":
+			out.Values[i] = ec._Widget_height(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fontSize":
+			out.Values[i] = ec._Widget_fontSize(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
