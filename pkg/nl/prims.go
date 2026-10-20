@@ -74,6 +74,17 @@ var infixOps = map[string]infixSpec{
 	"in-radius": {precWith, false, false, false},
 }
 
+// infixTaskOp is an infix reporter that can be passed as a concise task,
+// as in `reduce + xs` or `sort-by > xs`. `of` and `with` stay syntax.
+func infixTaskOp(name string) bool {
+	switch name {
+	case "+", "-", "*", "/", "mod", "^", "=", "!=", "<", ">", "<=", ">=", "and", "or", "xor":
+		return true
+	default:
+		return false
+	}
+}
+
 // reporters with at least one argument, or variadic. Zero-arg reporters are
 // resolved by name at runtime so that agent variables can share their names.
 var reporters = map[string]primSpec{
@@ -173,7 +184,7 @@ var reporters = map[string]primSpec{
 	"is-link-set?":          {argc: 1, prec: precNormal},
 	"max-one-of":            {argc: 2, prec: precNormal, goals: []goal{goalAny, goalRepBlock}},
 	"min-one-of":            {argc: 2, prec: precNormal, goals: []goal{goalAny, goalRepBlock}},
-	"runresult":             {argc: 1, prec: precNormal},
+	"runresult":             {argc: 1, variadic: true, prec: precNormal, goals: []goal{goalRepTask}},
 	"turtle-set":            {argc: 2, variadic: true, prec: precNormal},
 	"patch-set":             {argc: 2, variadic: true, prec: precNormal},
 	"link-set":              {argc: 2, variadic: true, prec: precNormal},
@@ -251,7 +262,7 @@ var commands = map[string]primSpec{
 	"wait":              {argc: 1},
 	"display":           {argc: 0},
 	"no-display":        {argc: 0},
-	"run":               {argc: 1},
+	"run":               {argc: 1, variadic: true, goals: []goal{goalCmdTask}},
 	"create-link-with":  {argc: 1, optBlock: true},
 	"create-links-with": {argc: 1, optBlock: true},
 	"create-link-to":    {argc: 1, optBlock: true},

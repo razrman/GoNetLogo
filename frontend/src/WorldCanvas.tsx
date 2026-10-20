@@ -95,6 +95,12 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   const xOf = (x: number) => ox + (x - (world.minPxcor - 0.5)) * scale
   const yOf = (y: number) => oy + (world.maxPycor + 0.5 - y) * scale
   ctx.lineWidth = Math.max(1, scale * 0.12)
+  ctx.textBaseline = 'middle'
+  ctx.font = `${Math.max(10, scale * 0.42)}px sans-serif`
+  for (const p of world.patchLabels ?? []) {
+    if (!p.label) continue
+    drawLabel(ctx, xOf(p.x), yOf(p.y), p.label)
+  }
   for (const link of world.links) {
     if (link.hidden) continue
     ctx.strokeStyle = rgbCss(link.r, link.g, link.b)
@@ -127,7 +133,22 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
       ctx.fill()
     }
     ctx.restore()
+    if (t.label) drawLabel(ctx, xOf(t.x) + rad * 0.35, yOf(t.y), t.label)
   }
+  for (const link of world.links) {
+    if (!link.label || link.hidden) continue
+    drawLabel(ctx, (xOf(link.x1) + xOf(link.x2)) / 2, (yOf(link.y1) + yOf(link.y2)) / 2, link.label)
+  }
+}
+
+function drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string) {
+  ctx.save()
+  ctx.lineWidth = 3
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)'
+  ctx.strokeText(text, x, y)
+  ctx.fillStyle = '#fff'
+  ctx.fillText(text, x, y)
+  ctx.restore()
 }
 
 function decodeRGB(b64: string): Uint8Array | null {

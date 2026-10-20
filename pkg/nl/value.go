@@ -161,6 +161,10 @@ func (v Value) Equals(o Value) bool {
 	}
 }
 
+// LabelString is the text drawn for a turtle, patch, or link label.
+// The stored label keeps its NetLogo type until something renders it.
+func LabelString(v Value) string { return v.Format(false) }
+
 // Format prints a value the way NetLogo's print does.
 func (v Value) Format(quoted bool) string {
 	switch v.K {
