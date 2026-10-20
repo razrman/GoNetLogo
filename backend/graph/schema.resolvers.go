@@ -32,6 +32,30 @@ func (r *mutationResolver) LoadModel(ctx context.Context, sessionID string, mode
 	return s.Session(), nil
 }
 
+// LoadModelSource is the resolver for the loadModelSource field.
+func (r *mutationResolver) LoadModelSource(ctx context.Context, sessionID string, filename string, source string) (*model.Session, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.LoadModelSource(filename, source); err != nil {
+		return nil, err
+	}
+	return s.Session(), nil
+}
+
+// LoadModelFile is the resolver for the loadModelFile field.
+func (r *mutationResolver) LoadModelFile(ctx context.Context, sessionID string, path string) (*model.Session, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.LoadModelFile(path); err != nil {
+		return nil, err
+	}
+	return s.Session(), nil
+}
+
 // SetCode is the resolver for the setCode field.
 func (r *mutationResolver) SetCode(ctx context.Context, sessionID string, code string) (*model.CompileResult, error) {
 	s, err := r.session(sessionID)

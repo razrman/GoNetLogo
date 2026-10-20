@@ -2,6 +2,7 @@ package nl
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -60,6 +61,43 @@ func TestLoadWidgets(t *testing.T) {
 	}
 	if grass == nil || !grass.On {
 		t.Fatalf("switch polarity: %+v", grass)
+	}
+}
+
+func TestParseModelChoosesFormat(t *testing.T) {
+	nlogo := "to setup\n  clear-all\nend\n@#$#@#$#@\n"
+	xml := "<?xml version=\"1.0\"?>\n<model><code><![CDATA[to setup\n  clear-all\nend\n]]></code><widgets><view minPxcor=\"-2\" maxPxcor=\"2\" minPycor=\"-2\" maxPycor=\"2\" patchSize=\"8\" wrappingAllowedX=\"true\" wrappingAllowedY=\"false\"/></widgets></model>"
+
+	fromName, err := ParseModel("widget.nlogo", nlogo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromName.View.MaxPxcor != 16 {
+		t.Fatalf("classic file used default? %+v", fromName.View)
+	}
+	fromXMLName, err := ParseModel("widget.nlogo", xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromXMLName.View.MaxPxcor != 2 || fromXMLName.View.WrapY {
+		t.Fatalf("xml content ignored because of .nlogo name: %+v", fromXMLName.View)
+	}
+	if _, err := ParseModel("widget.nlogox", "this is not xml"); err == nil {
+		t.Fatal(".nlogox with no model document was accepted as bare code")
+	}
+	classicNamedXML, err := ParseModel("widget.nlogox", nlogo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(classicNamedXML.Code, "clear-all") {
+		t.Fatalf("section file named .nlogox lost its code: %q", classicNamedXML.Code)
+	}
+	bare, err := ParseModel("snippet", "to setup\nend\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bare.View.PatchSize != 13 {
+		t.Fatalf("bare code view %+v", bare.View)
 	}
 }
 

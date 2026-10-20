@@ -91,22 +91,24 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		CreateSession func(childComplexity int, model string) int
-		Go            func(childComplexity int, sessionID string) int
-		LoadModel     func(childComplexity int, sessionID string, model string) int
-		PressButton   func(childComplexity int, sessionID string, index int) int
-		RunCommand    func(childComplexity int, sessionID string, text string) int
-		SetChooser    func(childComplexity int, sessionID string, index int, current int) int
-		SetCode       func(childComplexity int, sessionID string, code string) int
-		SetFrameRate  func(childComplexity int, sessionID string, fps int) int
-		SetInput      func(childComplexity int, sessionID string, index int, text string) int
-		SetSlider     func(childComplexity int, sessionID string, index int, value float64) int
-		SetSpeed      func(childComplexity int, sessionID string, speed float64) int
-		SetSwitch     func(childComplexity int, sessionID string, index int, on bool) int
-		SetWorld      func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool) int
-		Setup         func(childComplexity int, sessionID string) int
-		Step          func(childComplexity int, sessionID string) int
-		Stop          func(childComplexity int, sessionID string) int
+		CreateSession   func(childComplexity int, model string) int
+		Go              func(childComplexity int, sessionID string) int
+		LoadModel       func(childComplexity int, sessionID string, model string) int
+		LoadModelFile   func(childComplexity int, sessionID string, path string) int
+		LoadModelSource func(childComplexity int, sessionID string, filename string, source string) int
+		PressButton     func(childComplexity int, sessionID string, index int) int
+		RunCommand      func(childComplexity int, sessionID string, text string) int
+		SetChooser      func(childComplexity int, sessionID string, index int, current int) int
+		SetCode         func(childComplexity int, sessionID string, code string) int
+		SetFrameRate    func(childComplexity int, sessionID string, fps int) int
+		SetInput        func(childComplexity int, sessionID string, index int, text string) int
+		SetSlider       func(childComplexity int, sessionID string, index int, value float64) int
+		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
+		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
+		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool) int
+		Setup           func(childComplexity int, sessionID string) int
+		Step            func(childComplexity int, sessionID string) int
+		Stop            func(childComplexity int, sessionID string) int
 	}
 
 	Query struct {
@@ -201,6 +203,8 @@ type ComplexityRoot struct {
 type MutationResolver interface {
 	CreateSession(ctx context.Context, model string) (*model.Session, error)
 	LoadModel(ctx context.Context, sessionID string, model string) (*model.Session, error)
+	LoadModelSource(ctx context.Context, sessionID string, filename string, source string) (*model.Session, error)
+	LoadModelFile(ctx context.Context, sessionID string, path string) (*model.Session, error)
 	SetCode(ctx context.Context, sessionID string, code string) (*model.CompileResult, error)
 	RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error)
 	Setup(ctx context.Context, sessionID string) (*model.Session, error)
@@ -482,6 +486,30 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.LoadModel(childComplexity, args["sessionId"].(string), args["model"].(string)), true
+
+	case "Mutation.loadModelFile":
+		if e.complexity.Mutation.LoadModelFile == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_loadModelFile_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.LoadModelFile(childComplexity, args["sessionId"].(string), args["path"].(string)), true
+
+	case "Mutation.loadModelSource":
+		if e.complexity.Mutation.LoadModelSource == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_loadModelSource_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.LoadModelSource(childComplexity, args["sessionId"].(string), args["filename"].(string), args["source"].(string)), true
 
 	case "Mutation.pressButton":
 		if e.complexity.Mutation.PressButton == nil {
@@ -1257,7 +1285,25 @@ type Query {
 
 type Mutation {
   createSession(model: String!): Session!
+  """
+  Load one embedded demo by file name, for example fire.nlogo.
+  A path separator or .. is rejected. This does not read the filesystem.
+  """
   loadModel(sessionId: ID!, model: String!): Session!
+  """
+  Replace the session with a .nlogo or .nlogox model sent as file contents.
+  filename is the original file name. The extension picks a parser when the
+  text is ambiguous; a document that is clearly one format is parsed as that
+  format. A compile error includes a line number and leaves the current model
+  in place.
+  """
+  loadModelSource(sessionId: ID!, filename: String!, source: String!): Session!
+  """
+  Load a model file from the server models directory.
+  That directory is MODELS_DIR, or ./models when the variable is unset.
+  path is relative to it. Absolute paths and any .. segment are rejected.
+  """
+  loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
   runCommand(sessionId: ID!, text: String!): CommandResult!
   setup(sessionId: ID!): Session!
@@ -1470,6 +1516,63 @@ func (ec *executionContext) field_Mutation_go_args(ctx context.Context, rawArgs 
 		}
 	}
 	args["sessionId"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_loadModelFile_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 string
+	if tmp, ok := rawArgs["path"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("path"))
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["path"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_loadModelSource_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 string
+	if tmp, ok := rawArgs["filename"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filename"))
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["filename"] = arg1
+	var arg2 string
+	if tmp, ok := rawArgs["source"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
+		arg2, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["source"] = arg2
 	return args, nil
 }
 
@@ -3542,6 +3645,188 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_loadModel_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_loadModelSource(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_loadModelSource(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().LoadModelSource(rctx, fc.Args["sessionId"].(string), fc.Args["filename"].(string), fc.Args["source"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Session)
+	fc.Result = res
+	return ec.marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_loadModelSource(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_loadModelSource_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_loadModelFile(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_loadModelFile(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().LoadModelFile(rctx, fc.Args["sessionId"].(string), fc.Args["path"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Session)
+	fc.Result = res
+	return ec.marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_loadModelFile(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_loadModelFile_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -10116,6 +10401,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "loadModel":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_loadModel(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "loadModelSource":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_loadModelSource(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "loadModelFile":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_loadModelFile(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++

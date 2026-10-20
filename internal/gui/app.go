@@ -22,6 +22,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
 	"gonetlogo/pkg/nl"
@@ -183,6 +184,9 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 
 	s.anim = fyne.NewAnimation(30*time.Millisecond, func(float32) { s.tick() })
 	s.anim.RepeatCount = fyne.AnimationRepeatForever
+
+	openItem := fyne.NewMenuItem("Open…", func() { s.openFile() })
+	s.win.SetMainMenu(fyne.NewMainMenu(fyne.NewMenu("File", openItem)))
 
 	if len(s.names) > 0 {
 		s.picker.SetSelected(s.names[0])
@@ -450,13 +454,13 @@ func (s *session) load(name, content string) {
 	m, err := nl.ParseModel(name, content)
 	if err != nil {
 		s.logf("load: %v", err)
-		dialog.ShowError(err, s.win)
+		dialog.ShowError(fmt.Errorf("could not open %s: %s", name, err.Error()), s.win)
 		return
 	}
 	vm, err := m.NewVM(0)
 	if err != nil {
 		s.logf("compile: %v", err)
-		dialog.ShowError(err, s.win)
+		dialog.ShowError(fmt.Errorf("compile error in %s: %s", name, err.Error()), s.win)
 		return
 	}
 	s.mu.Lock()
@@ -905,9 +909,10 @@ func (s *session) applyCodeLocked() error {
 }
 
 func (s *session) openFile() {
-	dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
+	d := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
 		if err != nil {
 			s.logf("%v", err)
+			dialog.ShowError(err, s.win)
 			return
 		}
 		if r == nil {
@@ -917,10 +922,20 @@ func (s *session) openFile() {
 		b, err := io.ReadAll(r)
 		if err != nil {
 			s.logf("%v", err)
+			dialog.ShowError(err, s.win)
 			return
 		}
-		s.load(r.URI().Name(), string(b))
-	}, s.win).Show()
+		name := r.URI().Name()
+		if !strings.HasSuffix(strings.ToLower(name), ".nlogo") && !strings.HasSuffix(strings.ToLower(name), ".nlogox") {
+			err := fmt.Errorf("open a .nlogo or .nlogox file")
+			s.logf("%v", err)
+			dialog.ShowError(err, s.win)
+			return
+		}
+		s.load(name, string(b))
+	}, s.win)
+	d.SetFilter(storage.NewExtensionFileFilter([]string{".nlogo", ".nlogox"}))
+	d.Show()
 }
 
 func (s *session) log(line string) {
