@@ -22,6 +22,43 @@ func asInt(v Value, what string) (int, error) {
 	return int(n), nil
 }
 
+// moveTurtle is the shared fd/bk/jump implementation. jumpAll moves the
+// whole distance and stays put when that would leave the world. Otherwise
+// the turtle walks in unit steps and stops at the last legal position.
+func (vm *VM) moveTurtle(t *Turtle, dist float64, jumpAll bool) {
+	if jumpAll {
+		_ = vm.World.Jump(t, dist)
+		return
+	}
+	_ = vm.World.Forward(t, dist)
+}
+
+func (vm *VM) facePoint(t *Turtle, x, y float64) {
+	h, err := vm.World.HeadingTowards(t.X, t.Y, x, y)
+	if err != nil {
+		return
+	}
+	vm.World.SetHeading(t, h)
+}
+
+func (vm *VM) moveToAgent(target Value, pos Pos) error {
+	t := vm.requireTurtle(pos)
+	if target.K == KindNobody || (target.K == KindAgent && (target.A == nil || target.A.IsDead())) {
+		return fmt.Errorf("that agent is dead")
+	}
+	if target.K != KindAgent {
+		return fmt.Errorf("move-to expected a turtle or patch")
+	}
+	if _, ok := target.A.(*Link); ok {
+		return fmt.Errorf("you can't move-to a link")
+	}
+	x, y, err := pointOf(target.A)
+	if err != nil {
+		return err
+	}
+	return vm.World.MoveTo(t, x, y)
+}
+
 func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	w := vm.World
 	switch name {
@@ -83,19 +120,21 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		return w.Forward(vm.requireTurtle(pos), n)
+		vm.moveTurtle(vm.requireTurtle(pos), n, false)
 	case "bk", "back":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		return w.Forward(vm.requireTurtle(pos), -n)
+		vm.moveTurtle(vm.requireTurtle(pos), -n, false)
 	case "jump":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		return w.Forward(vm.requireTurtle(pos), n)
+		vm.moveTurtle(vm.requireTurtle(pos), n, true)
+	case "move-to":
+		return vm.moveToAgent(args[0], pos)
 	case "rt", "right":
 		n, err := args[0].Num()
 		if err != nil {
@@ -126,7 +165,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		w.SetHeading(t, w.HeadingTowards(t.X, t.Y, x, y))
+		vm.facePoint(t, x, y)
 	case "facexy":
 		t := vm.requireTurtle(pos)
 		x, err := args[0].Num()
@@ -137,7 +176,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		w.SetHeading(t, w.HeadingTowards(t.X, t.Y, x, y))
+		vm.facePoint(t, x, y)
 	case "pen-down", "pd":
 		vm.requireTurtle(pos).PenDown = true
 	case "pen-up", "pu":
