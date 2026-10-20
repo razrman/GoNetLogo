@@ -683,17 +683,31 @@ func (vm *VM) execForeach(s *foreachStmt) {
 	}
 }
 
-func (vm *VM) callTaskCmd(t *Task, args []Value, pos Pos) {
-	if len(t.Params) != len(args) && !(len(t.Params) == 1 && t.Params[0] == "?" && len(args) >= 1) {
-		if len(t.Params) == 1 && t.Params[0] == "?" {
-			args = []Value{args[0]}
-		} else {
-			vm.fail(pos, "task expected %d inputs", len(t.Params))
+// fitTaskArgs matches inputs to a task. The old bracket form has a single
+// "?" parameter: it accepts any number of inputs and binds "?" to the first,
+// and it also accepts none so `run [ print 1 ]` can run.
+func (vm *VM) fitTaskArgs(t *Task, args []Value, pos Pos) []Value {
+	if t != nil && len(t.Params) == 1 && t.Params[0] == "?" {
+		if len(args) == 0 {
+			return nil
 		}
+		if len(args) == 1 {
+			return args
+		}
+		return []Value{args[0]}
 	}
-	if len(t.Params) == 1 && t.Params[0] == "?" && len(args) != 1 {
-		args = []Value{args[0]}
+	n := 0
+	if t != nil {
+		n = len(t.Params)
 	}
+	if n != len(args) {
+		vm.fail(pos, "task expected %d inputs", n)
+	}
+	return args
+}
+
+func (vm *VM) callTaskCmd(t *Task, args []Value, pos Pos) {
+	args = vm.fitTaskArgs(t, args, pos)
 	saved := vm.scope
 	sc := vm.allocScope(t.Scope)
 	vm.scope = sc
@@ -710,17 +724,14 @@ func (vm *VM) callTaskCmd(t *Task, args []Value, pos Pos) {
 }
 
 func (vm *VM) callTaskRep(t *Task, args []Value, pos Pos) Value {
-	if len(t.Params) == 1 && t.Params[0] == "?" && len(args) != 1 && len(args) > 0 {
-		args = []Value{args[0]}
-	}
-	if len(t.Params) != len(args) {
-		vm.fail(pos, "task expected %d inputs", len(t.Params))
-	}
+	args = vm.fitTaskArgs(t, args, pos)
 	saved := vm.scope
 	sc := vm.allocScope(t.Scope)
 	vm.scope = sc
 	for i, name := range t.Params {
-		vm.scope.vars[name] = args[i]
+		if i < len(args) {
+			vm.scope.vars[name] = args[i]
+		}
 	}
 	defer func() {
 		vm.scope = saved
