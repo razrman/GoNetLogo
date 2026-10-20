@@ -191,14 +191,11 @@ func newPlot(vm *VM, spec PlotSpec) *plot {
 	if name == "" {
 		name = "plot"
 	}
-	xMin, xMax := spec.XMin, spec.XMax
-	yMin, yMax := spec.YMin, spec.YMax
-	if xMax <= xMin {
-		xMin, xMax = 0, 10
-	}
-	if yMax <= yMin {
-		yMin, yMax = 0, 10
-	}
+	// A zero-width range is kept. Robby's Best Fitness plot is saved as
+	// 0 to 0 on y so the first pen-down sample grows it. Only an inverted
+	// range is replaced.
+	xMin, xMax := axisSpan(spec.XMin, spec.XMax)
+	yMin, yMax := axisSpan(spec.YMin, spec.YMax)
 	p := &plot{
 		name: name, xLabel: spec.XLabel, yLabel: spec.YLabel,
 		xMin: xMin, xMax: xMax, yMin: yMin, yMax: yMax,
@@ -390,6 +387,15 @@ func (p *plot) growAxis(x, y float64) {
 		}
 		p.yMin = next
 	}
+}
+
+// axisSpan keeps a range from a plot widget, including a zero-width one.
+// An inverted or non-finite range becomes 0 to 10.
+func axisSpan(min, max float64) (float64, float64) {
+	if math.IsNaN(min) || math.IsNaN(max) || math.IsInf(min, 0) || math.IsInf(max, 0) || max < min {
+		return 0, 10
+	}
+	return min, max
 }
 
 func niceBound(bound, span float64) float64 {

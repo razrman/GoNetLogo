@@ -691,16 +691,8 @@ func parsePlotLines(lines []string) Widget {
 	if name == "" {
 		name = "plot"
 	}
-	xMin := atof(lineAt(header, 3))
-	xMax := atof(lineAt(header, 4))
-	yMin := atof(lineAt(header, 5))
-	yMax := atof(lineAt(header, 6))
-	if xMax <= xMin {
-		xMin, xMax = 0, 10
-	}
-	if yMax <= yMin {
-		yMin, yMax = 0, 10
-	}
+	xMin, xMax := axisSpan(atof(lineAt(header, 3)), atof(lineAt(header, 4)))
+	yMin, yMax := axisSpan(atof(lineAt(header, 5)), atof(lineAt(header, 6)))
 	auto := true
 	if len(header) > 7 && strings.EqualFold(lineAt(header, 7), "false") {
 		auto = false
@@ -850,16 +842,8 @@ func plotFromXML(dec *xml.Decoder, se xml.StartElement) (Widget, error) {
 	if h < 0 {
 		h = 0
 	}
-	xMin := atof(firstAttr(se, "xMin", "xmin"))
-	xMax := atof(firstAttr(se, "xMax", "xmax"))
-	yMin := atof(firstAttr(se, "yMin", "ymin"))
-	yMax := atof(firstAttr(se, "yMax", "ymax"))
-	if xMax <= xMin {
-		xMin, xMax = 0, 10
-	}
-	if yMax <= yMin {
-		yMin, yMax = 0, 10
-	}
+	xMin, xMax := axisSpan(atof(firstAttr(se, "xMin", "xmin")), atof(firstAttr(se, "xMax", "xmax")))
+	yMin, yMax := axisSpan(atof(firstAttr(se, "yMin", "ymin")), atof(firstAttr(se, "yMax", "ymax")))
 	auto := true
 	if a := firstAttr(se, "autoPlot", "autoPlotOn"); a != "" {
 		auto = !strings.EqualFold(a, "false")

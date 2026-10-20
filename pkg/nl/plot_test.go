@@ -145,6 +145,79 @@ func TestPlotXYSetsPenX(t *testing.T) {
 	}
 }
 
+func TestRobbyZeroRangeAutoscales(t *testing.T) {
+	// Robby the Robot saves Best Fitness with ymin and ymax both 0 and
+	// autoplot on. The first plot command has to grow that range. A
+	// rewrite to 0..10 would leave a fitness of 4 inside the window.
+	src := `globals [ best-fitness ]
+to setup
+  clear-all
+  reset-ticks
+  set best-fitness 4
+  plot best-fitness
+end
+@#$#@#$#@
+PLOT
+11
+357
+312
+557
+Best Fitness
+Generation
+Best Fitness
+0.0
+5.0
+0.0
+0.0
+true
+false
+"" ""
+PENS
+"best" 1.0 0 -16777216 true "" ""
+`
+	m, err := ParseModel("Robby.nlogo", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w *Widget
+	for i := range m.Widgets {
+		if m.Widgets[i].Kind == "plot" {
+			w = &m.Widgets[i]
+		}
+	}
+	if w == nil {
+		t.Fatal("no plot widget")
+	}
+	if w.Display != "Best Fitness" || w.XMin != 0 || w.XMax != 5 || w.YMin != 0 || w.YMax != 0 || !w.AutoPlot || w.Legend {
+		t.Fatalf("widget %+v", w)
+	}
+	if len(w.Pens) != 1 || w.Pens[0].Name != "best" || w.Pens[0].Update != "" || w.Pens[0].Color != -16777216 {
+		t.Fatalf("pen %+v", w.Pens)
+	}
+	vm, err := m.NewVM(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vm.Call("setup"); err != nil {
+		t.Fatal(err)
+	}
+	pts, ok := vm.PlotPoints("Best Fitness", "best")
+	if !ok || len(pts) != 1 || pts[0].X != 0 || pts[0].Y != 4 || !pts[0].Down {
+		t.Fatalf("points %+v %v", pts, ok)
+	}
+	view := mustPlot(t, vm, "Best Fitness")
+	if view.YMin != 0 || view.YMax != 4.4 || view.XMin != 0 || view.XMax != 5 || !view.AutoPlot {
+		t.Fatalf("range %+v", view)
+	}
+	if _, err := vm.ExecuteLine("clear-plot"); err != nil {
+		t.Fatal(err)
+	}
+	view = mustPlot(t, vm, "Best Fitness")
+	if view.YMin != 0 || view.YMax != 0 || view.XMax != 5 {
+		t.Fatalf("clear restored %+v", view)
+	}
+}
+
 func TestRobbyPlotSequence(t *testing.T) {
 	code := `globals [ best-fitness ]
 to setup
