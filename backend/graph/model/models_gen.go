@@ -89,6 +89,11 @@ type Frame struct {
 	OutputSeq int      `json:"outputSeq"`
 	Widgets   []Widget `json:"widgets"`
 	World     World    `json:"world"`
+	// Plots in widget order. Points are not included; see plotAppend.
+	Plots []PlotView `json:"plots"`
+	// Samples added since this subscriber's previous frame.
+	// A pen with nothing new is omitted. reset replaces that pen's samples.
+	PlotAppend []PlotPenDelta `json:"plotAppend"`
 }
 
 type Link struct {
@@ -103,6 +108,55 @@ type Link struct {
 }
 
 type Mutation struct {
+}
+
+// Samples one pen gained since the subscriber's cursor.
+type PlotPenDelta struct {
+	PlotIndex int `json:"plotIndex"`
+	PenIndex  int `json:"penIndex"`
+	// Changes when the pen is cleared.
+	Epoch int `json:"epoch"`
+	// Samples added in this epoch, including ones dropped from the retained window.
+	Seq int `json:"seq"`
+	// True when the subscriber should discard this pen's previous samples.
+	Reset  bool        `json:"reset"`
+	Points []PlotPoint `json:"points"`
+}
+
+// One pen, without its samples.
+type PlotPenView struct {
+	Name string `json:"name"`
+	R    int    `json:"r"`
+	G    int    `json:"g"`
+	B    int    `json:"b"`
+	// line, bar, or point.
+	Mode     string  `json:"mode"`
+	Interval float64 `json:"interval"`
+}
+
+// One sample. down is false when the pen was up, which breaks the line.
+type PlotPoint struct {
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	Down bool    `json:"down"`
+}
+
+// Axes and pens for one plot. The point history is not in this object.
+type PlotView struct {
+	Index  int     `json:"index"`
+	Name   string  `json:"name"`
+	XLabel string  `json:"xLabel"`
+	YLabel string  `json:"yLabel"`
+	XMin   float64 `json:"xMin"`
+	XMax   float64 `json:"xMax"`
+	YMin   float64 `json:"yMin"`
+	YMax   float64 `json:"yMax"`
+	// True when a pen-down sample outside the range grows that range.
+	AutoPlot bool `json:"autoPlot"`
+	Legend   bool `json:"legend"`
+	// Compile or runtime error from the plot or a pen. Empty when healthy.
+	Error string        `json:"error"`
+	Pens  []PlotPenView `json:"pens"`
 }
 
 type Query struct {

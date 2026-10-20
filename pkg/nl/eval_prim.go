@@ -66,6 +66,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		vm.requireObserver(pos, "clear-all")
 		w.ClearAll()
 		vm.clearOutput()
+		vm.clearAllPlots()
 	case "clear-turtles", "ct":
 		vm.requireObserver(pos, "clear-turtles")
 		w.ClearTurtles()
@@ -88,11 +89,56 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "reset-ticks":
 		vm.requireObserver(pos, "reset-ticks")
 		w.ResetTicks()
+		vm.setupPlots()
+		vm.updatePlots()
 	case "tick":
 		vm.requireObserver(pos, "tick")
 		if err := w.Tick(); err != nil {
 			return err
 		}
+		vm.updatePlots()
+	case "clear-all-plots":
+		vm.clearAllPlots()
+	case "clear-plot":
+		return vm.clearPlot()
+	case "setup-plots":
+		vm.setupPlots()
+	case "update-plots":
+		vm.updatePlots()
+	case "plot":
+		y, err := plotNum(args[0], "plot")
+		if err != nil {
+			return err
+		}
+		return vm.plotY(y)
+	case "plotxy":
+		x, err := plotNum(args[0], "plotxy")
+		if err != nil {
+			return err
+		}
+		y, err := plotNum(args[1], "plotxy")
+		if err != nil {
+			return err
+		}
+		return vm.plotXY(x, y)
+	case "plot-pen-up":
+		return vm.plotPenDown(false)
+	case "plot-pen-down":
+		return vm.plotPenDown(true)
+	case "set-plot-x-range":
+		return vm.setPlotRange(args[0], args[1], true)
+	case "set-plot-y-range":
+		return vm.setPlotRange(args[0], args[1], false)
+	case "set-current-plot":
+		return vm.setCurrentPlot(args[0])
+	case "set-current-plot-pen":
+		return vm.setCurrentPlotPen(args[0])
+	case "auto-plot-on":
+		return vm.setAutoPlot(true)
+	case "auto-plot-off":
+		return vm.setAutoPlot(false)
+	case "create-temporary-plot-pen":
+		return vm.createTempPen(args[0])
 	case "tick-advance":
 		vm.requireObserver(pos, "tick-advance")
 		n, err := args[0].Num()

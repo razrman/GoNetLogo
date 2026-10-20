@@ -153,6 +153,62 @@ type Frame {
   outputSeq: Int!
   widgets: [Widget!]!
   world: World!
+  """Plots in widget order. Points are not included; see plotAppend."""
+  plots: [PlotView!]!
+  """
+  Samples added since this subscriber's previous frame.
+  A pen with nothing new is omitted. reset replaces that pen's samples.
+  """
+  plotAppend: [PlotPenDelta!]!
+}
+
+"""Axes and pens for one plot. The point history is not in this object."""
+type PlotView {
+  index: Int!
+  name: String!
+  xLabel: String!
+  yLabel: String!
+  xMin: Float!
+  xMax: Float!
+  yMin: Float!
+  yMax: Float!
+  """True when a pen-down sample outside the range grows that range."""
+  autoPlot: Boolean!
+  legend: Boolean!
+  """Compile or runtime error from the plot or a pen. Empty when healthy."""
+  error: String!
+  pens: [PlotPenView!]!
+}
+
+"""One pen, without its samples."""
+type PlotPenView {
+  name: String!
+  r: Int!
+  g: Int!
+  b: Int!
+  """line, bar, or point."""
+  mode: String!
+  interval: Float!
+}
+
+"""One sample. down is false when the pen was up, which breaks the line."""
+type PlotPoint {
+  x: Float!
+  y: Float!
+  down: Boolean!
+}
+
+"""Samples one pen gained since the subscriber's cursor."""
+type PlotPenDelta {
+  plotIndex: Int!
+  penIndex: Int!
+  """Changes when the pen is cleared."""
+  epoch: Int!
+  """Samples added in this epoch, including ones dropped from the retained window."""
+  seq: Int!
+  """True when the subscriber should discard this pen's previous samples."""
+  reset: Boolean!
+  points: [PlotPoint!]!
 }
 
 type Widget {
