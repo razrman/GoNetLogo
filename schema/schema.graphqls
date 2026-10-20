@@ -164,6 +164,8 @@ type World {
   patchColors: String!
   turtles: [Turtle!]!
   links: [Link!]!
+  "Patch labels with a non-empty rendered string. Coordinates are patch coords."
+  patchLabels: [PatchLabel!]!
 }
 
 type Turtle {
@@ -177,6 +179,8 @@ type Turtle {
   r: Int!
   g: Int!
   b: Int!
+  "Label formatted for drawing. The interpreter keeps the original value type."
+  label: String!
 }
 
 type Link {
@@ -188,4 +192,11 @@ type Link {
   r: Int!
   g: Int!
   b: Int!
+  label: String!
+}
+
+type PatchLabel {
+  x: Int!
+  y: Int!
+  label: String!
 }

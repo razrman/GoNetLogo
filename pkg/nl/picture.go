@@ -28,17 +28,20 @@ type snapPatch struct {
 	c       color.RGBA
 	draw    color.RGBA
 	hasDraw bool
+	label   string
 }
 
 type snapLink struct {
 	x1, y1, x2, y2 float64
 	c              color.RGBA
+	label          string
 }
 
 type snapTurtle struct {
 	x, y, heading, size float64
 	color               float64
 	shape               string
+	label               string
 }
 
 // CurrentView returns the last frame a painter asked for. A model command
@@ -77,7 +80,7 @@ func (w *World) captureView() *ViewSnap {
 		patches: make([]snapPatch, len(w.patchOrder)),
 	}
 	for i, p := range w.patchOrder {
-		sp := snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p)}
+		sp := snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p), label: LabelString(p.Label)}
 		if d, ok := w.DrawingAt(p.PX, p.PY); ok {
 			sp.draw = color.RGBA{d.R, d.G, d.B, 255}
 			sp.hasDraw = true
@@ -88,7 +91,7 @@ func (w *World) captureView() *ViewSnap {
 		if l == nil || l.dead || l.Hidden || l.End1 == nil || l.End2 == nil || l.End1.dead || l.End2.dead {
 			continue
 		}
-		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color)})
+		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color), LabelString(l.Label)})
 	}
 	if len(w.whoSeq) != len(w.turtles) {
 		w.rebuildWhoSeq()
@@ -102,7 +105,7 @@ func (w *World) captureView() *ViewSnap {
 		if shape == "" {
 			shape = "default"
 		}
-		s.turtles = append(s.turtles, snapTurtle{t.X, t.Y, t.Heading, t.Size, t.Color, shape})
+		s.turtles = append(s.turtles, snapTurtle{t.X, t.Y, t.Heading, t.Size, t.Color, shape, LabelString(t.Label)})
 	}
 	return s
 }
@@ -145,16 +148,34 @@ func (s *ViewSnap) Paint(patchPx int) *image.RGBA {
 			}
 			drawRect(img, x0+m, y0+m, x0+patchPx-m, y0+patchPx-m, p.draw)
 		}
+		if p.label != "" {
+			drawAgentLabel(img, x0+2, y0+patchPx/2-8, p.label)
+		}
 	}
 	for _, l := range s.links {
 		x1, y1 := worldToPx(s.minPx, s.maxPy, l.x1, l.y1, patchPx)
 		x2, y2 := worldToPx(s.minPx, s.maxPy, l.x2, l.y2, patchPx)
 		drawLine(img, x1, y1, x2, y2, l.c)
+		if l.label != "" {
+			drawAgentLabel(img, (x1+x2)/2, (y1+y2)/2-8, l.label)
+		}
 	}
 	for _, t := range s.turtles {
 		drawTurtle(img, s.minPx, s.maxPy, t, patchPx)
+		if t.label != "" {
+			cx, cy := worldToPx(s.minPx, s.maxPy, t.x, t.y, patchPx)
+			drawAgentLabel(img, cx+3, cy-patchPx/2, t.label)
+		}
 	}
 	return img
+}
+
+func drawAgentLabel(img *image.RGBA, x, y int, text string) {
+	if text == "" || img == nil {
+		return
+	}
+	drawText(img, x+1, y+1, text, color.RGBA{0, 0, 0, 255})
+	drawText(img, x, y, text, color.RGBA{255, 255, 255, 255})
 }
 
 func patchRGBA(p *Patch) color.RGBA {

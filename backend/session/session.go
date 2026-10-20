@@ -811,7 +811,7 @@ func (s *Session) sessionLocked() *model.Session {
 		Log:       append([]string(nil), s.log...),
 		Notes:     []string{},
 		Widgets:   []model.Widget{},
-		World:     model.World{Turtles: []model.Turtle{}, Links: []model.Link{}},
+		World:     model.World{Turtles: []model.Turtle{}, Links: []model.Link{}, PatchLabels: []model.PatchLabel{}},
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
@@ -919,6 +919,7 @@ func worldLocked(w *nl.World) model.World {
 		PatchColors: patchColors(w),
 		Turtles:     []model.Turtle{},
 		Links:       []model.Link{},
+		PatchLabels: []model.PatchLabel{},
 	}
 	if turtles := w.Turtles(); turtles != nil {
 		for _, a := range turtles.Alive() {
@@ -938,6 +939,7 @@ func worldLocked(w *nl.World) model.World {
 			out.Turtles = append(out.Turtles, model.Turtle{
 				Who: t.Who, X: t.X, Y: t.Y, Heading: t.Heading,
 				Size: size, Shape: shape, Hidden: t.Hidden, R: r, G: g, B: b,
+				Label: nl.LabelString(t.Label),
 			})
 		}
 	}
@@ -951,7 +953,21 @@ func worldLocked(w *nl.World) model.World {
 			out.Links = append(out.Links, model.Link{
 				X1: l.End1.X, Y1: l.End1.Y, X2: l.End2.X, Y2: l.End2.Y,
 				Hidden: l.Hidden, R: r, G: g, B: b,
+				Label: nl.LabelString(l.Label),
 			})
+		}
+	}
+	for py := w.MaxPycor; py >= w.MinPycor; py-- {
+		for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
+			p := w.GetPatch(px, py)
+			if p == nil {
+				continue
+			}
+			text := nl.LabelString(p.Label)
+			if text == "" {
+				continue
+			}
+			out.PatchLabels = append(out.PatchLabels, model.PatchLabel{X: px, Y: py, Label: text})
 		}
 	}
 	return out

@@ -664,7 +664,9 @@ func (c *compiler) compileExpr(e Expr, locals map[string]bool) repFn {
 func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 	pos := e.Pos
 	switch e.Name {
-	case "ifelse-value", "all?", "max-one-of", "min-one-of", "sort-on":
+	case "ifelse-value":
+		return c.compileIfelseValue(e, locals)
+	case "all?", "max-one-of", "min-one-of", "sort-on":
 		return func(vm *VM) Value {
 			v, err := vm.eval(e)
 			if err != nil {
@@ -748,6 +750,37 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 			vm.fail(pos, "%s", err.Error())
 		}
 		return v
+	}
+}
+
+func (c *compiler) compileIfelseValue(e *callExpr, locals map[string]bool) repFn {
+	pos := e.Pos
+	if len(e.Args) < 3 || len(e.Args)%2 == 0 {
+		return func(vm *VM) Value {
+			v, err := vm.eval(e)
+			if err != nil {
+				vm.fail(pos, "%s", err.Error())
+			}
+			return v
+		}
+	}
+	args := make([]repFn, len(e.Args))
+	for i, a := range e.Args {
+		args[i] = c.compileExpr(a, locals)
+	}
+	return func(vm *VM) Value {
+		rest := args
+		for len(rest) > 1 {
+			if truthAt(vm, rest[0](vm), pos) {
+				return rest[1](vm)
+			}
+			if len(rest) == 3 {
+				return rest[2](vm)
+			}
+			rest = rest[2:]
+		}
+		vm.fail(pos, "ifelse-value expected an else value")
+		return Value{}
 	}
 }
 

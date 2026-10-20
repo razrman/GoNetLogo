@@ -83,6 +83,7 @@ type ComplexityRoot struct {
 		B      func(childComplexity int) int
 		G      func(childComplexity int) int
 		Hidden func(childComplexity int) int
+		Label  func(childComplexity int) int
 		R      func(childComplexity int) int
 		X1     func(childComplexity int) int
 		X2     func(childComplexity int) int
@@ -107,6 +108,12 @@ type ComplexityRoot struct {
 		Setup         func(childComplexity int, sessionID string) int
 		Step          func(childComplexity int, sessionID string) int
 		Stop          func(childComplexity int, sessionID string) int
+	}
+
+	PatchLabel struct {
+		Label func(childComplexity int) int
+		X     func(childComplexity int) int
+		Y     func(childComplexity int) int
 	}
 
 	Query struct {
@@ -144,6 +151,7 @@ type ComplexityRoot struct {
 		G       func(childComplexity int) int
 		Heading func(childComplexity int) int
 		Hidden  func(childComplexity int) int
+		Label   func(childComplexity int) int
 		R       func(childComplexity int) int
 		Shape   func(childComplexity int) int
 		Size    func(childComplexity int) int
@@ -179,6 +187,7 @@ type ComplexityRoot struct {
 		MinPxcor    func(childComplexity int) int
 		MinPycor    func(childComplexity int) int
 		PatchColors func(childComplexity int) int
+		PatchLabels func(childComplexity int) int
 		PatchSize   func(childComplexity int) int
 		Turtles     func(childComplexity int) int
 		Width       func(childComplexity int) int
@@ -412,6 +421,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Link.Hidden(childComplexity), true
 
+	case "Link.label":
+		if e.complexity.Link.Label == nil {
+			break
+		}
+
+		return e.complexity.Link.Label(childComplexity), true
+
 	case "Link.r":
 		if e.complexity.Link.R == nil {
 			break
@@ -639,6 +655,27 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.Stop(childComplexity, args["sessionId"].(string)), true
 
+	case "PatchLabel.label":
+		if e.complexity.PatchLabel.Label == nil {
+			break
+		}
+
+		return e.complexity.PatchLabel.Label(childComplexity), true
+
+	case "PatchLabel.x":
+		if e.complexity.PatchLabel.X == nil {
+			break
+		}
+
+		return e.complexity.PatchLabel.X(childComplexity), true
+
+	case "PatchLabel.y":
+		if e.complexity.PatchLabel.Y == nil {
+			break
+		}
+
+		return e.complexity.PatchLabel.Y(childComplexity), true
+
 	case "Query.models":
 		if e.complexity.Query.Models == nil {
 			break
@@ -828,6 +865,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Turtle.Hidden(childComplexity), true
+
+	case "Turtle.label":
+		if e.complexity.Turtle.Label == nil {
+			break
+		}
+
+		return e.complexity.Turtle.Label(childComplexity), true
 
 	case "Turtle.r":
 		if e.complexity.Turtle.R == nil {
@@ -1031,6 +1075,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.World.PatchColors(childComplexity), true
+
+	case "World.patchLabels":
+		if e.complexity.World.PatchLabels == nil {
+			break
+		}
+
+		return e.complexity.World.PatchLabels(childComplexity), true
 
 	case "World.patchSize":
 		if e.complexity.World.PatchSize == nil {
@@ -1410,6 +1461,8 @@ type World {
   patchColors: String!
   turtles: [Turtle!]!
   links: [Link!]!
+  "Patch labels with a non-empty rendered string. Coordinates are patch coords."
+  patchLabels: [PatchLabel!]!
 }
 
 type Turtle {
@@ -1423,6 +1476,8 @@ type Turtle {
   r: Int!
   g: Int!
   b: Int!
+  "Label formatted for drawing. The interpreter keeps the original value type."
+  label: String!
 }
 
 type Link {
@@ -1434,6 +1489,13 @@ type Link {
   r: Int!
   g: Int!
   b: Int!
+  label: String!
+}
+
+type PatchLabel {
+  x: Int!
+  y: Int!
+  label: String!
 }
 `, BuiltIn: false},
 }
@@ -3007,6 +3069,8 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_turtles(ctx, field)
 			case "links":
 				return ec.fieldContext_World_links(ctx, field)
+			case "patchLabels":
+				return ec.fieldContext_World_patchLabels(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type World", field.Name)
 		},
@@ -3361,6 +3425,50 @@ func (ec *executionContext) fieldContext_Link_b(_ context.Context, field graphql
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Link_label(ctx context.Context, field graphql.CollectedField, obj *model.Link) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Link_label(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Label, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Link_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Link",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4768,6 +4876,138 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _PatchLabel_x(ctx context.Context, field graphql.CollectedField, obj *model.PatchLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PatchLabel_x(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.X, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PatchLabel_x(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PatchLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PatchLabel_y(ctx context.Context, field graphql.CollectedField, obj *model.PatchLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PatchLabel_y(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Y, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PatchLabel_y(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PatchLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PatchLabel_label(ctx context.Context, field graphql.CollectedField, obj *model.PatchLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_PatchLabel_label(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Label, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_PatchLabel_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PatchLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_models(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Query_models(ctx, field)
 	if err != nil {
@@ -5900,6 +6140,8 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_turtles(ctx, field)
 			case "links":
 				return ec.fieldContext_World_links(ctx, field)
+			case "patchLabels":
+				return ec.fieldContext_World_patchLabels(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type World", field.Name)
 		},
@@ -6441,6 +6683,50 @@ func (ec *executionContext) fieldContext_Turtle_b(_ context.Context, field graph
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Turtle_label(ctx context.Context, field graphql.CollectedField, obj *model.Turtle) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Turtle_label(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Label, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Turtle_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Turtle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -7616,6 +7902,8 @@ func (ec *executionContext) fieldContext_World_turtles(_ context.Context, field 
 				return ec.fieldContext_Turtle_g(ctx, field)
 			case "b":
 				return ec.fieldContext_Turtle_b(ctx, field)
+			case "label":
+				return ec.fieldContext_Turtle_label(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Turtle", field.Name)
 		},
@@ -7678,8 +7966,62 @@ func (ec *executionContext) fieldContext_World_links(_ context.Context, field gr
 				return ec.fieldContext_Link_g(ctx, field)
 			case "b":
 				return ec.fieldContext_Link_b(ctx, field)
+			case "label":
+				return ec.fieldContext_Link_label(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Link", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_patchLabels(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_patchLabels(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PatchLabels, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.PatchLabel)
+	fc.Result = res
+	return ec.marshalNPatchLabel2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPatchLabelᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_patchLabels(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "x":
+				return ec.fieldContext_PatchLabel_x(ctx, field)
+			case "y":
+				return ec.fieldContext_PatchLabel_y(ctx, field)
+			case "label":
+				return ec.fieldContext_PatchLabel_label(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PatchLabel", field.Name)
 		},
 	}
 	return fc, nil
@@ -10064,6 +10406,11 @@ func (ec *executionContext) _Link(ctx context.Context, sel ast.SelectionSet, obj
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "label":
+			out.Values[i] = ec._Link_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -10215,6 +10562,55 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setWorld(ctx, field)
 			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var patchLabelImplementors = []string{"PatchLabel"}
+
+func (ec *executionContext) _PatchLabel(ctx context.Context, sel ast.SelectionSet, obj *model.PatchLabel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, patchLabelImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PatchLabel")
+		case "x":
+			out.Values[i] = ec._PatchLabel_x(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "y":
+			out.Values[i] = ec._PatchLabel_y(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._PatchLabel_label(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -10551,6 +10947,11 @@ func (ec *executionContext) _Turtle(ctx context.Context, sel ast.SelectionSet, o
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "label":
+			out.Values[i] = ec._Turtle_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -10723,6 +11124,11 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "links":
 			out.Values[i] = ec._World_links(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "patchLabels":
+			out.Values[i] = ec._World_patchLabels(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -11280,6 +11686,54 @@ func (ec *executionContext) marshalNLink2ᚕgonetlogoᚋbackendᚋgraphᚋmodel�
 				defer wg.Done()
 			}
 			ret[i] = ec.marshalNLink2gonetlogoᚋbackendᚋgraphᚋmodelᚐLink(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNPatchLabel2gonetlogoᚋbackendᚋgraphᚋmodelᚐPatchLabel(ctx context.Context, sel ast.SelectionSet, v model.PatchLabel) graphql.Marshaler {
+	return ec._PatchLabel(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPatchLabel2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐPatchLabelᚄ(ctx context.Context, sel ast.SelectionSet, v []model.PatchLabel) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNPatchLabel2gonetlogoᚋbackendᚋgraphᚋmodelᚐPatchLabel(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
