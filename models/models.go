@@ -3,7 +3,7 @@ package models
 
 import "embed"
 
-// FS contains the original demo models (fire, life, termites, wolf sheep, output).
+// FS contains the original demo models (fire, life, termites, wolf sheep, output, edge).
 //
 //go:embed *.nlogo
 var FS embed.FS
