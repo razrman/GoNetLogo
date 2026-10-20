@@ -52,6 +52,8 @@ type ComplexityRoot struct {
 	AgentLabel struct {
 		B    func(childComplexity int) int
 		G    func(childComplexity int) int
+		Lx   func(childComplexity int) int
+		Ly   func(childComplexity int) int
 		Px   func(childComplexity int) int
 		Py   func(childComplexity int) int
 		R    func(childComplexity int) int
@@ -284,6 +286,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.AgentLabel.G(childComplexity), true
+
+	case "AgentLabel.lx":
+		if e.complexity.AgentLabel.Lx == nil {
+			break
+		}
+
+		return e.complexity.AgentLabel.Lx(childComplexity), true
+
+	case "AgentLabel.ly":
+		if e.complexity.AgentLabel.Ly == nil {
+			break
+		}
+
+		return e.complexity.AgentLabel.Ly(childComplexity), true
 
 	case "AgentLabel.px":
 		if e.complexity.AgentLabel.Px == nil {
@@ -1588,7 +1604,10 @@ type World {
   Empty after clear-drawing and clear-all, and when nothing has been drawn.
   """
   drawing: [DrawingMark!]!
-  """Turtle and patch labels that are non-empty. Hidden turtles are omitted."""
+  """
+  Turtle, patch, and link labels with a non-empty rendered string.
+  Hidden agents are omitted. The text is formatted from the stored value.
+  """
   labels: [AgentLabel!]!
   turtles: [Turtle!]!
   links: [Link!]!
@@ -1614,14 +1633,21 @@ type DrawingMark {
   b: Int!
 }
 
-"""A turtle label (who set) or a patch label (px and py set)."""
+"""
+A non-empty label. A turtle sets who. A patch sets px and py.
+A link sets lx and ly to the midpoint. The other fields are null.
+"""
 type AgentLabel {
-  """Turtle who. Null for a patch label."""
+  """Turtle who. Null for a patch or link label."""
   who: Int
-  """Patch column. Null for a turtle label."""
+  """Patch column. Null for a turtle or link label."""
   px: Int
-  """Patch row. Null for a turtle label."""
+  """Patch row. Null for a turtle or link label."""
   py: Int
+  """Link midpoint x. Null for a turtle or patch label."""
+  lx: Float
+  """Link midpoint y. Null for a turtle or patch label."""
+  ly: Float
   text: String!
   r: Int!
   g: Int!
@@ -2304,6 +2330,88 @@ func (ec *executionContext) fieldContext_AgentLabel_py(_ context.Context, field 
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AgentLabel_lx(ctx context.Context, field graphql.CollectedField, obj *model.AgentLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AgentLabel_lx(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Lx, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AgentLabel_lx(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AgentLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AgentLabel_ly(ctx context.Context, field graphql.CollectedField, obj *model.AgentLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AgentLabel_ly(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Ly, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AgentLabel_ly(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AgentLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -8723,6 +8831,10 @@ func (ec *executionContext) fieldContext_World_labels(_ context.Context, field g
 				return ec.fieldContext_AgentLabel_px(ctx, field)
 			case "py":
 				return ec.fieldContext_AgentLabel_py(ctx, field)
+			case "lx":
+				return ec.fieldContext_AgentLabel_lx(ctx, field)
+			case "ly":
+				return ec.fieldContext_AgentLabel_ly(ctx, field)
 			case "text":
 				return ec.fieldContext_AgentLabel_text(ctx, field)
 			case "r":
@@ -11016,6 +11128,10 @@ func (ec *executionContext) _AgentLabel(ctx context.Context, sel ast.SelectionSe
 			out.Values[i] = ec._AgentLabel_px(ctx, field, obj)
 		case "py":
 			out.Values[i] = ec._AgentLabel_py(ctx, field, obj)
+		case "lx":
+			out.Values[i] = ec._AgentLabel_lx(ctx, field, obj)
+		case "ly":
+			out.Values[i] = ec._AgentLabel_ly(ctx, field, obj)
 		case "text":
 			out.Values[i] = ec._AgentLabel_text(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

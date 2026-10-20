@@ -8,21 +8,24 @@ import (
 )
 
 func TestDisplayLabel(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"", ""},
-		{"hello", "hello"},
-		{"3", "3"},
-		{"3.0", "3"},
-		{"3.00", "3"},
-		{"1.50", "1.5"},
-		{"-2.0", "-2"},
-		{"nest", "nest"},
-		{"007", "7"},
-		{"1e2", "1e2"},
+	cases := []struct {
+		in   Value
+		want string
+	}{
+		{Str(""), ""},
+		{Str("hello"), "hello"},
+		{Str("3.00"), "3.00"},
+		{Str("007"), "007"},
+		{Str("1e2"), "1e2"},
+		{Num(3), "3"},
+		{Num(3.0), "3"},
+		{Num(1.5), "1.5"},
+		{Num(-2), "-2"},
+		{Str("nest"), "nest"},
 	}
 	for _, c := range cases {
 		if got := DisplayLabel(c.in); got != c.want {
-			t.Errorf("DisplayLabel(%q) = %q, want %q", c.in, got, c.want)
+			t.Errorf("DisplayLabel(%s) = %q, want %q", c.in.Format(true), got, c.want)
 		}
 	}
 }
@@ -185,7 +188,7 @@ func TestShapesAndLabelsPaint(t *testing.T) {
 		a.(*Patch).PColor = 9.9
 	}
 	p := w.GetPatch(0, 0)
-	p.Label = "Hi"
+	p.Label = Str("Hi")
 	p.Vars["plabel-color"] = Num(0)
 	img := RenderWorld(w, 14)
 	if !hasDark(img, 54, 48, 40, 24) {
@@ -205,7 +208,7 @@ func TestViewLabels(t *testing.T) {
 	mustEval(t, vm, `
 create-turtles 2 [
   ifelse who = 0 [
-    set label "3.00"
+    set label 3.00
     set label-color red
     set shape "person"
   ] [

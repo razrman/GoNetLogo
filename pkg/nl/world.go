@@ -52,8 +52,9 @@ type World struct {
 
 	// marks is the drawing layer: pen strokes and stamps, oldest first.
 	// clear-drawing and clear-all drop it. Nil until something is drawn.
-	// Turtle.Label and Patch.Label stay plain strings; the view formats
-	// them when it paints. label-color and plabel-color stay in Vars.
+	// Turtle, Patch, and Link labels keep their value type. The view
+	// formats them with DisplayLabel when it paints. label-color and
+	// plabel-color stay in Vars.
 	marks []Mark
 
 	// mu guards mutation of the world against a concurrent render.
@@ -89,7 +90,7 @@ type Patch struct {
 	RGB     color.RGBA
 	HasRGB  bool
 	Vars    map[string]Value
-	Label   string
+	Label   Value
 	turtles []*Turtle
 	world   *World
 	dead    bool
@@ -110,7 +111,7 @@ type Turtle struct {
 	Shape   string
 	Size    float64
 	Hidden  bool
-	Label   string
+	Label   Value
 	Breed   string // plural; empty means the default turtles breed
 	PenDown bool
 	PenSize float64
@@ -141,7 +142,7 @@ type Link struct {
 	Shape     string
 	Thickness float64
 	Hidden    bool
-	Label     string
+	Label     Value
 	TieMode   string
 	Vars      map[string]Value
 	dead      bool
@@ -198,6 +199,7 @@ func (w *World) recreatePatches() {
 				PX: x, PY: y,
 				PColor: 0,
 				Vars:   map[string]Value{},
+				Label:  Str(""),
 				world:  w,
 			}
 			for _, name := range w.patchesOwn {
@@ -557,7 +559,7 @@ func (w *World) ClearPatches() {
 	for _, p := range w.patches {
 		p.PColor = 0
 		p.HasRGB = false
-		p.Label = ""
+		p.Label = Str("")
 		p.turtles = p.turtles[:0]
 		for _, name := range w.patchesOwn {
 			p.Vars[name] = Num(0)
@@ -734,6 +736,7 @@ func (w *World) CreateTurtle(breed string, x, y float64, colorN, heading int) *T
 		Shape:   w.defaultShapeFor(breed),
 		Size:    1,
 		Breed:   breed,
+		Label:   Str(""),
 		PenSize: 1,
 		world:   w,
 	}
@@ -1080,6 +1083,7 @@ func (w *World) CreateLink(a, b *Turtle, directed bool, breed string) (*Link, bo
 		Shape:     "default",
 		Thickness: 0,
 		TieMode:   "none",
+		Label:     Str(""),
 		Vars:      map[string]Value{},
 		world:     w,
 	}

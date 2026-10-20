@@ -168,7 +168,10 @@ type World {
   Empty after clear-drawing and clear-all, and when nothing has been drawn.
   """
   drawing: [DrawingMark!]!
-  """Turtle and patch labels that are non-empty. Hidden turtles are omitted."""
+  """
+  Turtle, patch, and link labels with a non-empty rendered string.
+  Hidden agents are omitted. The text is formatted from the stored value.
+  """
   labels: [AgentLabel!]!
   turtles: [Turtle!]!
   links: [Link!]!
@@ -194,14 +197,21 @@ type DrawingMark {
   b: Int!
 }
 
-"""A turtle label (who set) or a patch label (px and py set)."""
+"""
+A non-empty label. A turtle sets who. A patch sets px and py.
+A link sets lx and ly to the midpoint. The other fields are null.
+"""
 type AgentLabel {
-  """Turtle who. Null for a patch label."""
+  """Turtle who. Null for a patch or link label."""
   who: Int
-  """Patch column. Null for a turtle label."""
+  """Patch column. Null for a turtle or link label."""
   px: Int
-  """Patch row. Null for a turtle label."""
+  """Patch row. Null for a turtle or link label."""
   py: Int
+  """Link midpoint x. Null for a turtle or patch label."""
+  lx: Float
+  """Link midpoint y. Null for a turtle or patch label."""
+  ly: Float
   text: String!
   r: Int!
   g: Int!

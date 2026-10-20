@@ -2,18 +2,23 @@
 
 package model
 
-// A turtle label (who set) or a patch label (px and py set).
+// A non-empty label. A turtle sets who. A patch sets px and py.
+// A link sets lx and ly to the midpoint. The other fields are null.
 type AgentLabel struct {
-	// Turtle who. Null for a patch label.
+	// Turtle who. Null for a patch or link label.
 	Who *int `json:"who,omitempty"`
-	// Patch column. Null for a turtle label.
+	// Patch column. Null for a turtle or link label.
 	Px *int `json:"px,omitempty"`
-	// Patch row. Null for a turtle label.
-	Py   *int   `json:"py,omitempty"`
-	Text string `json:"text"`
-	R    int    `json:"r"`
-	G    int    `json:"g"`
-	B    int    `json:"b"`
+	// Patch row. Null for a turtle or link label.
+	Py *int `json:"py,omitempty"`
+	// Link midpoint x. Null for a turtle or patch label.
+	Lx *float64 `json:"lx,omitempty"`
+	// Link midpoint y. Null for a turtle or patch label.
+	Ly   *float64 `json:"ly,omitempty"`
+	Text string   `json:"text"`
+	R    int      `json:"r"`
+	G    int      `json:"g"`
+	B    int      `json:"b"`
 }
 
 type CommandResult struct {
@@ -168,7 +173,8 @@ type World struct {
 	// Drawing layer, oldest first: pen strokes and turtle stamps.
 	// Empty after clear-drawing and clear-all, and when nothing has been drawn.
 	Drawing []DrawingMark `json:"drawing"`
-	// Turtle and patch labels that are non-empty. Hidden turtles are omitted.
+	// Turtle, patch, and link labels with a non-empty rendered string.
+	// Hidden agents are omitted. The text is formatted from the stored value.
 	Labels  []AgentLabel `json:"labels"`
 	Turtles []Turtle     `json:"turtles"`
 	Links   []Link       `json:"links"`

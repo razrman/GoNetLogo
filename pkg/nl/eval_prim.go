@@ -227,7 +227,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "no-display":
 		vm.DisplayOn = false
 	case "run":
-		return vm.doRun(args[0], false, pos)
+		return vm.doRun(args, pos)
 	case "layout-circle":
 		return vm.layoutCircle(args[0], args[1])
 	default:
@@ -258,9 +258,17 @@ func (vm *VM) agentTag() string {
 	return strings.Trim(vm.self.AgentString(), "()")
 }
 
-func (vm *VM) doRun(v Value, wantValue bool, pos Pos) error {
+func (vm *VM) doRun(args []Value, pos Pos) error {
+	if len(args) == 0 {
+		return fmt.Errorf("run expected a string or a command task")
+	}
+	v := args[0]
+	inputs := args[1:]
 	switch v.K {
 	case KindString:
+		if len(inputs) != 0 {
+			return fmt.Errorf("run of a string does not take extra inputs")
+		}
 		stmts, err := ParseCommands(v.S, vm.Prog)
 		if err != nil {
 			return err
@@ -271,7 +279,7 @@ func (vm *VM) doRun(v Value, wantValue bool, pos Pos) error {
 		if v.Task == nil || !v.Task.IsCommand {
 			return fmt.Errorf("run expected a command task or a string")
 		}
-		vm.callTaskCmd(v.Task, nil, pos)
+		vm.callTaskCmd(v.Task, inputs, pos)
 		return nil
 	default:
 		return fmt.Errorf("run expected a string or a command task")

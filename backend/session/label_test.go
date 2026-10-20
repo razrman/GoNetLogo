@@ -1,6 +1,10 @@
 package session
 
-import "testing"
+import (
+	"testing"
+
+	"gonetlogo/pkg/nl"
+)
 
 func TestFrameLabelsAndDrawing(t *testing.T) {
 	s := newSession()
@@ -15,7 +19,7 @@ create-turtles 2 [
     set size 2
     setxy 1 2
     set heading 90
-    set label "8.00"
+    set label 8.00
     set label-color red
     stamp
     fd 1
@@ -46,7 +50,7 @@ ask patch -1 1 [ set plabel "" ]
 		switch {
 		case lb.Who != nil:
 			turtleLabel++
-			if *lb.Who != 0 || lb.Text != "8" || lb.Px != nil || lb.Py != nil {
+			if *lb.Who != 0 || lb.Text != "8" || lb.Px != nil || lb.Py != nil || lb.Lx != nil {
 				t.Fatalf("turtle label %+v text %q", lb, lb.Text)
 			}
 			if lb.R < 180 || lb.G > 90 {
@@ -77,5 +81,79 @@ ask patch -1 1 [ set plabel "" ]
 	}
 	if len(cleared.World.Labels) != 2 {
 		t.Fatalf("clear-drawing dropped labels: %+v", cleared.World.Labels)
+	}
+}
+
+func TestFrameFormatsNumericLabels(t *testing.T) {
+	w := nl.NewWorld(0, 1, 0, 1, false, false)
+	tu := w.CreateTurtle("", 0, 0, 5, 0)
+	tu.Label = nl.Num(0)
+	if tu.Label.K != nl.KindNum {
+		t.Fatalf("stored label kind %s", tu.Label.TypeName())
+	}
+	w.GetPatch(1, 0).Label = nl.Num(7)
+	a := w.CreateTurtle("", 1, 1, 5, 0)
+	b := w.CreateTurtle("", 0, 1, 5, 0)
+	link, _, err := w.CreateLink(a, b, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	link.Label = nl.Num(3)
+	link.Vars["label-color"] = nl.Num(15)
+
+	frame := worldLocked(w)
+	if tu.Label.K != nl.KindNum || tu.Label.N != 0 {
+		t.Fatalf("payload formatting changed the stored label %#v", tu.Label)
+	}
+	var turtle, patch, linkLabel bool
+	for _, lb := range frame.Labels {
+		switch {
+		case lb.Who != nil && *lb.Who == tu.Who && lb.Text == "0":
+			turtle = true
+			if lb.Px != nil || lb.Lx != nil {
+				t.Fatalf("turtle label also set a patch or link %+v", lb)
+			}
+		case lb.Px != nil && lb.Py != nil && *lb.Px == 1 && *lb.Py == 0 && lb.Text == "7":
+			patch = true
+		case lb.Lx != nil && lb.Ly != nil && lb.Text == "3":
+			linkLabel = true
+			if lb.R < 180 || lb.G > 90 {
+				t.Fatalf("link label-color rgb %d %d %d", lb.R, lb.G, lb.B)
+			}
+		default:
+			if lb.Text == "" {
+				t.Fatalf("empty label included: %+v", lb)
+			}
+		}
+	}
+	if !turtle || !patch || !linkLabel {
+		t.Fatalf("labels turtle=%v patch=%v link=%v payload %+v", turtle, patch, linkLabel, frame.Labels)
+	}
+}
+
+func TestFrameLabelSubtraction(t *testing.T) {
+	s := newSession()
+	if err := s.useModel("labels.nlogo", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunCommand(`
+create-turtles 1 [
+  set label 10
+  set label label - 5
+]
+`); err != nil {
+		t.Fatal(err)
+	}
+	live := s.vm.World.Turtles().Alive()
+	if len(live) != 1 {
+		t.Fatalf("turtles %d", len(live))
+	}
+	tu := live[0].(*nl.Turtle)
+	if tu.Label.K != nl.KindNum || tu.Label.N != 5 {
+		t.Fatalf("stored label %#v", tu.Label)
+	}
+	frame := s.Frame()
+	if len(frame.World.Labels) != 1 || frame.World.Labels[0].Text != "5" || frame.World.Labels[0].Who == nil {
+		t.Fatalf("frame labels %+v", frame.World.Labels)
 	}
 }

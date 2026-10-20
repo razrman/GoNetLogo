@@ -1,62 +1,29 @@
 package nl
 
-import (
-	"image/color"
-	"math"
-	"strconv"
-)
+import "image/color"
 
-// ViewLabel is one non-empty turtle or patch label, ready to draw.
-// Turtle labels set Turtle; patch labels set PX and PY.
+// ViewLabel is one non-empty turtle, patch, or link label, ready to draw.
+// Turtle labels set Turtle. Patch labels set PX and PY. Link labels set
+// Link and the midpoint X, Y.
 type ViewLabel struct {
 	Text    string
 	R, G, B uint8
 	Turtle  bool
 	Who     int
 	PX, PY  int
+	Link    bool
+	X, Y    float64
 }
 
 // DisplayLabel formats a stored label for the view.
-// Turtle.Label and Patch.Label stay strings. A plain number, including a
-// numeric string such as "3.0", uses NetLogo's number format. Any other
-// text is unchanged. An empty string is not drawn.
-func DisplayLabel(s string) string {
-	if s == "" || !plainNumber(s) {
-		return s
-	}
-	n, err := strconv.ParseFloat(s, 64)
-	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
-		return s
-	}
-	return formatNum(n)
+// The agent keeps the original value. Numbers use NetLogo's number format.
+// Every other value uses the same text as print. An empty string is not drawn.
+func DisplayLabel(v Value) string {
+	return LabelString(v)
 }
 
-func plainNumber(s string) bool {
-	i := 0
-	if s[0] == '+' || s[0] == '-' {
-		i++
-		if i >= len(s) {
-			return false
-		}
-	}
-	digits := 0
-	dot := false
-	for ; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c >= '0' && c <= '9':
-			digits++
-		case c == '.' && !dot:
-			dot = true
-		default:
-			return false
-		}
-	}
-	return digits > 0
-}
-
-// ViewLabels lists turtle and patch labels that should be drawn.
-// Empty labels and hidden turtles are left out.
+// ViewLabels lists turtle, patch, and link labels that should be drawn.
+// Empty labels and hidden turtles and links are left out.
 func (w *World) ViewLabels() []ViewLabel {
 	if w == nil {
 		return nil
@@ -89,6 +56,18 @@ func (w *World) ViewLabels() []ViewLabel {
 			Turtle: true, Who: t.Who,
 		})
 	}
+	for _, l := range w.links {
+		text, col, ok := l.viewLabel()
+		if !ok {
+			continue
+		}
+		out = append(out, ViewLabel{
+			Text: text, R: col.R, G: col.G, B: col.B,
+			Link: true,
+			X:    (l.End1.X + l.End2.X) / 2,
+			Y:    (l.End1.Y + l.End2.Y) / 2,
+		})
+	}
 	return out
 }
 
@@ -112,6 +91,17 @@ func (p *Patch) viewLabel() (string, color.RGBA, bool) {
 		return "", color.RGBA{}, false
 	}
 	return text, labelInk(p.Vars, "plabel-color"), true
+}
+
+func (l *Link) viewLabel() (string, color.RGBA, bool) {
+	if l == nil || l.dead || l.Hidden || l.End1 == nil || l.End2 == nil || l.End1.dead || l.End2.dead {
+		return "", color.RGBA{}, false
+	}
+	text := DisplayLabel(l.Label)
+	if text == "" {
+		return "", color.RGBA{}, false
+	}
+	return text, labelInk(l.Vars, "label-color"), true
 }
 
 func labelInk(vars map[string]Value, key string) color.RGBA {

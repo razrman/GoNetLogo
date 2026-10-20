@@ -36,6 +36,8 @@ export type AgentLabel = {
   who: number | null
   px: number | null
   py: number | null
+  lx: number | null
+  ly: number | null
   text: string
   r: number
   g: number

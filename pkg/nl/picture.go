@@ -50,6 +50,7 @@ type snapMark struct {
 type snapLabel struct {
 	x, y, size float64
 	patch      bool
+	link       bool
 	text       string
 	c          color.RGBA
 }
@@ -112,6 +113,12 @@ func (w *World) captureView() *ViewSnap {
 			continue
 		}
 		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color)})
+		if text, col, ok := l.viewLabel(); ok {
+			s.labels = append(s.labels, snapLabel{
+				x: (l.End1.X + l.End2.X) / 2, y: (l.End1.Y + l.End2.Y) / 2,
+				link: true, text: text, c: col,
+			})
+		}
 	}
 	if len(w.whoSeq) != len(w.turtles) {
 		w.rebuildWhoSeq()
@@ -223,6 +230,11 @@ func (s *ViewSnap) paintLabels(img *image.RGBA, patchPx int) {
 		if lb.patch {
 			cx := (int(lb.x)-s.minPx)*patchPx + patchPx/2
 			cy := (s.maxPy-int(lb.y))*patchPx + patchPx/2
+			paintLabel(img, cx, cy-6*scale, lb.text, lb.c, scale)
+			continue
+		}
+		if lb.link {
+			cx, cy := worldToPx(s.minPx, s.maxPy, lb.x, lb.y, patchPx)
 			paintLabel(img, cx, cy-6*scale, lb.text, lb.c, scale)
 			continue
 		}

@@ -113,6 +113,8 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   }
 
   ctx.lineWidth = Math.max(1, scale * 0.12)
+  ctx.textBaseline = 'middle'
+  ctx.font = `${Math.max(10, scale * 0.42)}px sans-serif`
   for (const link of world.links) {
     if (link.hidden) continue
     ctx.strokeStyle = rgbCss(link.r, link.g, link.b)
@@ -149,6 +151,9 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
       } else if (label.px != null && label.py != null) {
         ctx.textBaseline = 'middle'
         ctx.fillText(label.text, xOf(label.px), yOf(label.py))
+      } else if (label.lx != null && label.ly != null) {
+        ctx.textBaseline = 'bottom'
+        ctx.fillText(label.text, xOf(label.lx), yOf(label.ly))
       }
     }
   }

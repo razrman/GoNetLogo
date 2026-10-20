@@ -1013,10 +1013,15 @@ func viewLabels(w *nl.World) []model.AgentLabel {
 			Text: lb.Text,
 			R:    int(lb.R), G: int(lb.G), B: int(lb.B),
 		}
-		if lb.Turtle {
+		switch {
+		case lb.Turtle:
 			who := lb.Who
 			item.Who = &who
-		} else {
+		case lb.Link:
+			x, y := lb.X, lb.Y
+			item.Lx = &x
+			item.Ly = &y
+		default:
 			px, py := lb.PX, lb.PY
 			item.Px = &px
 			item.Py = &py
