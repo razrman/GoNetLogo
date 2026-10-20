@@ -3,6 +3,8 @@ package graph
 import (
 	"encoding/base64"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -378,6 +380,132 @@ func TestSetWorld(t *testing.T) {
 	}`, &rejected, client.Var("id", s.ID))
 	if err == nil || !strings.Contains(err.Error(), "origin") {
 		t.Fatalf("expected origin error, got %v", err)
+	}
+}
+
+func TestLoadModelSourceAndFile(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+
+	nlogo := "globals [pace]\nto setup\n  clear-all\n  reset-ticks\nend\nto go\n  tick\nend\n@#$#@#$#@\nGRAPHICS-WINDOW\n0\n0\n0\n0\n0\n0\n12\n0\n0\n0\n0\n0\n0\n1\n1\n0\n-1\n1\n-1\n1\n\n@#$#@#$#@\n"
+	nlogox := `<?xml version="1.0"?>
+<model version="NetLogo 7.0.0">
+  <code><![CDATA[globals [pace]
+to setup
+  clear-all
+  reset-ticks
+end
+]]></code>
+  <widgets>
+    <view minPxcor="-2" maxPxcor="2" minPycor="-2" maxPycor="2" patchSize="9" wrappingAllowedX="true" wrappingAllowedY="false"/>
+    <slider variable="pace" min="0" max="5" default="2" step="1"/>
+  </widgets>
+</model>`
+
+	var loaded struct {
+		LoadModelSource struct {
+			ModelName string
+			Code      string
+			World     struct {
+				MinPxcor int
+				MaxPxcor int
+			}
+			Widgets []struct {
+				Kind     string
+				Variable *string
+			}
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) {
+			modelName
+			code
+			world { minPxcor maxPxcor }
+			widgets { kind variable }
+		}
+	}`, &loaded, client.Var("id", s.ID), client.Var("name", "pace.nlogo"), client.Var("src", nlogo))
+	if loaded.LoadModelSource.ModelName != "pace.nlogo" || loaded.LoadModelSource.World.MaxPxcor != 1 {
+		t.Fatalf("nlogo %+v", loaded.LoadModelSource)
+	}
+	if !strings.Contains(loaded.LoadModelSource.Code, "reset-ticks") {
+		t.Fatalf("code %q", loaded.LoadModelSource.Code)
+	}
+
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) {
+			modelName
+			code
+			world { minPxcor maxPxcor }
+			widgets { kind variable }
+		}
+	}`, &loaded, client.Var("id", s.ID), client.Var("name", "pace.nlogox"), client.Var("src", nlogox))
+	if loaded.LoadModelSource.ModelName != "pace.nlogox" || loaded.LoadModelSource.World.MinPxcor != -2 || loaded.LoadModelSource.World.MaxPxcor != 2 {
+		t.Fatalf("nlogox %+v", loaded.LoadModelSource)
+	}
+	foundPace := false
+	for _, w := range loaded.LoadModelSource.Widgets {
+		if w.Kind == "slider" && w.Variable != nil && *w.Variable == "pace" {
+			foundPace = true
+		}
+	}
+	if !foundPace {
+		t.Fatal("nlogox source did not install the pace slider")
+	}
+
+	err := c.Post(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { modelName }
+	}`, &struct {
+		LoadModelSource struct{ ModelName string }
+	}{}, client.Var("id", s.ID), client.Var("name", "broken.nlogo"), client.Var("src", "to setup\n  clear-all\nend\nfd 1\n"))
+	if err == nil || !strings.Contains(err.Error(), "line 4:") {
+		t.Fatalf("compile error %v, want line 4", err)
+	}
+	var still struct {
+		Session struct{ ModelName string }
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { modelName } }`, &still, client.Var("id", s.ID))
+	if still.Session.ModelName != "pace.nlogox" {
+		t.Fatalf("failed compile replaced %q", still.Session.ModelName)
+	}
+
+	dir := t.TempDir()
+	t.Setenv("MODELS_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "pace.nlogo"), []byte(nlogo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret.nlogo")
+	if err := os.WriteFile(outside, []byte(nlogo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var fromFile struct {
+		LoadModelFile struct{ ModelName string }
+	}
+	c.MustPost(`mutation ($id: ID!, $path: String!) {
+		loadModelFile(sessionId: $id, path: $path) { modelName }
+	}`, &fromFile, client.Var("id", s.ID), client.Var("path", "pace.nlogo"))
+	if fromFile.LoadModelFile.ModelName != "pace.nlogo" {
+		t.Fatalf("file load %+v", fromFile.LoadModelFile)
+	}
+	for _, path := range []string{"../secret.nlogo", `..\secret.nlogo`, outside, "/etc/passwd", "nested/../../pace.nlogo"} {
+		err := c.Post(`mutation ($id: ID!, $path: String!) {
+			loadModelFile(sessionId: $id, path: $path) { modelName }
+		}`, &fromFile, client.Var("id", s.ID), client.Var("path", path))
+		if err == nil {
+			t.Errorf("loadModelFile accepted %q", path)
+		}
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { modelName } }`, &still, client.Var("id", s.ID))
+	if still.Session.ModelName != "pace.nlogo" {
+		t.Fatalf("rejected path replaced the model with %q", still.Session.ModelName)
+	}
+
+	err = c.Post(`mutation ($id: ID!, $model: String!) {
+		loadModel(sessionId: $id, model: $model) { modelName }
+	}`, &struct {
+		LoadModel struct{ ModelName string }
+	}{}, client.Var("id", s.ID), client.Var("model", "../fire.nlogo"))
+	if err == nil || !strings.Contains(err.Error(), "unknown model") {
+		t.Fatalf("loadModel traversal: %v", err)
 	}
 }
 

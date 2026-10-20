@@ -45,7 +45,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		vm.requireObserver(pos, "clear-ticks")
 		w.ClearTicks()
 	case "clear-drawing", "cd":
-		w.drawing = nil
+		w.ClearDrawing()
 	case "clear-output":
 		vm.clearOutput()
 	case "reset-ticks":
@@ -142,6 +142,10 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		vm.requireTurtle(pos).PenDown = true
 	case "pen-up", "pu":
 		vm.requireTurtle(pos).PenDown = false
+	case "stamp":
+		w.Stamp(vm.requireTurtle(pos), false)
+	case "stamp-erase":
+		w.Stamp(vm.requireTurtle(pos), true)
 	case "hide-turtle", "ht":
 		vm.requireTurtle(pos).Hidden = true
 	case "show-turtle", "st":

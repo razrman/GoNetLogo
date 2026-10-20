@@ -22,6 +22,33 @@ export type Widget = {
   fontSize: number
 }
 
+export type DrawingMark = {
+  pen: boolean
+  erase: boolean
+  x: number
+  y: number
+  x2: number
+  y2: number
+  heading: number
+  size: number
+  shape: string
+  r: number
+  g: number
+  b: number
+}
+
+export type AgentLabel = {
+  who: number | null
+  px: number | null
+  py: number | null
+  lx: number | null
+  ly: number | null
+  text: string
+  r: number
+  g: number
+  b: number
+}
+
 export type Turtle = {
   who: number
   x: number
@@ -33,7 +60,6 @@ export type Turtle = {
   r: number
   g: number
   b: number
-  label: string
 }
 export type Link = {
   x1: number
@@ -44,12 +70,6 @@ export type Link = {
   r: number
   g: number
   b: number
-  label: string
-}
-export type PatchLabel = {
-  x: number
-  y: number
-  label: string
 }
 
 export type WorldView = {
@@ -66,9 +86,10 @@ export type World = WorldView & {
   width: number
   height: number
   patchColors: string
+  drawing: DrawingMark[]
+  labels: AgentLabel[]
   turtles: Turtle[]
   links: Link[]
-  patchLabels: PatchLabel[]
 }
 
 export type Frame = {

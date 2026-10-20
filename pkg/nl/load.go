@@ -76,15 +76,37 @@ func LoadFile(path string) (*FileModel, error) {
 }
 
 // ParseModel accepts a .nlogo document, a .nlogox document, or bare NetLogo code.
+// The text decides when it is clearly one format. The filename extension is
+// the tie-breaker, and it also selects a parser when the text has neither
+// the classic section separator nor an XML model tag.
 func ParseModel(name, content string) (*FileModel, error) {
 	trim := strings.TrimSpace(content)
-	if strings.Contains(content, sectionSep) {
+	ext := modelExt(name)
+	hasSep := strings.Contains(content, sectionSep)
+	looksXML := strings.HasPrefix(trim, "<?xml") || strings.HasPrefix(trim, "<model") || strings.Contains(trim, "<model ")
+	// A .nlogox file whose code happens to contain the section separator
+	// stays XML. Any other file with the separator is the classic text format.
+	if hasSep && !(looksXML && ext == ".nlogox") {
 		return parseNLogo(name, content)
 	}
-	if strings.HasPrefix(trim, "<?xml") || strings.HasPrefix(trim, "<model") || strings.Contains(trim, "<model ") {
+	if looksXML || ext == ".nlogox" {
 		return parseNLogoX(name, content)
 	}
+	if ext == ".nlogo" {
+		return parseNLogo(name, content)
+	}
 	return &FileModel{Name: name, Code: content, View: DefaultView()}, nil
+}
+
+func modelExt(name string) string {
+	name = strings.ReplaceAll(name, "\\", "/")
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		return strings.ToLower(name[i:])
+	}
+	return ""
 }
 
 func parseNLogo(name, content string) (*FileModel, error) {

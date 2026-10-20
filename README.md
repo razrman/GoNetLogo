@@ -147,7 +147,7 @@ The schema lives in `schema/schema.graphqls`. Operations:
 | Kind | Fields |
 | --- | --- |
 | Query | `models`, `session(id)`, `worldSettings(sessionId)` |
-| Mutation | `createSession`, `loadModel`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
+| Mutation | `createSession`, `loadModel`, `loadModelSource`, `loadModelFile`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
 | Subscription | `frames(sessionId)` over a websocket |
 
 `Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, and monitors, plus notes and a placeholder for plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World panel calls `worldSettings` and `setWorld`. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side.
@@ -189,7 +189,7 @@ Colors are NetLogo numbers in `[0, 140)`, with the fourteen base hues and the sa
 
 ## Demo models
 
-`models/` holds four original programs. They implement well-known rules and are not copies of the Models Library. Those library files are published under CC BY-NC-SA and are not included here. The desktop **Open** command loads the code section and the basic widgets of a `.nlogo` or `.nlogox` file you already have. The web API serves only the embedded demos.
+`models/` holds four original programs. They implement well-known rules and are not copies of the Models Library. Those library files are published under CC BY-NC-SA and are not included here. `loadModel` still serves only those embedded demos. `loadModelSource` takes the file contents of a `.nlogo` or `.nlogox` model (the web **Open model…** control reads the file in the browser and sends it). `loadModelFile` reads a relative path inside `MODELS_DIR` (default `./models`) and rejects absolute paths and `..`. The desktop **File > Open** command loads a `.nlogo` or `.nlogox` file you already have.
 
 | Model | What it shows |
 | --- | --- |

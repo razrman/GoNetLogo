@@ -2,6 +2,25 @@
 
 package model
 
+// A non-empty label. A turtle sets who. A patch sets px and py.
+// A link sets lx and ly to the midpoint. The other fields are null.
+type AgentLabel struct {
+	// Turtle who. Null for a patch or link label.
+	Who *int `json:"who,omitempty"`
+	// Patch column. Null for a turtle or link label.
+	Px *int `json:"px,omitempty"`
+	// Patch row. Null for a turtle or link label.
+	Py *int `json:"py,omitempty"`
+	// Link midpoint x. Null for a turtle or patch label.
+	Lx *float64 `json:"lx,omitempty"`
+	// Link midpoint y. Null for a turtle or patch label.
+	Ly   *float64 `json:"ly,omitempty"`
+	Text string   `json:"text"`
+	R    int      `json:"r"`
+	G    int      `json:"g"`
+	B    int      `json:"b"`
+}
+
 type CommandResult struct {
 	Ok      bool    `json:"ok"`
 	Output  *string `json:"output,omitempty"`
@@ -13,6 +32,26 @@ type CompileResult struct {
 	Ok      bool    `json:"ok"`
 	Error   *string `json:"error,omitempty"`
 	Session Session `json:"session"`
+}
+
+// One pen stroke or stamp on the drawing layer.
+type DrawingMark struct {
+	// True for a pen stroke. False for a stamp.
+	Pen bool `json:"pen"`
+	// True when a stamp erases drawing under the turtle's shape.
+	Erase bool    `json:"erase"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	// End of a pen stroke. Equal to x and y for a stamp.
+	X2      float64 `json:"x2"`
+	Y2      float64 `json:"y2"`
+	Heading float64 `json:"heading"`
+	Size    float64 `json:"size"`
+	// Empty for a pen stroke. Turtle shape name for a stamp.
+	Shape string `json:"shape"`
+	R     int    `json:"r"`
+	G     int    `json:"g"`
+	B     int    `json:"b"`
 }
 
 type Frame struct {
@@ -61,16 +100,9 @@ type Link struct {
 	R      int     `json:"r"`
 	G      int     `json:"g"`
 	B      int     `json:"b"`
-	Label  string  `json:"label"`
 }
 
 type Mutation struct {
-}
-
-type PatchLabel struct {
-	X     int    `json:"x"`
-	Y     int    `json:"y"`
-	Label string `json:"label"`
 }
 
 type Query struct {
@@ -122,8 +154,6 @@ type Turtle struct {
 	R       int     `json:"r"`
 	G       int     `json:"g"`
 	B       int     `json:"b"`
-	// Label formatted for drawing. The interpreter keeps the original value type.
-	Label string `json:"label"`
 }
 
 type Widget struct {
@@ -165,11 +195,16 @@ type World struct {
 	// Base64 RGB bytes, one pixel per patch, row-major.
 	// Row 0 is maxPycor and column 0 is minPxcor.
 	// The decoded length is width * height * 3.
-	PatchColors string   `json:"patchColors"`
-	Turtles     []Turtle `json:"turtles"`
-	Links       []Link   `json:"links"`
-	// Patch labels with a non-empty rendered string. Coordinates are patch coords.
-	PatchLabels []PatchLabel `json:"patchLabels"`
+	// Patch colors only. Pen trails and stamps are in drawing.
+	PatchColors string `json:"patchColors"`
+	// Drawing layer, oldest first: pen strokes and turtle stamps.
+	// Empty after clear-drawing and clear-all, and when nothing has been drawn.
+	Drawing []DrawingMark `json:"drawing"`
+	// Turtle, patch, and link labels with a non-empty rendered string.
+	// Hidden agents are omitted. The text is formatted from the stored value.
+	Labels  []AgentLabel `json:"labels"`
+	Turtles []Turtle     `json:"turtles"`
+	Links   []Link       `json:"links"`
 }
 
 type WorldSettings struct {

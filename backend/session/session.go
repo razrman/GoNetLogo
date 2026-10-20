@@ -335,9 +335,32 @@ func (s *Session) compileButtonsLocked() {
 	}
 }
 
-// LoadModel replaces the program and rebuilds the world.
+// LoadModel replaces the program with an embedded demo and rebuilds the world.
 func (s *Session) LoadModel(modelName string) error {
 	name, content, err := readModel(modelName)
+	if err != nil {
+		return err
+	}
+	return s.useModel(name, content)
+}
+
+// LoadModelSource replaces the program with the contents of a .nlogo or
+// .nlogox file. filename is the original name; it is not a filesystem path.
+// A compile error leaves the current model in place.
+func (s *Session) LoadModelSource(filename, source string) error {
+	if len(source) > maxModelBytes {
+		return fmt.Errorf("model file is too large")
+	}
+	if strings.TrimSpace(source) == "" {
+		return fmt.Errorf("model file is empty")
+	}
+	return s.useModel(modelDisplayName(filename), source)
+}
+
+// LoadModelFile reads one model from the server models directory
+// (MODELS_DIR, default ./models). Paths that leave that directory are rejected.
+func (s *Session) LoadModelFile(path string) error {
+	name, content, err := readModelFile(path)
 	if err != nil {
 		return err
 	}
@@ -849,7 +872,12 @@ func (s *Session) sessionLocked() *model.Session {
 		Notes:     []string{},
 		Output:    []string{},
 		Widgets:   []model.Widget{},
-		World:     model.World{Turtles: []model.Turtle{}, Links: []model.Link{}, PatchLabels: []model.PatchLabel{}},
+		World: model.World{
+			Turtles: []model.Turtle{},
+			Links:   []model.Link{},
+			Drawing: []model.DrawingMark{},
+			Labels:  []model.AgentLabel{},
+		},
 	}
 	if s.vm != nil {
 		lines, partial := s.vm.OutputArea()
@@ -968,7 +996,8 @@ func worldLocked(w *nl.World) model.World {
 		PatchColors: patchColors(w),
 		Turtles:     []model.Turtle{},
 		Links:       []model.Link{},
-		PatchLabels: []model.PatchLabel{},
+		Drawing:     drawingMarks(w),
+		Labels:      viewLabels(w),
 	}
 	if turtles := w.Turtles(); turtles != nil {
 		for _, a := range turtles.Alive() {
@@ -988,7 +1017,6 @@ func worldLocked(w *nl.World) model.World {
 			out.Turtles = append(out.Turtles, model.Turtle{
 				Who: t.Who, X: t.X, Y: t.Y, Heading: t.Heading,
 				Size: size, Shape: shape, Hidden: t.Hidden, R: r, G: g, B: b,
-				Label: nl.LabelString(t.Label),
 			})
 		}
 	}
@@ -1002,21 +1030,7 @@ func worldLocked(w *nl.World) model.World {
 			out.Links = append(out.Links, model.Link{
 				X1: l.End1.X, Y1: l.End1.Y, X2: l.End2.X, Y2: l.End2.Y,
 				Hidden: l.Hidden, R: r, G: g, B: b,
-				Label: nl.LabelString(l.Label),
 			})
-		}
-	}
-	for py := w.MaxPycor; py >= w.MinPycor; py-- {
-		for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
-			p := w.GetPatch(px, py)
-			if p == nil {
-				continue
-			}
-			text := nl.LabelString(p.Label)
-			if text == "" {
-				continue
-			}
-			out.PatchLabels = append(out.PatchLabels, model.PatchLabel{X: px, Y: py, Label: text})
 		}
 	}
 	return out
@@ -1046,6 +1060,47 @@ func patchColors(w *nl.World) string {
 		}
 	}
 	return base64.StdEncoding.EncodeToString(raw)
+}
+
+func drawingMarks(w *nl.World) []model.DrawingMark {
+	marks := w.Marks()
+	out := make([]model.DrawingMark, 0, len(marks))
+	for _, m := range marks {
+		c := nl.ColorRGBA(m.Color)
+		out = append(out, model.DrawingMark{
+			Pen: m.Pen, Erase: m.Erase,
+			X: m.X, Y: m.Y, X2: m.X2, Y2: m.Y2,
+			Heading: m.Heading, Size: m.Size, Shape: m.Shape,
+			R: int(c.R), G: int(c.G), B: int(c.B),
+		})
+	}
+	return out
+}
+
+func viewLabels(w *nl.World) []model.AgentLabel {
+	labels := w.ViewLabels()
+	out := make([]model.AgentLabel, 0, len(labels))
+	for _, lb := range labels {
+		item := model.AgentLabel{
+			Text: lb.Text,
+			R:    int(lb.R), G: int(lb.G), B: int(lb.B),
+		}
+		switch {
+		case lb.Turtle:
+			who := lb.Who
+			item.Who = &who
+		case lb.Link:
+			x, y := lb.X, lb.Y
+			item.Lx = &x
+			item.Ly = &y
+		default:
+			px, py := lb.PX, lb.PY
+			item.Px = &px
+			item.Py = &py
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func colorOf(hasRGB bool, rgb color.RGBA, colorNum float64) (int, int, int) {

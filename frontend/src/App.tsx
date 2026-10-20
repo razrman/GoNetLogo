@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
   CreateSession,
   Frames,
   Go,
   LoadModel,
+  LoadModelSource,
   ModelsQuery,
   PressButton,
   RunCommand,
@@ -27,6 +28,7 @@ import { WorldCanvas } from './WorldCanvas'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
+type SourceResult = { loadModelSource: SessionInfo }
 type CodeResult = { setCode: { ok: boolean; error: string | null } }
 type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
 
@@ -34,6 +36,7 @@ export function App() {
   const [models] = useQuery<{ models: string[] }>({ query: ModelsQuery })
   const [, createSession] = useMutation<CreateResult>(CreateSession)
   const [, loadModel] = useMutation<LoadResult>(LoadModel)
+  const [, loadModelSource] = useMutation<SourceResult>(LoadModelSource)
   const [, setCodeMut] = useMutation<CodeResult>(SetCode)
   const [, runCommand] = useMutation<CommandResult>(RunCommand)
   const [, setupMut] = useMutation(Setup)
@@ -62,8 +65,10 @@ export function App() {
   const [active, setActive] = useState<number | null>(null)
   const [booting, setBooting] = useState(true)
   const [outputText, setOutputText] = useState('')
+  const [dropping, setDropping] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
   const outputState = useRef({ epoch: -1, seq: 0, lines: [] as string[], partial: '' })
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const [settingsQ] = useQuery<{ worldSettings: WorldView }>({
     query: WorldSettingsQuery,
@@ -173,10 +178,49 @@ export function App() {
     if (!sessionId) return
     const res = await setCodeMut({ id: sessionId, code })
     if (res.error) {
-      setCompileError(res.error.message)
+      setCompileError(presentCompileError(res.error.message, code))
       return
     }
-    setCompileError(res.data?.setCode.error ?? null)
+    const message = res.data?.setCode.error
+    setCompileError(message ? presentCompileError(message, code) : null)
+  }
+
+  async function openSource(filename: string, source: string) {
+    if (!sessionId) return
+    setBanner(null)
+    const res = await loadModelSource({ id: sessionId, filename, source })
+    if (res.error || !res.data) {
+      setCompileError(presentCompileError(res.error?.message ?? 'Could not open that model', source, filename))
+      return
+    }
+    const info = res.data.loadModelSource
+    setModelName(info.modelName)
+    setCode(info.code)
+    setNotes(info.notes ?? [])
+    setCompileError(null)
+    setActive(null)
+    const setup = await setupMut({ id: sessionId })
+    if (setup.error) setBanner(setup.error.message)
+  }
+
+  async function onPickFile(file: File | undefined) {
+    if (!file) return
+    if (!sessionId) {
+      setBanner('The session is still opening')
+      return
+    }
+    if (!/\.nlogox?$/i.test(file.name)) {
+      setCompileError(`Open a .nlogo or .nlogox file. ${file.name} is neither.`)
+      return
+    }
+    let text: string
+    try {
+      text = await file.text()
+    } catch (err) {
+      setCompileError(err instanceof Error ? err.message : 'Could not read that file')
+      return
+    }
+    await openSource(file.name, text)
   }
 
   async function onCommand(event: FormEvent) {
@@ -203,14 +247,14 @@ export function App() {
   }, [])
 
   const widgets = frame?.widgets ?? []
+  const libraryNames = models.data?.models ?? []
+  const modelOptions = libraryNames.includes(modelName) || !modelName ? libraryNames : [modelName, ...libraryNames]
   const goWidget = widgets.find((w) => w.kind === 'button' && w.display.toLowerCase() === 'go')
   const running = frame?.running ?? false
   const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
   const dropLabel = frame ? String(frame.droppedFrames) : '—'
-  const library = models.data?.models ?? []
-
   return (
     <div className="app">
       <header className="topbar">
@@ -222,17 +266,37 @@ export function App() {
           <select
             className="model"
             aria-label="Model"
-            value={library.includes(modelName) ? modelName : ''}
-            disabled={!sessionId || library.length === 0}
+            value={modelOptions.includes(modelName) ? modelName : ''}
+            disabled={!sessionId || modelOptions.length === 0}
             onChange={(e) => void onModel(e.target.value)}
           >
-            {library.length === 0 && <option value="">Loading models…</option>}
-            {library.map((name) => (
+            {modelOptions.length === 0 && <option value="">Loading models…</option>}
+            {modelOptions.map((name) => (
               <option key={name} value={name}>
-                {name.replace(/\.nlogo$/, '')}
+                {name.replace(/\.nlogox?$/i, '')}
               </option>
             ))}
           </select>
+          <button
+            className="open-model"
+            type="button"
+            disabled={!sessionId}
+            onClick={() => fileRef.current?.click()}
+          >
+            Open model…
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".nlogo,.nlogox"
+            aria-label="Open model file"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              void onPickFile(file)
+            }}
+          />
           <div className="controls">
             <button className="act" type="button" disabled={!sessionId} onClick={() => void onSetup()}>
               setup
@@ -293,6 +357,12 @@ export function App() {
 
       {models.error && <div className="banner">{models.error.message}</div>}
       {banner && <div className="banner">{banner}</div>}
+      {compileError && (
+        <div className="compile-error" role="alert">
+          <strong>{/line \d+/i.test(compileError) ? 'Compile error' : 'Could not load model'}</strong>
+          <pre>{compileError}</pre>
+        </div>
+      )}
 
       <main className="stage">
         {tab === 'code' ? (
@@ -311,12 +381,34 @@ export function App() {
               <button className="act" type="button" disabled={!sessionId} onClick={() => void applyCode()}>
                 Apply code
               </button>
-              {compileError && <span className="err">{compileError}</span>}
             </div>
           </section>
         ) : (
           <>
-            <section className="view">
+            <section
+              className={dropping ? 'view drop' : 'view'}
+              onDragEnter={(e) => {
+                if (!dragHasFiles(e)) return
+                e.preventDefault()
+                setDropping(true)
+              }}
+              onDragOver={(e) => {
+                if (!dragHasFiles(e)) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'copy'
+                setDropping(true)
+              }}
+              onDragLeave={(e) => {
+                const next = e.relatedTarget
+                if (next instanceof Node && e.currentTarget.contains(next)) return
+                setDropping(false)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDropping(false)
+                void onPickFile(e.dataTransfer.files?.[0])
+              }}
+            >
               <div className="tabs">
                 <button type="button" className="on">Interface</button>
                 <button type="button" onClick={() => setTab('code')}>Code</button>
@@ -327,6 +419,7 @@ export function App() {
                 ) : (
                   <WorldCanvas world={frame?.world ?? null} />
                 )}
+                {dropping && <div className="drop-hint">Drop a .nlogo or .nlogox file</div>}
               </div>
               <div className="view-meta">
                 {frame
@@ -534,6 +627,37 @@ function WorldSettingsForm({
       {error && <p className="err">{error}</p>}
     </form>
   )
+}
+
+function dragHasFiles(event: DragEvent) {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
+}
+
+function presentCompileError(message: string, source: string, filename?: string) {
+  const cleaned = message.replace(/^\[GraphQL\]\s*/i, '').trim()
+  const match = /line (\d+)/i.exec(cleaned)
+  if (!match) return cleaned
+  const n = Number(match[1])
+  const lines = filename ? codeLines(filename, source) : source.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  const text = lines[n - 1]
+  if (text == null) return cleaned
+  return `${cleaned}\n${String(n).padStart(4, ' ')} | ${text}`
+}
+
+function codeLines(filename: string, source: string) {
+  let code = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const lower = filename.toLowerCase()
+  const xml = lower.endsWith('.nlogox') || /^\s*<\?xml/.test(code) || /^\s*<model[\s>]/.test(code)
+  if (xml) {
+    const found = code.match(/<code[^>]*>([\s\S]*?)<\/code>/i)
+    if (found) {
+      code = found[1].replace(/^\s*<!\[CDATA\[/, '').replace(/\]\]>\s*$/, '')
+    }
+  } else {
+    const sep = code.indexOf('@#$#@#$#@')
+    if (sep >= 0) code = code.slice(0, sep)
+  }
+  return code.split('\n')
 }
 
 function foreverIndex(widgets: { index: number; kind: string; display: string; forever: boolean }[]) {

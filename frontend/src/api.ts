@@ -76,6 +76,18 @@ export const LoadModel = `
   }
 `
 
+export const LoadModelSource = `
+  mutation LoadModelSource($id: ID!, $filename: String!, $source: String!) {
+    loadModelSource(sessionId: $id, filename: $filename, source: $source) {
+      id
+      modelName
+      code
+      notes
+      widgets { index kind display forever }
+    }
+  }
+`
+
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
     setCode(sessionId: $id, code: $code) { ok error }
@@ -239,9 +251,10 @@ export const Frames = `
         wrapX
         wrapY
         patchColors
-        turtles { who x y heading size shape hidden r g b label }
-        links { x1 y1 x2 y2 hidden r g b label }
-        patchLabels { x y label }
+        drawing { pen erase x y x2 y2 heading size shape r g b }
+        labels { who px py lx ly text r g b }
+        turtles { who x y heading size shape hidden r g b }
+        links { x1 y1 x2 y2 hidden r g b }
       }
     }
   }
