@@ -93,12 +93,14 @@ type session struct {
 	setupBtn  *widget.Button
 	goBtn     *widget.Button
 
-	ctls    []control
-	areas   []*outputView
-	running int
-	frame   int
-	anim    *fyne.Animation
-	busy    bool
+	ctls      []control
+	areas     []*outputView
+	plotViews []*plotView
+	plotSnap  atomic.Pointer[plotSnapshot]
+	running   int
+	frame     int
+	anim      *fyne.Animation
+	busy      bool
 
 	// mu keeps the go loop, command center, monitors, world Apply, and
 	// model loads off the same world. The draw thread does not take it;
@@ -390,9 +392,11 @@ func (s *session) applyWorldLocked() error {
 func (s *session) publishViewLocked() {
 	if s.vm == nil || s.vm.World == nil {
 		s.view.Store(nil)
+		s.plotSnap.Store(nil)
 		return
 	}
 	s.view.Store(s.vm.World.CurrentView())
+	s.plotSnap.Store(&plotSnapshot{Plots: s.vm.PlotSnapshot()})
 }
 
 // noteWorld copies the live world into the panel when resize-world,
@@ -487,6 +491,7 @@ func (s *session) load(name, content string) {
 	if s.raster != nil {
 		s.raster.Refresh()
 	}
+	s.refreshPlotRasters()
 	s.refreshReadouts()
 	s.mu.Unlock()
 	if len(m.Notes) > 0 {
@@ -500,6 +505,7 @@ func (s *session) load(name, content string) {
 func (s *session) rebuildSide() {
 	s.ctls = nil
 	s.areas = nil
+	s.plotViews = nil
 	var objs []fyne.CanvasObject
 	if s.model == nil {
 		s.side.Objects = nil
@@ -628,7 +634,9 @@ func (s *session) rebuildSide() {
 			s.areas = append(s.areas, view)
 			objs = append(objs, view.box)
 		case "plot":
-			objs = append(objs, widget.NewLabel("plot not available: "+w.Display))
+			view := newPlotView(s, w)
+			s.plotViews = append(s.plotViews, view)
+			objs = append(objs, view.box)
 		}
 		s.ctls = append(s.ctls, c)
 		_ = idx
@@ -664,6 +672,7 @@ func (s *session) pressNamed(name string) {
 		}
 		s.publishViewLocked()
 		s.raster.Refresh()
+		s.refreshPlotRasters()
 		s.refreshReadouts()
 	}
 }
@@ -749,6 +758,7 @@ func (s *session) presentLocked() {
 	if s.vm.DisplayOn {
 		s.raster.Refresh()
 	}
+	s.refreshPlotRasters()
 }
 
 func (c *control) disableTicks() bool { return c.widget.DisableUntilTicks }
@@ -779,9 +789,15 @@ func (s *session) tick() {
 				s.refreshRunLabels()
 				s.refreshMonitorsLocked()
 				displayOn := s.vm.DisplayOn
+				plots := append([]*plotView(nil), s.plotViews...)
 				s.mu.Unlock()
 				if displayOn && s.raster != nil {
 					s.raster.Refresh()
+				}
+				for _, p := range plots {
+					if p.raster != nil {
+						p.raster.Refresh()
+					}
 				}
 				s.mu.Lock()
 			}
@@ -937,6 +953,7 @@ func (s *session) runLine(text string) {
 	}
 	s.publishViewLocked()
 	s.raster.Refresh()
+	s.refreshPlotRasters()
 	s.refreshReadouts()
 }
 
@@ -969,6 +986,7 @@ func (s *session) applyCodeLocked() error {
 	s.publishViewLocked()
 	s.noteWorld()
 	s.raster.Refresh()
+	s.refreshPlotRasters()
 	s.log("code applied — press setup")
 	return nil
 }

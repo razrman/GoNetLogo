@@ -6,9 +6,20 @@ package graph
 
 import (
 	"context"
+
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
+	"gonetlogo/pkg/nl"
 )
+
+// subCursor is the last frame a subscriber has been handed. Plot samples
+// use the same rule as output lines: a replaced unread frame is rebuilt
+// from this cursor, so the skipped payload's points are not lost.
+type subCursor struct {
+	epoch int
+	seq   int
+	plots map[string]nl.PlotCursor
+}
 
 // CreateSession is the resolver for the createSession field.
 func (r *mutationResolver) CreateSession(ctx context.Context, model string) (*model.Session, error) {
@@ -199,36 +210,37 @@ func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-
 	go func() {
 		defer cancel()
 		defer close(out)
-		// epoch/seq is the last frame this subscriber actually received.
-		// An unread payload still in out is replaced, and the replacement
-		// is computed from that same cursor so the dropped lines are not lost.
-		epoch, seq := -1, 0
-		var queued *struct{ epoch, seq int }
+		// epoch/seq and the pen cursors are the last frame this subscriber
+		// actually received. An unread payload still in out is replaced,
+		// and the replacement is computed from that same cursor so the
+		// dropped lines and plot samples are not lost.
+		cur := subCursor{epoch: -1, seq: 0}
+		var queued *subCursor
 		send := func() bool {
 			select {
 			case <-ctx.Done():
 				return false
 			default:
 			}
-			fromEpoch, fromSeq := epoch, seq
+			from := cur
 			select {
 			case <-out:
 				queued = nil
 			default:
 				if queued != nil {
-					epoch, seq = queued.epoch, queued.seq
-					fromEpoch, fromSeq = epoch, seq
+					cur = *queued
+					from = cur
 					queued = nil
 				}
 			}
-			frame, nextEpoch, nextSeq := s.FrameSince(fromEpoch, fromSeq)
+			frame, nextEpoch, nextSeq, nextPlots := s.FrameSince(from.epoch, from.seq, from.plots)
 			// Keep at most one pending frame. A client that is behind
 			// loses the older payload instead of stalling the model.
 			select {
 			case <-ctx.Done():
 				return false
 			case out <- frame:
-				queued = &struct{ epoch, seq int }{nextEpoch, nextSeq}
+				queued = &subCursor{epoch: nextEpoch, seq: nextSeq, plots: nextPlots}
 				return true
 			default:
 				return true

@@ -3,7 +3,7 @@ package models
 
 import "embed"
 
-// FS contains the demo models (fire, life, termites, wolf sheep, output, edge)
+// FS contains the demo models (fire, life, termites, wolf sheep, output, edge, plot)
 // and the Models Library sample Robby the Robot.
 //
 //go:embed *.nlogo

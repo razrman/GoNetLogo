@@ -49,10 +49,7 @@ func TestModelsIncludeFire(t *testing.T) {
 	}
 }
 
-// TODO(#12): createSession rejects Robby until plot commands exist on main.
-// The name is already in the model list. After that pull request merges,
-// opening the unmodified file should succeed.
-func TestRobbyIsListedAndRejectedUntilPlotCommandsExist(t *testing.T) {
+func TestRobbyIsListedAndLoads(t *testing.T) {
 	c := newClient(t)
 	var resp struct {
 		Models []string
@@ -67,13 +64,24 @@ func TestRobbyIsListedAndRejectedUntilPlotCommandsExist(t *testing.T) {
 	if !found {
 		t.Fatalf("models = %v, want Robby the Robot.nlogo", resp.Models)
 	}
-	err := c.Post(`mutation ($m: String!) {
-		createSession(model: $m) { id }
-	}`, &struct {
-		CreateSession struct{ ID string }
-	}{}, client.Var("m", "Robby the Robot.nlogo"))
-	if err == nil || !strings.Contains(err.Error(), "PLOT-PEN-UP") {
-		t.Fatalf("createSession: %v, want the unsupported plot-pen-up primitive", err)
+	var created struct {
+		CreateSession struct{ ID, ModelName string }
+	}
+	c.MustPost(`mutation ($m: String!) {
+		createSession(model: $m) { id modelName }
+	}`, &created, client.Var("m", "Robby the Robot.nlogo"))
+	if created.CreateSession.ModelName != "Robby the Robot.nlogo" || created.CreateSession.ID == "" {
+		t.Fatalf("createSession %+v", created.CreateSession)
+	}
+	t.Setenv("MODELS_DIR", filepath.Join("..", "..", "models"))
+	var fromFile struct {
+		LoadModelFile struct{ ModelName string }
+	}
+	c.MustPost(`mutation ($id: ID!, $path: String!) {
+		loadModelFile(sessionId: $id, path: $path) { modelName }
+	}`, &fromFile, client.Var("id", created.CreateSession.ID), client.Var("path", "Robby the Robot.nlogo"))
+	if fromFile.LoadModelFile.ModelName != "Robby the Robot.nlogo" {
+		t.Fatalf("loadModelFile %+v", fromFile.LoadModelFile)
 	}
 }
 

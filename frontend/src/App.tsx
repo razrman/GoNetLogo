@@ -23,8 +23,9 @@ import {
   Stop,
   WorldSettingsQuery,
 } from './api'
-import type { Frame, SessionInfo, Widget, WorldView } from './types'
+import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
 import { WorldCanvas } from './WorldCanvas'
+import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
@@ -68,6 +69,12 @@ export function App() {
   const [dropping, setDropping] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
   const outputState = useRef({ epoch: -1, seq: 0, lines: [] as string[], partial: '' })
+  const plotState = useRef<PlotSeries>({})
+  const [plotSeries, setPlotSeries] = useState<PlotSeries>({})
+  const resetPlots = () => {
+    plotState.current = {}
+    setPlotSeries({})
+  }
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [settingsQ] = useQuery<{ worldSettings: WorldView }>({
@@ -129,6 +136,7 @@ export function App() {
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
+    resetPlots()
     const setup = await setupMut({ id: sessionId })
     if (setup.error) setBanner(setup.error.message)
   }
@@ -199,6 +207,7 @@ export function App() {
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
+    resetPlots()
     const setup = await setupMut({ id: sessionId })
     if (setup.error) setBanner(setup.error.message)
   }
@@ -243,6 +252,11 @@ export function App() {
 
   const onFrame = useCallback((next: Frame) => {
     absorbOutput(outputState.current, next, setOutputText)
+    const plots = absorbPlots(plotState.current, next)
+    if (plots !== plotState.current) {
+      plotState.current = plots
+      setPlotSeries(plots)
+    }
     setFrame(next)
   }, [])
 
@@ -449,6 +463,8 @@ export function App() {
                   widget={w}
                   live={running && active === w.index}
                   outputText={outputText}
+                  plot={plotFor(frame, w)}
+                  series={plotSeries}
                   onPress={() => void onPress(w)}
                   onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
                   onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
@@ -698,10 +714,18 @@ function joinOutput(lines: string[], partial: string) {
   return lines.join('\n') + '\n' + partial
 }
 
+function plotFor(frame: Frame | null, widget: Widget): PlotView | null {
+  if (!frame || widget.kind !== 'plot') return null
+  const name = widget.display.toLowerCase()
+  return (frame.plots ?? []).find((plot) => plot.name.toLowerCase() === name) ?? null
+}
+
 function WidgetView({
   widget,
   live,
   outputText,
+  plot,
+  series,
   onPress,
   onSlider,
   onSwitch,
@@ -711,6 +735,8 @@ function WidgetView({
   widget: Widget
   live: boolean
   outputText: string
+  plot: PlotView | null
+  series: PlotSeries
   onPress: () => void
   onSlider: (value: number) => void
   onSwitch: (on: boolean) => void
@@ -828,7 +854,14 @@ function WidgetView({
   }
 
   if (widget.kind === 'plot') {
-    return <div className="plot">Plot not available: {widget.display}</div>
+    if (!plot) {
+      return (
+        <div className="plot-card">
+          <div className="label">{widget.display}</div>
+        </div>
+      )
+    }
+    return <PlotCard plot={plot} series={series} />
   }
 
   return null

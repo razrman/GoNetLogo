@@ -105,6 +105,7 @@ type VM struct {
 	timer     time.Time
 	scopePool []*scope
 	tasks     int
+	plots     *plotMgr
 }
 
 // NewVM builds a VM for a program. The world is resized only when spec is non-nil.
@@ -1096,6 +1097,12 @@ func CompileButton(prog *Program, source, agent string) ([]Stmt, error) {
 func (vm *VM) RunCompiled(stmts []Stmt) (stopped bool, err error) {
 	vm.World.mu.Lock()
 	defer vm.World.unlockPublish()
+	return vm.runStmts(stmts)
+}
+
+// runStmts runs commands. The caller holds World.mu. Plot setup and update
+// use this so a pen can call plot without locking the world a second time.
+func (vm *VM) runStmts(stmts []Stmt) (stopped bool, err error) {
 	defer vm.recover(&err, &stopped)
 	for _, s := range stmts {
 		if c, ok := s.(*cmdStmt); ok {

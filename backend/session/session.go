@@ -783,16 +783,17 @@ func (s *Session) Session() *model.Session {
 
 // Frame builds one subscription payload from a fresh subscriber.
 // It omits the source code so a running model does not reset the editor
-// on every tick. Output lines are the full retained buffer.
+// on every tick. Output lines and plot samples are the full retained buffers.
 func (s *Session) Frame() *model.Frame {
-	frame, _, _ := s.FrameSince(-1, 0)
+	frame, _, _, _ := s.FrameSince(-1, 0, nil)
 	return frame
 }
 
-// FrameSince builds one payload whose outputAppend is the completed lines
-// after the subscriber's previous epoch and sequence. nextEpoch and nextSeq
-// are the cursor to pass on the following call. Caller does not hold s.mu.
-func (s *Session) FrameSince(epoch, seq int) (frame *model.Frame, nextEpoch, nextSeq int) {
+// FrameSince builds one payload whose outputAppend and plotAppend are the
+// lines and samples after the subscriber's cursors. The returned cursors
+// are what the caller should pass on the next frame it actually delivers.
+// Caller does not hold s.mu.
+func (s *Session) FrameSince(epoch, seq int, plots map[string]nl.PlotCursor) (frame *model.Frame, nextEpoch, nextSeq int, nextPlots map[string]nl.PlotCursor) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap := s.sessionLocked()
@@ -805,6 +806,15 @@ func (s *Session) FrameSince(epoch, seq int) (frame *model.Frame, nextEpoch, nex
 	}
 	if upd.lines == nil {
 		upd.lines = []string{}
+	}
+	plotViews := []model.PlotView{}
+	plotAppend := []model.PlotPenDelta{}
+	nextPlots = map[string]nl.PlotCursor{}
+	if s.vm != nil {
+		plotViews = plotViewsOf(s.vm.PlotViews())
+		deltas, next := s.vm.PlotDeltas(plots)
+		plotAppend = plotDeltasOf(deltas)
+		nextPlots = next
 	}
 	frame = &model.Frame{
 		SessionID:     snap.ID,
@@ -827,8 +837,56 @@ func (s *Session) FrameSince(epoch, seq int) (frame *model.Frame, nextEpoch, nex
 		OutputSeq:     upd.seq,
 		Widgets:       snap.Widgets,
 		World:         snap.World,
+		Plots:         plotViews,
+		PlotAppend:    plotAppend,
 	}
-	return frame, upd.epoch, upd.seq
+	return frame, upd.epoch, upd.seq, nextPlots
+}
+
+func plotViewsOf(in []nl.PlotView) []model.PlotView {
+	out := make([]model.PlotView, len(in))
+	for i, p := range in {
+		pens := make([]model.PlotPenView, len(p.Pens))
+		for j, pen := range p.Pens {
+			pens[j] = model.PlotPenView{
+				Name: pen.Name, R: pen.R, G: pen.G, B: pen.B,
+				Mode: pen.Mode, Interval: pen.Interval,
+			}
+		}
+		if pens == nil {
+			pens = []model.PlotPenView{}
+		}
+		out[i] = model.PlotView{
+			Index: p.Index, Name: p.Name, XLabel: p.XLabel, YLabel: p.YLabel,
+			XMin: p.XMin, XMax: p.XMax, YMin: p.YMin, YMax: p.YMax,
+			AutoPlot: p.AutoPlot, Legend: p.Legend, Error: p.Error, Pens: pens,
+		}
+	}
+	if out == nil {
+		out = []model.PlotView{}
+	}
+	return out
+}
+
+func plotDeltasOf(in []nl.PlotDelta) []model.PlotPenDelta {
+	out := make([]model.PlotPenDelta, len(in))
+	for i, d := range in {
+		pts := make([]model.PlotPoint, len(d.Points))
+		for j, p := range d.Points {
+			pts[j] = model.PlotPoint{X: p.X, Y: p.Y, Down: p.Down}
+		}
+		if pts == nil {
+			pts = []model.PlotPoint{}
+		}
+		out[i] = model.PlotPenDelta{
+			PlotIndex: d.PlotIndex, PenIndex: d.PenIndex,
+			Epoch: d.Epoch, Seq: d.Seq, Reset: d.Reset, Points: pts,
+		}
+	}
+	if out == nil {
+		out = []model.PlotPenDelta{}
+	}
+	return out
 }
 
 type outputUpdate struct {
@@ -974,8 +1032,6 @@ func (s *Session) widgetsLocked() []model.Widget {
 				}
 			}
 			item.Reading = &reading
-		case "plot":
-			item.Disabled = true
 		}
 		out = append(out, item)
 	}

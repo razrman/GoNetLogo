@@ -256,6 +256,28 @@ export const Frames = `
         turtles { who x y heading size shape hidden r g b }
         links { x1 y1 x2 y2 hidden r g b }
       }
+      plots {
+        index
+        name
+        xLabel
+        yLabel
+        xMin
+        xMax
+        yMin
+        yMax
+        autoPlot
+        legend
+        error
+        pens { name r g b mode interval }
+      }
+      plotAppend {
+        plotIndex
+        penIndex
+        epoch
+        seq
+        reset
+        points { x y down }
+      }
     }
   }
 `
