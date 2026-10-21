@@ -7,10 +7,12 @@ import (
 )
 
 // robbyPlotPrimitives are the plot commands in the official Robby the Robot
-// setup procedure. They are not implemented in this tree; feature/plot-commands
-// is the branch that should add them. Tests below comment these out of a
-// copy of the source so the rest of the model can compile. The file under
-// models/ stays unmodified.
+// setup procedure. The file under models/ stays unmodified.
+//
+// TODO(#12): plot primitives are still missing on main until the
+// plot-commands pull request merges. The unmodified model is expected to
+// fail compilation only on these five names. Do not widen this list. After
+// that pull request merges, compile the file as shipped and delete this skip.
 var robbyPlotPrimitives = []string{
 	"plot-pen-up",
 	"plotxy",
@@ -19,8 +21,9 @@ var robbyPlotPrimitives = []string{
 	"plot-pen-down",
 }
 
-// TestRobbyTheRobotCompiles parses the Models Library sample and compiles
-// it after skipping the known-unsupported plot primitives listed above.
+// TestRobbyTheRobotCompiles parses the Models Library sample. It tolerates
+// only the plot primitives in robbyPlotPrimitives being undefined, then
+// compiles that copy. See the TODO on robbyPlotPrimitives.
 func TestRobbyTheRobotCompiles(t *testing.T) {
 	m := loadModel(t, "Robby the Robot.nlogo")
 	if m.View.MinPxcor != 0 || m.View.MaxPxcor != 9 || m.View.MinPycor != 0 || m.View.MaxPycor != 9 || m.View.WrapX || m.View.WrapY || m.View.PatchSize != 30 {
@@ -53,29 +56,32 @@ func TestRobbyTheRobotCompiles(t *testing.T) {
 	}
 }
 
-// TestRobbyTheRobotSetupHitsWorldEdge runs setup and go on the compiled
-// model. Both stop because fd tries to leave the non-wrapping world.
-// feature/fd-world-edge is the branch that should cover this; it is not
-// implemented here. Plot commands are skipped first, as in
-// TestRobbyTheRobotCompiles.
-func TestRobbyTheRobotSetupHitsWorldEdge(t *testing.T) {
+// TestRobbyTheRobotSetupAndGo runs setup and one go tick after the known
+// plot commands are commented out of a copy of the source. fd that reaches
+// the non-wrapping edge stops inside the world, so those calls succeed.
+// The dual-interpreter trial from test/robby-combined stays out until the
+// unmodified model compiles.
+func TestRobbyTheRobotSetupAndGo(t *testing.T) {
 	m := loadModel(t, "Robby the Robot.nlogo")
 	commentKnownPlotCommands(t, m)
 	vm, err := m.NewVM(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = vm.Call("setup")
-	if err == nil || !strings.Contains(err.Error(), "cannot move beyond the world's edge") {
-		t.Fatalf("setup error %v, want the non-wrapping world edge", err)
+	if _, err := vm.Call("setup"); err != nil {
+		t.Fatalf("setup: %v", err)
 	}
-	// Fitness is computed before display-fitness moves the individuals.
-	if got := mustEval(t, vm, "count individuals"); got == "0" {
-		t.Fatal("setup died before the population existed")
+	if got := mustEval(t, vm, "count individuals"); got != "100" {
+		t.Fatalf("individuals %s", got)
 	}
-	_, err = vm.Call("go")
-	if err == nil || !strings.Contains(err.Error(), "cannot move beyond the world's edge") {
-		t.Fatalf("go error %v, want the non-wrapping world edge", err)
+	if _, err := vm.Call("go"); err != nil {
+		t.Fatalf("go: %v", err)
+	}
+	if got := mustEval(t, vm, "ticks"); got != "1" {
+		t.Fatalf("ticks %s", got)
+	}
+	if got := mustEval(t, vm, "count individuals"); got != "100" {
+		t.Fatalf("individuals after go %s", got)
 	}
 }
 

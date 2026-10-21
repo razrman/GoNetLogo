@@ -174,9 +174,18 @@ end
 	if got := mustEval(t, box, "[ count neighbors4 ] of patch 0 0"); got != "4" {
 		t.Fatalf("neighbors4: %s", got)
 	}
-	_, err := box.ExecuteLine("ask turtles [ fd 10 ]")
-	if err == nil || !strings.Contains(err.Error(), "edge") {
-		t.Fatalf("expected edge error, got %v", err)
+	// fd stops inside a non-wrapping world instead of raising an error.
+	if _, err := box.ExecuteLine("ask turtles [ fd 10 ]"); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range box.World.Turtles().Alive() {
+		tu := a.(*Turtle)
+		if tu.X < -2.5 || tu.X >= 2.5 || tu.Y < -2.5 || tu.Y >= 2.5 {
+			t.Fatalf("fd left the box at %v %v", tu.X, tu.Y)
+		}
+	}
+	if _, err := box.ExecuteLine("ask turtles [ setxy 3 0 ]"); err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Fatalf("expected setxy outside error, got %v", err)
 	}
 }
 

@@ -238,6 +238,7 @@ var commands = map[string]primSpec{
 	"rt":   {argc: 1}, "right": {argc: 1},
 	"lt": {argc: 1}, "left": {argc: 1},
 	"setxy":    {argc: 2},
+	"move-to":  {argc: 1},
 	"facexy":   {argc: 2},
 	"face":     {argc: 1},
 	"home":     {argc: 0},

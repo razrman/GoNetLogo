@@ -49,6 +49,9 @@ func TestModelsIncludeFire(t *testing.T) {
 	}
 }
 
+// TODO(#12): createSession rejects Robby until plot commands exist on main.
+// The name is already in the model list. After that pull request merges,
+// opening the unmodified file should succeed.
 func TestRobbyIsListedAndRejectedUntilPlotCommandsExist(t *testing.T) {
 	c := newClient(t)
 	var resp struct {

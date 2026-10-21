@@ -425,6 +425,7 @@ func modIntTrunc(a, b int) int {
 }
 
 // wrapCoordX wraps a turtle x coordinate, or reports that it left the world.
+// The legal range on an axis is [minPcor-0.5, maxPcor+0.5).
 func (w *World) wrapCoordX(x float64) (float64, error) {
 	min := float64(w.MinPxcor) - 0.5
 	max := float64(w.MaxPxcor) + 0.5
@@ -432,7 +433,7 @@ func (w *World) wrapCoordX(x float64) (float64, error) {
 		return wrapDouble(x, min, max), nil
 	}
 	if x >= max || x < min {
-		return x, fmt.Errorf("the turtle cannot move beyond the world's edge")
+		return x, errOutsideWorld
 	}
 	return x, nil
 }
@@ -444,10 +445,14 @@ func (w *World) wrapCoordY(y float64) (float64, error) {
 		return wrapDouble(y, min, max), nil
 	}
 	if y >= max || y < min {
-		return y, fmt.Errorf("the turtle cannot move beyond the world's edge")
+		return y, errOutsideWorld
 	}
 	return y, nil
 }
+
+// errOutsideWorld is the internal signal that a coordinate left a
+// non-wrapping axis. Commands decide whether that is a runtime error.
+var errOutsideWorld = fmt.Errorf("the turtle cannot move beyond the world's edge")
 
 func (w *World) roundPatch(v float64) int {
 	return int(math.Floor(v + 0.5))
@@ -836,15 +841,13 @@ func (w *World) Die(a Agent) {
 	}
 }
 
-// MoveTo sets a turtle's position, wrapping or rejecting at the edge.
+// MoveTo sets a turtle's position. A wrapping axis wraps. A coordinate
+// outside a non-wrapping axis is a runtime error and the turtle stays put.
 func (w *World) MoveTo(t *Turtle, x, y float64) error {
-	nx, err := w.wrapCoordX(x)
-	if err != nil {
-		return err
-	}
-	ny, err := w.wrapCoordY(y)
-	if err != nil {
-		return err
+	nx, errX := w.wrapCoordX(x)
+	ny, errY := w.wrapCoordY(y)
+	if errX != nil || errY != nil {
+		return fmt.Errorf("the point [%s %s] is outside of the world", formatNum(x), formatNum(y))
 	}
 	if t.PenDown {
 		w.drawLine(t.X, t.Y, nx, ny, t.Color, t.PenSize)
@@ -855,22 +858,53 @@ func (w *World) MoveTo(t *Turtle, x, y float64) error {
 	return nil
 }
 
+// fdInfinitesimal matches NetLogo's Numbers.Infinitesimal. A leftover
+// smaller than this is treated as already arrived.
+const fdInfinitesimal = 3.2e-15
+
+// Forward moves one unit at a time, like fd and bk. When the next step
+// would leave a non-wrapping world, the turtle stops at the last position
+// that was still inside. The distance may be negative, which moves backward.
 func (w *World) Forward(t *Turtle, dist float64) error {
-	rad := t.Heading * math.Pi / 180
-	return w.MoveTo(t, t.X+dist*math.Sin(rad), t.Y+dist*math.Cos(rad))
+	for {
+		mag := math.Abs(dist)
+		if mag <= fdInfinitesimal {
+			return nil
+		}
+		if mag <= 1 {
+			_ = w.Jump(t, dist)
+			return nil
+		}
+		step := 1.0
+		if dist < 0 {
+			step = -1
+		}
+		if err := w.Jump(t, step); err != nil {
+			return nil
+		}
+		dist -= step
+	}
 }
 
+// Jump moves the whole distance in one step. If that point is outside a
+// non-wrapping world, the turtle does not move and the error is returned.
+// fd catches the error and stops; the jump command ignores it.
+func (w *World) Jump(t *Turtle, dist float64) error {
+	dx, dy := headingDelta(t.Heading, dist)
+	return w.MoveTo(t, t.X+dx, t.Y+dy)
+}
+
+func headingDelta(heading, dist float64) (float64, float64) {
+	rad := heading * math.Pi / 180
+	s, c := math.Sincos(rad)
+	return dist * s, dist * c
+}
+
+// CanMove reports whether a single jump of dist would stay in the world.
+// It matches patch-ahead dist != nobody, including a negative distance.
 func (w *World) CanMove(t *Turtle, dist float64) bool {
-	rad := t.Heading * math.Pi / 180
-	x := t.X + dist*math.Sin(rad)
-	y := t.Y + dist*math.Cos(rad)
-	if _, err := w.wrapCoordX(x); err != nil {
-		return false
-	}
-	if _, err := w.wrapCoordY(y); err != nil {
-		return false
-	}
-	return true
+	dx, dy := headingDelta(t.Heading, dist)
+	return w.PatchAt(t.X+dx, t.Y+dy) != nil
 }
 
 func (w *World) SetHeading(t *Turtle, h float64) {
@@ -934,26 +968,36 @@ func (w *World) neighbors(p *Patch, four bool) []*Patch {
 	out := make([]*Patch, 0, len(offs))
 	for _, o := range offs {
 		np := w.PatchAtPcor(p.PX+o[0], p.PY+o[1])
-		if np != nil {
-			out = append(out, np)
+		// A wrapping world only one patch wide folds a neighbor back onto
+		// the source. NetLogo drops that patch, and drops duplicates when
+		// east and west (or north and south) are the same patch.
+		if np == nil || np == p || patchListed(out, np) {
+			continue
 		}
+		out = append(out, np)
 	}
 	return out
 }
 
-// ShortestDelta is the signed offset from a to b, wrapping when asked.
+func patchListed(ps []*Patch, p *Patch) bool {
+	for _, o := range ps {
+		if o == p {
+			return true
+		}
+	}
+	return false
+}
+
+// ShortestDX is the signed offset from x1 to x2. A wrapping axis uses the
+// shorter arc, with the halfway tie broken toward the negative direction,
+// which is NetLogo's [-size/2, size/2) range. A non-wrapping axis keeps
+// the straight difference, even when the other way around would be shorter.
 func (w *World) ShortestDX(x1, x2 float64) float64 {
 	d := x2 - x1
 	if !w.WrapX {
 		return d
 	}
-	size := w.worldWidth()
-	if d > size/2 {
-		d -= size
-	} else if d <= -size/2 {
-		d += size
-	}
-	return d
+	return shortestWrap(d, w.worldWidth())
 }
 
 func (w *World) ShortestDY(y1, y2 float64) float64 {
@@ -961,10 +1005,13 @@ func (w *World) ShortestDY(y1, y2 float64) float64 {
 	if !w.WrapY {
 		return d
 	}
-	size := w.worldHeight()
-	if d > size/2 {
+	return shortestWrap(d, w.worldHeight())
+}
+
+func shortestWrap(d, size float64) float64 {
+	if d >= size/2 {
 		d -= size
-	} else if d <= -size/2 {
+	} else if d < -size/2 {
 		d += size
 	}
 	return d
@@ -977,18 +1024,18 @@ func (w *World) Distance(x1, y1, x2, y2 float64) float64 {
 }
 
 // HeadingTowards returns the heading from (x1,y1) to (x2,y2).
-// 0 is north, 90 is east.
-func (w *World) HeadingTowards(x1, y1, x2, y2 float64) float64 {
+// 0 is north, 90 is east. The same point has no heading.
+func (w *World) HeadingTowards(x1, y1, x2, y2 float64) (float64, error) {
 	dx := w.ShortestDX(x1, x2)
 	dy := w.ShortestDY(y1, y2)
 	if dx == 0 && dy == 0 {
-		return 0
+		return 0, fmt.Errorf("no heading is defined from a point to itself")
 	}
 	h := math.Atan2(dx, dy) * 180 / math.Pi
 	if h < 0 {
 		h += 360
 	}
-	return h
+	return h, nil
 }
 
 func (w *World) RandomXcor() float64 {

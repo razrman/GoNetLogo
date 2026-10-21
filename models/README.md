@@ -9,6 +9,7 @@ These `.nlogo` files are the programs GoNetLogo embeds. The server also reads mo
 | `output.nlogo` | Original output-widget demo. |
 | `termites.nlogo` | Original termites demo. Inspired by the Resnick termites model; this source is an original write-up of that rule. |
 | `wolfsheep.nlogo` | Original wolf-sheep demo. |
+| `edge.nlogo` | Original non-wrapping world. Eight turtles walk until `fd` stops them on the last patch inside the edge. |
 | `Robby the Robot.nlogo` | Unmodified NetLogo Models Library sample. See the credit and license below. |
 
 ## Robby the Robot
