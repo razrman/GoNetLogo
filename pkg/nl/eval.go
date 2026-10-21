@@ -3,6 +3,7 @@ package nl
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -80,6 +81,11 @@ type stopPanic struct{}
 type diePanic struct{}
 type reportPanic struct{ v Value }
 
+// interruptPanic aborts the button that is running. It is not NetLogo
+// stop: ask and called procedures do not catch it. The top-level run
+// turns it into a stopped button so a UI stop can cut off a long go.
+type interruptPanic struct{}
+
 // VM executes a compiled program against a world.
 type VM struct {
 	World   *World
@@ -106,6 +112,21 @@ type VM struct {
 	scopePool []*scope
 	tasks     int
 	plots     *plotMgr
+
+	// halt is set by the UI. The interpreter polls it between commands.
+	halt atomic.Bool
+	// yield, when set, runs on the frame cadence with the world lock released.
+	yield      func()
+	yieldEvery time.Duration
+	lastYield  time.Time
+	stepN      uint32
+	// external counts DoLocked callers. Checkpoint does not yield or halt
+	// while a snapshot or a monitor is reading the world.
+	external int
+	// askBuf collects one breed for ask without allocating a fresh agentset.
+	askBuf []Agent
+	// runCache remembers run strings that are not a bare command name.
+	runCache map[string][]Stmt
 }
 
 // NewVM builds a VM for a program. The world is resized only when spec is non-nil.
@@ -204,7 +225,9 @@ func (vm *VM) OutputDelta(clientEpoch, clientSeq int) (reset bool, epoch, seq in
 func (vm *VM) Call(name string, args ...Value) (stopped bool, err error) {
 	vm.World.mu.Lock()
 	defer vm.World.unlockPublish()
-	return vm.call(name, args...)
+	defer vm.finishInterrupt(&stopped)
+	stopped, err = vm.call(name, args...)
+	return stopped, err
 }
 
 func (vm *VM) call(name string, args ...Value) (bool, error) {
@@ -222,6 +245,7 @@ func (vm *VM) call(name string, args ...Value) (bool, error) {
 func (vm *VM) CallReporter(name string, args ...Value) (v Value, err error) {
 	vm.World.mu.Lock()
 	defer vm.World.unlockPublish()
+	defer vm.finishInterruptErr(&err)
 	proc := vm.Prog.Proc(name)
 	if proc == nil || !proc.IsReporter {
 		return Value{}, fmt.Errorf("nothing named %s has been defined as a reporter", strings.ToUpper(name))
@@ -233,6 +257,7 @@ func (vm *VM) CallReporter(name string, args ...Value) (v Value, err error) {
 func (vm *VM) RunStatements(stmts []Stmt) (err error) {
 	vm.World.mu.Lock()
 	defer vm.World.unlockPublish()
+	defer vm.finishInterruptErr(&err)
 	return vm.runStatements(stmts)
 }
 
@@ -246,6 +271,7 @@ func (vm *VM) runStatements(stmts []Stmt) (err error) {
 func (vm *VM) Eval(e Expr) (v Value, err error) {
 	vm.World.mu.Lock()
 	defer vm.World.unlockPublish()
+	defer vm.finishInterruptErr(&err)
 	return vm.evalTop(e)
 }
 
@@ -258,6 +284,7 @@ func (vm *VM) evalTop(e Expr) (v Value, err error) {
 func (vm *VM) ExecuteLine(src string) (out string, err error) {
 	vm.World.mu.Lock()
 	defer vm.World.unlockPublish()
+	defer vm.finishInterruptErr(&err)
 	return vm.executeLine(src)
 }
 
@@ -477,6 +504,7 @@ func (vm *VM) execStmt(s Stmt) {
 			if !t {
 				return
 			}
+			vm.checkpoint()
 			vm.block(s.Body)
 		}
 	case *repeatStmt:
@@ -492,10 +520,12 @@ func (vm *VM) execStmt(s Stmt) {
 			vm.fail(s.Pos, "repeat expected a non-negative number")
 		}
 		for i := 0; i < k; i++ {
+			vm.checkpoint()
 			vm.block(s.Body)
 		}
 	case *loopStmt:
 		for {
+			vm.checkpoint()
 			vm.block(s.Body)
 		}
 	case *askStmt:
@@ -652,6 +682,7 @@ func (vm *VM) execAsk(s *askStmt) {
 		if a.IsDead() {
 			continue
 		}
+		vm.checkpoint()
 		vm.execAgentBlock(a, s.Body)
 	}
 }
@@ -763,6 +794,7 @@ func (vm *VM) execForeach(s *foreachStmt) {
 		vm.fail(s.Pos, "foreach expected a command task")
 	}
 	for i := 0; i < n; i++ {
+		vm.checkpoint()
 		args := make([]Value, len(lists))
 		for j := range lists {
 			args[j] = lists[j].L[i]
@@ -808,6 +840,10 @@ func (vm *VM) callTaskCmd(t *Task, args []Value, pos Pos) {
 		vm.scope = saved
 		vm.freeScope(sc)
 	}()
+	if t.cmdFn != nil && (vm.Prog == nil || !vm.Prog.noClosure) {
+		t.cmdFn(vm)
+		return
+	}
 	vm.execStmts(t.CmdBody)
 }
 
@@ -825,6 +861,9 @@ func (vm *VM) callTaskRep(t *Task, args []Value, pos Pos) Value {
 		vm.scope = saved
 		vm.freeScope(sc)
 	}()
+	if t.repFn != nil && (vm.Prog == nil || !vm.Prog.noClosure) {
+		return t.repFn(vm)
+	}
 	if t.RepBody == nil {
 		vm.fail(pos, "reporter task has no body")
 	}
@@ -952,13 +991,18 @@ func (vm *VM) eval(e Expr) (Value, error) {
 		return Value{}, errorAt(e.Pos, "unknown operator %s", e.Op)
 	case *lambdaExpr:
 		vm.tasks++
-		return Value{K: KindTask, Task: &Task{
+		task := &Task{
 			Params:    e.Params,
 			CmdBody:   e.Body,
 			RepBody:   e.Rep,
 			IsCommand: e.IsCommand,
 			Scope:     vm.scope,
-		}}, nil
+		}
+		if vm.Prog == nil || !vm.Prog.noClosure {
+			task.cmdFn = e.cmdFn
+			task.repFn = e.repFn
+		}
+		return Value{K: KindTask, Task: task}, nil
 	case *ofExpr:
 		return vm.evalOf(e)
 	case *withExpr:
@@ -1091,17 +1135,72 @@ func CompileButton(prog *Program, source, agent string) ([]Stmt, error) {
 	return ParseCommands(src, prog)
 }
 
+// DoLocked runs fn while holding the world lock. It does not publish a
+// frame. fn must not call a method that locks the world again.
+func (vm *VM) DoLocked(fn func()) {
+	if fn == nil {
+		return
+	}
+	if vm == nil || vm.World == nil {
+		fn()
+		return
+	}
+	vm.World.mu.Lock()
+	vm.external++
+	defer func() {
+		vm.external--
+		vm.World.mu.Unlock()
+	}()
+	fn()
+}
+
+// LineUnlocked runs one command-center line. The caller holds the world
+// lock. An interrupt while a monitor is reading does not abort the button
+// that owns the lock on another goroutine; that button still sees halt.
+func (vm *VM) LineUnlocked(src string) (out string, err error) {
+	defer vm.finishInterruptErr(&err)
+	return vm.executeLine(src)
+}
+
+func (vm *VM) finishInterrupt(stopped *bool) {
+	if r := recover(); r != nil {
+		if _, ok := r.(interruptPanic); ok {
+			if stopped != nil {
+				*stopped = true
+			}
+			return
+		}
+		panic(r)
+	}
+}
+
+func (vm *VM) finishInterruptErr(errp *error) {
+	if r := recover(); r != nil {
+		if _, ok := r.(interruptPanic); ok {
+			if errp != nil && *errp == nil {
+				*errp = fmt.Errorf("stopped")
+			}
+			return
+		}
+		panic(r)
+	}
+}
+
 // RunCompiled runs button or command-center commands. stop in a procedure
 // called directly from this list stops the caller (a forever button). stop
-// nested inside another procedure does not.
+// nested inside another procedure does not. A UI halt unwinds here too.
 func (vm *VM) RunCompiled(stmts []Stmt) (stopped bool, err error) {
 	vm.World.mu.Lock()
 	defer vm.World.unlockPublish()
-	return vm.runStmts(stmts)
+	defer vm.finishInterrupt(&stopped)
+	stopped, err = vm.runStmts(stmts)
+	return stopped, err
 }
 
 // runStmts runs commands. The caller holds World.mu. Plot setup and update
 // use this so a pen can call plot without locking the world a second time.
+// Interrupt is not caught here: a pen that is mid-update lets it reach
+// RunCompiled, so stop still aborts the button.
 func (vm *VM) runStmts(stmts []Stmt) (stopped bool, err error) {
 	defer vm.recover(&err, &stopped)
 	for _, s := range stmts {

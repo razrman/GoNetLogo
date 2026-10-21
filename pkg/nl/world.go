@@ -26,6 +26,9 @@ type World struct {
 	turtles map[int]*Turtle
 	whoSeq  []int // ascending who, including dead slots compacted lazily
 	nextWho int
+	// breedLive is the living turtles of each breed, in insertion order.
+	// ask uses it instead of scanning every turtle. Nil after clear-turtles.
+	breedLive map[string][]*Turtle
 
 	links   []*Link
 	nextLID int
@@ -276,6 +279,7 @@ func (w *World) Resize(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) {
 	w.WrapX, w.WrapY = wrapX, wrapY
 	w.turtles = map[int]*Turtle{}
 	w.whoSeq = nil
+	w.breedLive = nil
 	w.links = nil
 	w.recreatePatches()
 }
@@ -594,6 +598,7 @@ func (w *World) ClearTurtles() {
 	}
 	w.turtles = map[int]*Turtle{}
 	w.whoSeq = nil
+	w.breedLive = nil
 	for _, p := range w.patches {
 		p.turtles = p.turtles[:0]
 	}
@@ -660,6 +665,72 @@ func (w *World) Turtles() *AgentSet {
 		ags[i] = t
 	}
 	return &AgentSet{Kind: KindTurtle, All: true, Agents: ags}
+}
+
+// collectBreed appends living turtles of one breed in who order.
+// The buffer is reused by ask so a breed ask does not allocate an agentset.
+func (w *World) trackBreed(t *Turtle) {
+	if t == nil || t.Breed == "" {
+		return
+	}
+	if w.breedLive == nil {
+		w.breedLive = map[string][]*Turtle{}
+	}
+	w.breedLive[t.Breed] = append(w.breedLive[t.Breed], t)
+}
+
+func (w *World) untrackBreed(t *Turtle) {
+	if t == nil || t.Breed == "" || w.breedLive == nil {
+		return
+	}
+	s := w.breedLive[t.Breed]
+	for i, o := range s {
+		if o == t {
+			w.breedLive[t.Breed] = append(s[:i], s[i+1:]...)
+			return
+		}
+	}
+}
+
+func (w *World) collectBreed(plural string, buf []Agent) []Agent {
+	buf = buf[:0]
+	if w.breedLive != nil {
+		for _, t := range w.breedLive[plural] {
+			if t != nil && !t.dead && t.Breed == plural {
+				buf = append(buf, t)
+			}
+		}
+		if len(buf) > 1 {
+			sort.Slice(buf, func(i, j int) bool {
+				return buf[i].(*Turtle).Who < buf[j].(*Turtle).Who
+			})
+		}
+		return buf
+	}
+	if len(w.whoSeq) != len(w.turtles) {
+		w.rebuildWhoSeq()
+	}
+	for _, id := range w.whoSeq {
+		t := w.turtles[id]
+		if t != nil && !t.dead && t.Breed == plural {
+			buf = append(buf, t)
+		}
+	}
+	return buf
+}
+
+// anyBreedOn reports whether a living turtle of breed is standing on p.
+// Nil patch is false, matching cans-on nobody.
+func (w *World) anyBreedOn(p *Patch, breed string) bool {
+	if p == nil {
+		return false
+	}
+	for _, t := range p.turtles {
+		if t != nil && !t.dead && t.Breed == breed {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *World) TurtlesOfBreed(plural string) *AgentSet {
@@ -750,6 +821,7 @@ func (w *World) CreateTurtle(breed string, x, y float64, colorN, heading int) *T
 	w.nextWho++
 	w.turtles[t.Who] = t
 	w.whoSeq = append(w.whoSeq, t.Who)
+	w.trackBreed(t)
 	w.attach(t)
 	return t
 }
@@ -798,6 +870,7 @@ func (w *World) Hatch(parent *Turtle, breed string) *Turtle {
 	w.nextWho++
 	w.turtles[t.Who] = t
 	w.whoSeq = append(w.whoSeq, t.Who)
+	w.trackBreed(t)
 	w.attach(t)
 	return t
 }
@@ -810,6 +883,7 @@ func (w *World) Die(a Agent) {
 			return
 		}
 		t.dead = true
+		w.untrackBreed(t)
 		w.detach(t)
 		delete(w.turtles, t.Who)
 		// remove links
@@ -1416,7 +1490,9 @@ func (w *World) SetBreed(t *Turtle, plural string) error {
 			return fmt.Errorf("there is no breed called %s", plural)
 		}
 	}
+	w.untrackBreed(t)
 	t.Breed = plural
+	w.trackBreed(t)
 	if t.Vars == nil {
 		t.Vars = map[string]Value{}
 	}

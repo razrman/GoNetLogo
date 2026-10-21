@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func asInt(v Value, what string) (int, error) {
@@ -401,7 +402,15 @@ func (vm *VM) doRun(args []Value, pos Pos) error {
 		if len(inputs) != 0 {
 			return fmt.Errorf("run of a string does not take extra inputs")
 		}
-		stmts, err := ParseCommands(v.S, vm.Prog)
+		// Robby's inner loop is `run item state strategy`, and strategy is
+		// a list of command names. Parsing that string on every action
+		// rebuilds the declaration maps. A bare command procedure is a
+		// direct call; anything else is parsed once and cached on the VM.
+		if proc := vm.bareCommand(v.S); proc != nil {
+			_, err := vm.callCmd(proc, nil)
+			return err
+		}
+		stmts, err := vm.cachedCommands(v.S)
 		if err != nil {
 			return err
 		}
@@ -416,6 +425,46 @@ func (vm *VM) doRun(args []Value, pos Pos) error {
 	default:
 		return fmt.Errorf("run expected a string or a command task")
 	}
+}
+
+// bareCommand reports a zero-argument command procedure when src is
+// only that procedure's name, ignoring case and surrounding space.
+func (vm *VM) bareCommand(src string) *Procedure {
+	if vm == nil || vm.Prog == nil {
+		return nil
+	}
+	name := strings.TrimSpace(src)
+	if name == "" {
+		return nil
+	}
+	for _, r := range name {
+		if r == '-' || r == '_' || r == '?' || r == '.' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+			continue
+		}
+		return nil
+	}
+	proc := vm.Prog.Proc(strings.ToLower(name))
+	if proc == nil || proc.IsReporter || len(proc.Params) != 0 {
+		return nil
+	}
+	return proc
+}
+
+func (vm *VM) cachedCommands(src string) ([]Stmt, error) {
+	if vm.runCache != nil {
+		if stmts, ok := vm.runCache[src]; ok {
+			return stmts, nil
+		}
+	}
+	stmts, err := ParseCommands(src, vm.Prog)
+	if err != nil {
+		return nil, err
+	}
+	if vm.runCache == nil {
+		vm.runCache = map[string][]Stmt{}
+	}
+	vm.runCache[src] = stmts
+	return stmts, nil
 }
 
 func (vm *VM) layoutCircle(agents, radius Value) error {

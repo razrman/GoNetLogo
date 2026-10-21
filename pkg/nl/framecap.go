@@ -85,6 +85,22 @@ func (p *FramePublisher) Publish(now time.Time, interval time.Duration) bool {
 	return true
 }
 
+// Refresh publishes the latest world on the cap interval without inventing
+// a model step. A long button uses it between commands. Pending steps still
+// go through Publish so the drop counter stays the number of skipped steps.
+func (p *FramePublisher) Refresh(now time.Time, interval time.Duration) bool {
+	if p.pending > 0 {
+		return p.Publish(now, interval)
+	}
+	if interval > 0 && !p.lastPublish.IsZero() && now.Before(p.lastPublish.Add(interval)) {
+		return false
+	}
+	p.published++
+	p.lastPublish = now
+	p.noteFPS(now, interval)
+	return true
+}
+
 // NextWait is how long a timer should sleep after a publish attempt.
 // A refused early fire waits out the rest of the interval instead of
 // starting a new full period from the wrong phase.

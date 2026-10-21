@@ -181,6 +181,7 @@ func forceTreeWalker(prog *Program) {
 		return
 	}
 	prog.compiled = true
+	prog.noClosure = true
 	for _, p := range prog.Procedures {
 		p.cmdFn = nil
 	}
