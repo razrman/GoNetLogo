@@ -49,6 +49,42 @@ func TestModelsIncludeFire(t *testing.T) {
 	}
 }
 
+func TestRobbyIsListedAndLoads(t *testing.T) {
+	c := newClient(t)
+	var resp struct {
+		Models []string
+	}
+	c.MustPost(`query { models }`, &resp)
+	found := false
+	for _, name := range resp.Models {
+		if name == "Robby the Robot.nlogo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("models = %v, want Robby the Robot.nlogo", resp.Models)
+	}
+	var created struct {
+		CreateSession struct{ ID, ModelName string }
+	}
+	c.MustPost(`mutation ($m: String!) {
+		createSession(model: $m) { id modelName }
+	}`, &created, client.Var("m", "Robby the Robot.nlogo"))
+	if created.CreateSession.ModelName != "Robby the Robot.nlogo" || created.CreateSession.ID == "" {
+		t.Fatalf("createSession %+v", created.CreateSession)
+	}
+	t.Setenv("MODELS_DIR", filepath.Join("..", "..", "models"))
+	var fromFile struct {
+		LoadModelFile struct{ ModelName string }
+	}
+	c.MustPost(`mutation ($id: ID!, $path: String!) {
+		loadModelFile(sessionId: $id, path: $path) { modelName }
+	}`, &fromFile, client.Var("id", created.CreateSession.ID), client.Var("path", "Robby the Robot.nlogo"))
+	if fromFile.LoadModelFile.ModelName != "Robby the Robot.nlogo" {
+		t.Fatalf("loadModelFile %+v", fromFile.LoadModelFile)
+	}
+}
+
 func TestSessionsAreIsolated(t *testing.T) {
 	c := newClient(t)
 	a := create(t, c, "fire.nlogo")
