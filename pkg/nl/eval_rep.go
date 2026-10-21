@@ -87,8 +87,8 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		if !ok {
 			return Value{}, fmt.Errorf("patch-ahead can only be used by a turtle")
 		}
-		rad := t.Heading * math.Pi / 180
-		p := vm.World.PatchAt(t.X+d*math.Sin(rad), t.Y+d*math.Cos(rad))
+		dx, dy := headingDelta(t.Heading, d)
+		p := vm.World.PatchAt(t.X+dx, t.Y+dy)
 		if p == nil {
 			return Nobody(), nil
 		}
@@ -123,8 +123,8 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		if name == "patch-left-and-ahead" {
 			ang = -ang
 		}
-		h := (t.Heading + ang) * math.Pi / 180
-		p := vm.World.PatchAt(t.X+dist*math.Sin(h), t.Y+dist*math.Cos(h))
+		dx, dy := headingDelta(t.Heading+ang, dist)
+		p := vm.World.PatchAt(t.X+dx, t.Y+dy)
 		if p == nil {
 			return Nobody(), nil
 		}
@@ -525,7 +525,11 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		return Num(vm.World.HeadingTowards(sx, sy, x, y)), nil
+		h, err := vm.World.HeadingTowards(sx, sy, x, y)
+		if err != nil {
+			return Value{}, err
+		}
+		return Num(h), nil
 	case "towardsxy":
 		x, err := args[0].Num()
 		if err != nil {
@@ -539,7 +543,11 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		return Num(vm.World.HeadingTowards(sx, sy, x, y)), nil
+		h, err := vm.World.HeadingTowards(sx, sy, x, y)
+		if err != nil {
+			return Value{}, err
+		}
+		return Num(h), nil
 	case "can-move?":
 		d, err := args[0].Num()
 		if err != nil {

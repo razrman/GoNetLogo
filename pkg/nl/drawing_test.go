@@ -99,8 +99,9 @@ create-turtles 1 [
 ]
 `)
 	marks := vm.World.Marks()
-	if len(marks) != 3 {
-		t.Fatalf("marks = %d, want stamp, erase, pen", len(marks))
+	// fd 2 is two unit steps, so the pen leaves two segments.
+	if len(marks) != 4 {
+		t.Fatalf("marks = %d, want stamp, erase, and two pen steps", len(marks))
 	}
 	if marks[0].Pen || marks[0].Erase || marks[0].Shape != "circle" {
 		t.Fatalf("first mark %+v", marks[0])
@@ -108,8 +109,11 @@ create-turtles 1 [
 	if !marks[1].Erase || marks[1].Shape != "circle" {
 		t.Fatalf("erase mark %+v", marks[1])
 	}
-	if !marks[2].Pen || marks[2].Y2 != 2 {
-		t.Fatalf("pen mark %+v", marks[2])
+	if !marks[2].Pen || marks[2].Y2 != 1 {
+		t.Fatalf("first pen step %+v", marks[2])
+	}
+	if !marks[3].Pen || marks[3].Y2 != 2 {
+		t.Fatalf("second pen step %+v", marks[3])
 	}
 	// The pen starts on the stamped patch, so that patch is inked again.
 	// A neighbor the circle covered, and the pen did not, stays bare.

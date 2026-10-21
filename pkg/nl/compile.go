@@ -553,9 +553,8 @@ func (c *compiler) compileCmd(s *cmdStmt, locals map[string]bool) cmdFn {
 			if name == "bk" || name == "back" {
 				n = -n
 			}
-			if err := vm.World.Forward(vm.requireTurtle(pos), n); err != nil {
-				vm.fail(pos, "%s", err.Error())
-			}
+			// Same helper as the tree walker: fd/bk stop at the edge, jump stays put.
+			vm.moveTurtle(vm.requireTurtle(pos), n, name == "jump")
 		}
 	case "rt", "right", "lt", "left":
 		arg := c.compileExpr(s.Args[0], locals)
