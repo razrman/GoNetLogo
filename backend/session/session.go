@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image/color"
 	"io/fs"
@@ -97,6 +98,7 @@ func (st *Store) Close() {
 // Session is one interpreter, one world, and the widgets that drive it.
 type Session struct {
 	mu        sync.Mutex
+	logMu     sync.Mutex
 	id        string
 	modelName string
 	model     *nl.FileModel
@@ -111,9 +113,20 @@ type Session struct {
 	clock     nl.RunClock
 	frameRate int
 	pub       nl.FramePublisher
-	rateNote  chan struct{}
-	stop      chan struct{}
-	closed    bool
+	// busy is true while a button is inside the interpreter with s.mu released.
+	busy bool
+	// cancelRun asks the button in progress to stop at the next checkpoint.
+	// A one-shot clears it so setup is not aborted by the stop that ended go.
+	cancelRun bool
+	// shown* is the last tick sample taken under the world lock.
+	// Stop and the speed slider read it instead of the live world, so they
+	// do not wait out a generation.
+	shownStarted bool
+	shownTicks   float64
+	shownEpoch   uint64
+	rateNote     chan struct{}
+	stop         chan struct{}
+	closed       bool
 }
 
 func newSession() *Session {
@@ -134,12 +147,19 @@ func (s *Session) ID() string { return s.id }
 // Close stops the forever loop. It is safe to call more than once.
 func (s *Session) Close() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		s.mu.Unlock()
 		return
 	}
 	s.closed = true
+	s.cancelRun = true
+	s.running = -1
+	vm := s.vm
 	close(s.stop)
+	s.mu.Unlock()
+	if vm != nil {
+		vm.RequestHalt()
+	}
 }
 
 func (s *Session) loop() {
@@ -206,17 +226,25 @@ func (s *Session) runStepSlot() {
 		s.mu.Unlock()
 		return
 	}
+	if s.busy {
+		s.mu.Unlock()
+		return
+	}
 	s.frame++
 	n := stepsFor(s.speed, s.frame)
 	s.mu.Unlock()
 	for i := 0; i < n; i++ {
 		s.mu.Lock()
-		if s.closed || s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
+		if s.closed || s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) || s.cancelRun {
 			s.syncClockLocked(time.Now())
 			s.mu.Unlock()
 			return
 		}
 		_, err := s.runIndexLocked(s.running)
+		if errors.Is(err, errModelBusy) {
+			s.mu.Unlock()
+			return
+		}
 		stopped := s.running < 0
 		now := time.Now()
 		if err == nil {
@@ -264,6 +292,75 @@ func (s *Session) publishDueLocked(now time.Time) {
 	s.broadcastLocked()
 }
 
+// refreshDueLocked publishes the in-progress world without counting a step.
+// A long button calls it from the yield callback so the view keeps moving.
+func (s *Session) refreshDueLocked(now time.Time) {
+	if !s.pub.Refresh(now, nl.FrameInterval(s.frameRate)) {
+		return
+	}
+	s.broadcastLocked()
+}
+
+// errModelBusy is returned when a second command arrives while a button is
+// inside the interpreter. Callers that can wait use waitIdleLocked instead.
+var errModelBusy = errors.New("the model is running a command")
+
+// armYield lets a long button publish frames and observe stop without
+// holding s.mu. Caller holds s.mu. The VM must not already be inside a run.
+func (s *Session) armYield(vm *nl.VM) {
+	if vm == nil {
+		return
+	}
+	vm.ClearHalt()
+	if s.cancelRun || s.closed {
+		vm.RequestHalt()
+	}
+	vm.SetYield(func() {
+		s.mu.Lock()
+		now := time.Now()
+		s.sampleTicksLocked()
+		if s.closed || s.cancelRun {
+			vm.RequestHalt()
+		}
+		if !s.closed {
+			s.syncClockLocked(now)
+			s.refreshDueLocked(now)
+		}
+		s.mu.Unlock()
+	}, nl.DefaultYieldInterval)
+}
+
+// waitIdleLocked blocks until a button running with the lock released has
+// finished. The caller holds s.mu on entry and on return. A busy run is
+// asked to stop so setup or step is not stuck behind a generation.
+func (s *Session) waitIdleLocked() error {
+	if !s.busy {
+		return nil
+	}
+	vm := s.vm
+	s.running = -1
+	s.mu.Unlock()
+	if vm != nil {
+		vm.RequestHalt()
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if !time.Now().Before(deadline) {
+			s.mu.Lock()
+			if !s.busy {
+				return nil
+			}
+			return fmt.Errorf("timed out waiting for the model to stop")
+		}
+		s.mu.Lock()
+		if !s.busy {
+			return nil
+		}
+		s.mu.Unlock()
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 // Subscribe registers a wake-up channel. The first value is not sent
 // here; the caller snapshots once, then waits. The channel is removed
 // when ctx ends. A slow subscriber misses intermediate frames and
@@ -293,7 +390,12 @@ func (s *Session) useModel(name, content string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.waitIdleLocked(); err != nil {
+		return err
+	}
+	s.logMu.Lock()
 	s.log = nil
+	s.logMu.Unlock()
 	s.installLocked(name, m, vm)
 	s.broadcastLocked()
 	return nil
@@ -308,11 +410,17 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	s.clock = nl.RunClock{}
 	s.pub.Reset()
 	vm.OnPrint = func(line string) {
-		// Called while s.mu is held by the command that is running.
-		s.appendLogLocked(line)
+		// Print runs with the world lock held and s.mu released. The log
+		// has its own lock so this does not wait on the session and the
+		// session does not take the world lock to read the log.
+		s.logMu.Lock()
+		s.appendLogBody(line)
+		s.logMu.Unlock()
 	}
 	vm.OnClear = func() {
+		s.logMu.Lock()
 		s.log = nil
+		s.logMu.Unlock()
 	}
 	s.compileButtonsLocked()
 }
@@ -373,6 +481,9 @@ func (s *Session) LoadModelFile(path string) error {
 func (s *Session) SetCode(code string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.waitIdleLocked(); err != nil {
+		return err
+	}
 	if s.model == nil {
 		return fmt.Errorf("no model is loaded")
 	}
@@ -391,6 +502,9 @@ func (s *Session) SetCode(code string) error {
 func (s *Session) RunCommand(text string) (output string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.waitIdleLocked(); err != nil {
+		return "", err
+	}
 	if s.vm == nil {
 		return "", fmt.Errorf("no model is loaded")
 	}
@@ -423,25 +537,34 @@ func (s *Session) Go() error {
 	if err := s.ensureRunnableLocked(i); err != nil {
 		return err
 	}
+	s.cancelRun = false
 	s.running = i
 	s.syncClockLocked(time.Now())
 	s.broadcastLocked()
 	return nil
 }
 
-// Stop halts the forever button.
+// Stop halts the forever button. It does not wait for the generation.
 func (s *Session) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.cancelRun = true
 	s.running = -1
+	vm := s.vm
 	s.syncClockLocked(time.Now())
 	s.broadcastLocked()
+	s.mu.Unlock()
+	if vm != nil {
+		vm.RequestHalt()
+	}
 }
 
 // Step runs the go button a single time.
 func (s *Session) Step() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.waitIdleLocked(); err != nil {
+		return err
+	}
 	i := s.foreverButtonLocked()
 	if i < 0 {
 		if s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc("go") != nil {
@@ -475,17 +598,26 @@ func (s *Session) PressButton(index int) error {
 	}
 	if w.Forever {
 		if s.running == index {
+			s.cancelRun = true
 			s.running = -1
+			if s.vm != nil {
+				s.vm.RequestHalt()
+			}
 		} else {
 			if err := s.ensureRunnableLocked(index); err != nil {
 				return err
 			}
+			s.cancelRun = false
 			s.running = index
 		}
 		s.syncClockLocked(time.Now())
 		s.broadcastLocked()
 		return nil
 	}
+	if err := s.waitIdleLocked(); err != nil {
+		return err
+	}
+	s.cancelRun = false
 	if _, err := s.runIndexLocked(index); err != nil {
 		s.broadcastLocked()
 		return err
@@ -502,6 +634,9 @@ func (s *Session) PressButton(index int) error {
 func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.waitIdleLocked(); err != nil {
+		return err
+	}
 	if s.vm == nil || s.vm.World == nil {
 		return fmt.Errorf("no world")
 	}
@@ -515,21 +650,27 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 // WorldSettings is the current size, patch size, and wrapping.
 func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.vm == nil || s.vm.World == nil {
+	vm := s.vm
+	fps := s.frameRateCap()
+	s.mu.Unlock()
+	if vm == nil || vm.World == nil {
 		return nil, fmt.Errorf("no world")
 	}
-	w := s.vm.World
-	return &model.WorldSettings{
-		FrameRateCap: s.frameRateCap(),
-		MinPxcor:     w.MinPxcor,
-		MaxPxcor:     w.MaxPxcor,
-		MinPycor:     w.MinPycor,
-		MaxPycor:     w.MaxPycor,
-		PatchSize:    w.PatchSize,
-		WrapX:        w.WrapX,
-		WrapY:        w.WrapY,
-	}, nil
+	var out *model.WorldSettings
+	vm.DoLocked(func() {
+		w := vm.World
+		out = &model.WorldSettings{
+			FrameRateCap: fps,
+			MinPxcor:     w.MinPxcor,
+			MaxPxcor:     w.MaxPxcor,
+			MinPycor:     w.MinPycor,
+			MaxPycor:     w.MaxPycor,
+			PatchSize:    w.PatchSize,
+			WrapX:        w.WrapX,
+			WrapY:        w.WrapY,
+		}
+	})
+	return out, nil
 }
 
 // SetFrameRate sets the publish cap. Values outside 1..120 are clamped.
@@ -666,10 +807,15 @@ func (s *Session) runNamed(name string, forever bool) error {
 		return fmt.Errorf("nothing named %s", name)
 	}
 	if forever {
+		s.cancelRun = false
 		s.running = i
 		s.broadcastLocked()
 		return nil
 	}
+	if err := s.waitIdleLocked(); err != nil {
+		return err
+	}
+	s.cancelRun = false
 	if _, err := s.runIndexLocked(i); err != nil {
 		s.broadcastLocked()
 		return err
@@ -681,22 +827,45 @@ func (s *Session) runNamed(name string, forever bool) error {
 	return nil
 }
 
-func (s *Session) runIndexLocked(i int) (bool, error) {
-	if err := s.ensureRunnableLocked(i); err != nil {
+func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
+	if err = s.ensureRunnableLocked(i); err != nil {
 		s.running = -1
 		return false, err
+	}
+	if s.busy {
+		return false, errModelBusy
 	}
 	w := s.model.Widgets[i]
-	stopped, err := s.vm.RunCompiled(s.buttons[i])
-	if err != nil {
-		s.appendLogLocked(w.Display + ": " + err.Error())
-		s.running = -1
-		return false, err
-	}
-	if stopped {
-		s.running = -1
-	}
-	return stopped, nil
+	stmts := s.buttons[i]
+	vm := s.vm
+	s.busy = true
+	s.armYield(vm)
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if vm != nil {
+			vm.ClearYield()
+			if vm.Halted() {
+				stopped = true
+				vm.ClearHalt()
+			}
+		}
+		if err != nil {
+			s.appendLogLocked(w.Display + ": " + err.Error())
+			s.running = -1
+			s.cancelRun = false
+			stopped = false
+		} else if stopped {
+			s.running = -1
+			s.cancelRun = false
+		}
+		if vm != nil {
+			s.sampleTicksLocked()
+		}
+		s.busy = false
+	}()
+	stopped, err = vm.RunCompiled(stmts)
+	return
 }
 
 func (s *Session) ensureRunnableLocked(i int) error {
@@ -744,6 +913,12 @@ func (s *Session) foreverButtonLocked() int {
 }
 
 func (s *Session) appendLogLocked(line string) {
+	s.logMu.Lock()
+	s.appendLogBody(line)
+	s.logMu.Unlock()
+}
+
+func (s *Session) appendLogBody(line string) {
 	s.log = append(s.log, line)
 	if len(s.log) > 80 {
 		s.log = append([]string(nil), s.log[len(s.log)-80:]...)
@@ -798,24 +973,23 @@ func (s *Session) FrameSince(epoch, seq int, plots map[string]nl.PlotCursor) (fr
 	defer s.mu.Unlock()
 	snap := s.sessionLocked()
 	upd := outputUpdate{reset: true, lines: []string{}}
-	if s.vm != nil {
-		reset, e, q, lines, partial := s.vm.OutputDelta(epoch, seq)
-		upd = outputUpdate{reset: reset, epoch: e, seq: q, lines: lines, partial: partial}
-	} else if epoch == 0 && seq == 0 {
-		upd.reset = false
-	}
-	if upd.lines == nil {
-		upd.lines = []string{}
-	}
 	plotViews := []model.PlotView{}
 	plotAppend := []model.PlotPenDelta{}
 	nextPlots = map[string]nl.PlotCursor{}
-	if s.vm != nil {
+	s.withWorldLocked(func() {
+		if s.vm == nil {
+			if epoch == 0 && seq == 0 {
+				upd.reset = false
+			}
+			return
+		}
+		reset, e, q, lines, partial := s.vm.OutputDelta(epoch, seq)
+		upd = outputUpdate{reset: reset, epoch: e, seq: q, lines: lines, partial: partial}
 		plotViews = plotViewsOf(s.vm.PlotViews())
 		deltas, next := s.vm.PlotDeltas(plots)
 		plotAppend = plotDeltasOf(deltas)
 		nextPlots = next
-	}
+	})
 	frame = &model.Frame{
 		SessionID:     snap.ID,
 		Ticks:         snap.Ticks,
@@ -897,20 +1071,47 @@ type outputUpdate struct {
 	partial string
 }
 
-// syncClockLocked samples the shared run clock. Caller holds s.mu.
-func (s *Session) syncClockLocked(now time.Time) (tps float64, timer string) {
+// sampleTicksLocked copies the tick counter. Caller holds s.mu.
+// The world lock is taken and released here; the caller must not already
+// hold it. A running button has released it before this yield.
+func (s *Session) sampleTicksLocked() {
+	vm := s.vm
+	if vm == nil || vm.World == nil {
+		s.shownStarted = false
+		s.shownTicks = 0
+		s.shownEpoch = 0
+		return
+	}
+	var started bool
 	var ticks float64
 	var epoch uint64
-	if s.vm != nil && s.vm.World != nil {
-		w := s.vm.World
+	vm.DoLocked(func() {
+		w := vm.World
 		epoch = w.RunEpoch()
-		if w.TicksStarted() {
+		started = w.TicksStarted()
+		if started {
 			if n, err := w.Ticks(); err == nil {
 				ticks = n
 			}
 		}
+	})
+	s.shownStarted = started
+	s.shownTicks = ticks
+	s.shownEpoch = epoch
+}
+
+// syncClockLocked samples the shared run clock. Caller holds s.mu.
+// While a button is inside the interpreter the last yield's sample is used,
+// so this does not take the world lock.
+func (s *Session) syncClockLocked(now time.Time) (tps float64, timer string) {
+	if !s.busy {
+		s.sampleTicksLocked()
 	}
-	return s.clock.Sync(now, s.running >= 0, epoch, ticks)
+	ticks := 0.0
+	if s.shownStarted {
+		ticks = s.shownTicks
+	}
+	return s.clock.Sync(now, s.running >= 0, s.shownEpoch, ticks)
 }
 
 func (s *Session) fillRunStats(out *model.Session) {
@@ -920,13 +1121,26 @@ func (s *Session) fillRunStats(out *model.Session) {
 	out.PublishedFps = s.pub.PublishedFPS()
 }
 
+// withWorldLocked runs fn while the world lock is held. Caller holds s.mu
+// and must not already hold the world lock. The running button drops the
+// world lock before it takes s.mu, so this waits out at most one yield gap.
+func (s *Session) withWorldLocked(fn func()) {
+	if fn == nil {
+		return
+	}
+	if s.vm != nil && s.vm.World != nil {
+		s.vm.DoLocked(fn)
+		return
+	}
+	fn()
+}
+
 func (s *Session) sessionLocked() *model.Session {
 	out := &model.Session{
 		ID:        s.id,
 		ModelName: s.modelName,
 		Speed:     s.speed,
 		Running:   s.running >= 0,
-		Log:       append([]string(nil), s.log...),
 		Notes:     []string{},
 		Output:    []string{},
 		Widgets:   []model.Widget{},
@@ -937,11 +1151,11 @@ func (s *Session) sessionLocked() *model.Session {
 			Labels:  []model.AgentLabel{},
 		},
 	}
-	if s.vm != nil {
-		lines, partial := s.vm.OutputArea()
-		out.HasOutput = s.vm.HasOutput()
-		out.Output = lines
-		out.OutputPartial = partial
+	s.logMu.Lock()
+	out.Log = append([]string(nil), s.log...)
+	s.logMu.Unlock()
+	if out.Log == nil {
+		out.Log = []string{}
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
@@ -951,21 +1165,39 @@ func (s *Session) sessionLocked() *model.Session {
 		}
 	}
 	s.fillRunStats(out)
-	if s.vm == nil || s.vm.World == nil {
-		out.Tps, out.Timer = s.syncClockLocked(time.Now())
-		return out
-	}
-	w := s.vm.World
-	out.TicksStarted = w.TicksStarted()
-	if w.TicksStarted() {
-		if t, err := w.Ticks(); err == nil {
-			out.Ticks = &t
+	var started bool
+	var ticks float64
+	var epoch uint64
+	s.withWorldLocked(func() {
+		if s.vm == nil || s.vm.World == nil {
+			return
 		}
+		lines, partial := s.vm.OutputArea()
+		out.HasOutput = s.vm.HasOutput()
+		out.Output = lines
+		out.OutputPartial = partial
+		w := s.vm.World
+		epoch = w.RunEpoch()
+		started = w.TicksStarted()
+		out.TicksStarted = started
+		if started {
+			if t, err := w.Ticks(); err == nil {
+				ticks = t
+				out.Ticks = &t
+			}
+		}
+		out.Widgets = s.widgetsLocked()
+		out.World = worldLocked(w)
+	})
+	s.shownStarted = started
+	s.shownTicks = ticks
+	s.shownEpoch = epoch
+	tickArg := 0.0
+	if started {
+		tickArg = ticks
 	}
-	out.Tps, out.Timer = s.syncClockLocked(time.Now())
+	out.Tps, out.Timer = s.clock.Sync(time.Now(), s.running >= 0, epoch, tickArg)
 	s.fillRunStats(out)
-	out.Widgets = s.widgetsLocked()
-	out.World = worldLocked(w)
 	return out
 }
 
@@ -1022,7 +1254,7 @@ func (s *Session) widgetsLocked() []model.Widget {
 		case "monitor":
 			reading := "—"
 			if s.vm != nil && strings.TrimSpace(w.Source) != "" {
-				got, err := s.vm.ExecuteLine(w.Source)
+				got, err := s.vm.LineUnlocked(w.Source)
 				if err != nil {
 					reading = "N/A"
 				} else if got == "" {

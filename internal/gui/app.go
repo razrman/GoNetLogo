@@ -9,6 +9,7 @@ import (
 	"image/draw"
 	"io"
 	"io/fs"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,10 +34,16 @@ func Run(modelsFS fs.FS) {
 	a := app.New()
 	w := a.NewWindow("GoNetLogo")
 	s := newSession(modelsFS, w)
+	// The model runs off the Fyne thread. tick() stays synchronous for tests
+	// that drive a session without calling Run.
+	s.async = true
+	s.modelStop = make(chan struct{})
+	go s.modelLoop()
 	w.SetContent(s.layout)
 	w.Resize(fyne.NewSize(1120, 760))
 	s.anim.Start()
 	w.ShowAndRun()
+	close(s.modelStop)
 }
 
 type control struct {
@@ -101,6 +108,23 @@ type session struct {
 	frame     int
 	anim      *fyne.Animation
 	busy      bool
+	// async is set only by Run. Tests call tick on the caller goroutine.
+	async        bool
+	once         int
+	inRun        bool
+	paused       bool
+	cancelRun    bool
+	modelStop    chan struct{}
+	dirty        atomic.Bool
+	speedBits    atomic.Uint64
+	hudTicks     string
+	hudTPS       string
+	hudDrop      string
+	hudTimer     string
+	hudOutput    string
+	hudRead      []string
+	pendingLog   []string
+	pendingClear bool
 
 	// mu keeps the go loop, command center, monitors, world Apply, and
 	// model loads off the same world. The draw thread does not take it;
@@ -111,7 +135,8 @@ type session struct {
 }
 
 func newSession(modelsFS fs.FS, win fyne.Window) *session {
-	s := &session{win: win, modelsFS: modelsFS, running: -1, frameRate: nl.DefaultFrameRate}
+	s := &session{win: win, modelsFS: modelsFS, running: -1, once: -1, frameRate: nl.DefaultFrameRate}
+	s.speedBits.Store(math.Float64bits(40))
 	s.names = demoNames(modelsFS)
 	s.ticks = widget.NewLabel("ticks")
 	s.tps = widget.NewLabel("tps —")
@@ -134,6 +159,9 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	s.speed = widget.NewSlider(0, 100)
 	s.speed.Value = 40
 	s.speed.Step = 1
+	s.speed.OnChanged = func(v float64) {
+		s.speedBits.Store(math.Float64bits(v))
+	}
 	s.raster = canvas.NewRaster(s.drawWorld)
 	s.raster.SetMinSize(fyne.NewSize(520, 520))
 	s.side = container.NewVBox()
@@ -193,7 +221,13 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	)
 	s.layout = container.NewBorder(toolbar, bottom, nil, nil, container.NewBorder(s.notes, nil, nil, nil, tabs))
 
-	s.anim = fyne.NewAnimation(30*time.Millisecond, func(float32) { s.tick() })
+	s.anim = fyne.NewAnimation(30*time.Millisecond, func(float32) {
+		if s.async {
+			s.presentUI()
+			return
+		}
+		s.tick()
+	})
 	s.anim.RepeatCount = fyne.AnimationRepeatForever
 
 	openItem := fyne.NewMenuItem("Open…", func() { s.openFile() })
@@ -342,7 +376,10 @@ func viewPixels(width, height int, patchSize float64) (float32, float32) {
 }
 
 func (s *session) applyWorld() {
+	s.waitIdleUI()
 	s.mu.Lock()
+	s.paused = false
+	s.cancelRun = false
 	err := s.applyWorldLocked()
 	s.mu.Unlock()
 	if err != nil {
@@ -476,14 +513,16 @@ func (s *session) load(name, content string) {
 		dialog.ShowError(fmt.Errorf("compile error in %s: %s", name, err.Error()), s.win)
 		return
 	}
+	s.waitIdleUI()
 	s.mu.Lock()
+	s.paused = false
+	s.cancelRun = false
 	s.running = -1
 	s.clock = nl.RunClock{}
 	s.pub.Reset()
 	s.model = m
 	s.vm = vm
-	s.vm.OnPrint = func(line string) { s.log(line) }
-	s.vm.OnClear = func() { s.clearLog() }
+	s.hookVM()
 	s.code.SetText(m.Code)
 	s.rebuildSide()
 	s.publishViewLocked()
@@ -693,23 +732,41 @@ func (s *session) pressLocked(i int) {
 	}
 	if c.widget.Forever {
 		if s.running == i {
+			s.cancelRun = true
 			s.running = -1
+			s.once = -1
+			if s.vm != nil {
+				s.vm.RequestHalt()
+			}
 			if c.button != nil {
 				c.button.SetText(c.widget.Display + " ∞")
 			}
 			s.goBtn.SetText("go")
 			return
 		}
-		if c.widget.DisableUntilTicks && !s.vm.World.TicksStarted() {
-			s.logf("%s is disabled until ticks start", c.widget.Display)
-			return
+		if c.widget.DisableUntilTicks {
+			var started bool
+			s.vm.DoLocked(func() { started = s.vm.World.TicksStarted() })
+			if !started {
+				s.logf("%s is disabled until ticks start", c.widget.Display)
+				return
+			}
 		}
+		s.cancelRun = false
 		s.running = i
 		if c.button != nil {
 			c.button.SetText("stop")
 		}
 		if strings.EqualFold(c.widget.Display, "go") || strings.EqualFold(strings.TrimSpace(c.widget.Source), "go") {
 			s.goBtn.SetText("stop")
+		}
+		return
+	}
+	if s.async {
+		s.once = i
+		s.cancelRun = true
+		if s.vm != nil {
+			s.vm.RequestHalt()
 		}
 		return
 	}
@@ -762,6 +819,341 @@ func (s *session) presentLocked() {
 }
 
 func (c *control) disableTicks() bool { return c.widget.DisableUntilTicks }
+
+// hookVM routes print to the command center. The worker must not call Fyne,
+// so a running desktop app queues lines for presentUI.
+func (s *session) hookVM() {
+	if s.vm == nil {
+		return
+	}
+	s.vm.OnPrint = func(line string) {
+		if s.async {
+			s.outMu.Lock()
+			s.pendingLog = append(s.pendingLog, line)
+			s.outMu.Unlock()
+			s.dirty.Store(true)
+			return
+		}
+		s.log(line)
+	}
+	s.vm.OnClear = func() {
+		if s.async {
+			s.outMu.Lock()
+			s.pendingClear = true
+			s.outMu.Unlock()
+			s.dirty.Store(true)
+			return
+		}
+		s.clearLog()
+	}
+}
+
+// waitIdleUI stops the background model loop before the UI thread replaces
+// the world. Synchronous tests do not start that loop.
+func (s *session) waitIdleUI() {
+	if !s.async {
+		return
+	}
+	s.mu.Lock()
+	s.paused = true
+	s.cancelRun = true
+	s.running = -1
+	s.once = -1
+	vm := s.vm
+	s.mu.Unlock()
+	if vm != nil {
+		vm.RequestHalt()
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		busy := s.inRun
+		s.mu.Unlock()
+		if !busy || !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+func (s *session) modelLoop() {
+	step := time.NewTicker(30 * time.Millisecond)
+	defer step.Stop()
+	for {
+		select {
+		case <-s.modelStop:
+			return
+		case <-step.C:
+			s.modelSlot()
+		}
+	}
+}
+
+func (s *session) modelSlot() {
+	s.mu.Lock()
+	if s.paused || s.vm == nil || s.inRun {
+		s.mu.Unlock()
+		return
+	}
+	s.inRun = true
+	defer func() {
+		s.mu.Lock()
+		s.inRun = false
+		s.mu.Unlock()
+	}()
+	if s.once >= 0 {
+		idx := s.once
+		s.once = -1
+		if idx < 0 || idx >= len(s.ctls) {
+			s.mu.Unlock()
+			return
+		}
+		c := s.ctls[idx]
+		s.mu.Unlock()
+		s.runButton(c, true)
+		return
+	}
+	if s.running < 0 || s.running >= len(s.ctls) {
+		s.mu.Unlock()
+		return
+	}
+	s.frame++
+	n := stepsFor(math.Float64frombits(s.speedBits.Load()), s.frame)
+	if n < 1 {
+		s.mu.Unlock()
+		return
+	}
+	idx := s.running
+	c := s.ctls[idx]
+	s.mu.Unlock()
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			s.mu.Lock()
+			if s.paused || s.once >= 0 || s.running != idx || s.vm == nil {
+				s.mu.Unlock()
+				return
+			}
+			c = s.ctls[idx]
+			s.mu.Unlock()
+		}
+		if !s.runButton(c, false) {
+			return
+		}
+	}
+}
+
+func (s *session) runButton(c control, oneshot bool) bool {
+	s.mu.Lock()
+	vm := s.vm
+	if vm == nil || s.paused {
+		s.mu.Unlock()
+		return false
+	}
+	if c.disableTicks() && !vm.World.TicksStarted() {
+		s.noteLog(c.widget.Display + " is disabled until ticks start")
+		s.mu.Unlock()
+		return false
+	}
+	stmts := c.stmts
+	display := c.widget.Display
+	source := c.widget.Source
+	s.inRun = true
+	if oneshot {
+		s.cancelRun = false
+	}
+	s.armDesktopYield(vm)
+	s.mu.Unlock()
+
+	stopped, err := vm.RunCompiled(stmts)
+
+	s.mu.Lock()
+	vm.ClearYield()
+	if vm.Halted() {
+		stopped = true
+		vm.ClearHalt()
+	}
+	if err != nil {
+		s.noteLog(fmt.Sprintf("%s: %v", display, err))
+		s.running = -1
+		s.cancelRun = false
+	} else if stopped && !oneshot {
+		s.running = -1
+		s.cancelRun = false
+	}
+	if err == nil && !oneshot {
+		s.pub.Produce(1)
+	}
+	if oneshot && (strings.EqualFold(display, "setup") || strings.EqualFold(strings.TrimSpace(source), "setup")) {
+		s.pub.Reset()
+	}
+	s.publishViewLocked()
+	s.captureHUDLocked()
+	s.dirty.Store(true)
+	s.mu.Unlock()
+	return err == nil && !stopped
+}
+
+func (s *session) armDesktopYield(vm *nl.VM) {
+	if vm == nil {
+		return
+	}
+	vm.ClearHalt()
+	if s.cancelRun {
+		vm.RequestHalt()
+	}
+	vm.SetYield(func() {
+		s.mu.Lock()
+		if s.cancelRun {
+			vm.RequestHalt()
+		}
+		s.publishViewLocked()
+		s.captureHUDLocked()
+		s.dirty.Store(true)
+		s.mu.Unlock()
+	}, nl.DefaultYieldInterval)
+}
+
+func (s *session) noteLog(line string) {
+	s.outMu.Lock()
+	s.pendingLog = append(s.pendingLog, line)
+	s.outMu.Unlock()
+	s.dirty.Store(true)
+}
+
+func (s *session) captureHUDLocked() {
+	if s.vm == nil || s.vm.World == nil {
+		return
+	}
+	var ticks float64
+	var started bool
+	var epoch uint64
+	var output string
+	readings := make([]string, len(s.ctls))
+	s.vm.DoLocked(func() {
+		w := s.vm.World
+		epoch = w.RunEpoch()
+		started = w.TicksStarted()
+		if started {
+			if n, err := w.Ticks(); err == nil {
+				ticks = n
+			}
+		}
+		output = s.vm.OutputText()
+		for i := range s.ctls {
+			if s.ctls[i].widget.Kind != "monitor" {
+				continue
+			}
+			got, err := s.vm.LineUnlocked(s.ctls[i].widget.Source)
+			if err != nil || got == "" {
+				readings[i] = "—"
+				if err != nil {
+					readings[i] = "N/A"
+				}
+			} else {
+				readings[i] = got
+			}
+		}
+	})
+	if started {
+		s.hudTicks = "ticks: " + trimNum(ticks)
+	} else {
+		s.hudTicks = "ticks"
+	}
+	running := s.running >= 0
+	tps, timer := s.clock.Sync(time.Now(), running, epoch, ticks)
+	s.hudTPS = "tps " + nl.FormatTPS(tps, running)
+	s.hudDrop = "drop " + strconv.Itoa(s.pub.Dropped())
+	s.hudTimer = timer
+	s.hudOutput = output
+	s.hudRead = readings
+}
+
+func (s *session) presentUI() {
+	s.mu.Lock()
+	inRun := s.inRun
+	ticks, tps, drop, timer := s.hudTicks, s.hudTPS, s.hudDrop, s.hudTimer
+	output := s.hudOutput
+	readings := append([]string(nil), s.hudRead...)
+	running := s.running
+	dirty := s.dirty.Swap(false)
+	s.outMu.Lock()
+	pending := s.pendingLog
+	s.pendingLog = nil
+	clear := s.pendingClear
+	s.pendingClear = false
+	s.outMu.Unlock()
+	if !inRun && s.vm != nil {
+		s.refreshRunLabels()
+		if dirty {
+			s.refreshMonitorsLocked()
+			s.refreshOutputLocked()
+		}
+	}
+	s.mu.Unlock()
+	if clear {
+		s.clearLog()
+	}
+	for _, line := range pending {
+		s.log(line)
+	}
+	if inRun {
+		s.setLabel(s.ticks, ticks)
+		s.setLabel(s.tps, tps)
+		s.setLabel(s.dropped, drop)
+		s.setLabel(s.timer, timer)
+		if dirty {
+			s.applyReadings(readings)
+			s.applyOutput(output)
+		}
+	}
+	if dirty && s.raster != nil {
+		s.raster.Refresh()
+		s.refreshPlotRasters()
+	}
+	if running < 0 {
+		s.mu.Lock()
+		if s.goBtn != nil && s.goBtn.Text != "go" {
+			s.goBtn.SetText("go")
+		}
+		for i := range s.ctls {
+			c := &s.ctls[i]
+			if c.button == nil || !c.widget.Forever {
+				continue
+			}
+			want := c.widget.Display + " ∞"
+			if c.button.Text != want && s.running != i {
+				c.button.SetText(want)
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
+func (s *session) applyReadings(readings []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.ctls {
+		if i >= len(readings) || readings[i] == "" {
+			continue
+		}
+		if s.ctls[i].readout != nil {
+			s.ctls[i].readout.SetText(readings[i])
+		}
+	}
+}
+
+func (s *session) applyOutput(body string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, area := range s.areas {
+		if area.text.Text == body {
+			continue
+		}
+		area.text.Text = body
+		area.text.Refresh()
+		area.scroll.ScrollToBottom()
+	}
+}
 
 func (s *session) tick() {
 	s.mu.Lock()
@@ -938,9 +1330,17 @@ func (s *session) refreshMonitorsLocked() {
 
 func (s *session) runLine(text string) {
 	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	s.waitIdleUI()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if text == "" || s.vm == nil {
+	defer func() {
+		s.paused = false
+		s.cancelRun = false
+		s.mu.Unlock()
+	}()
+	if s.vm == nil {
 		return
 	}
 	out, err := s.vm.ExecuteLine(text)
@@ -958,7 +1358,10 @@ func (s *session) runLine(text string) {
 }
 
 func (s *session) applyCode() {
+	s.waitIdleUI()
 	s.mu.Lock()
+	s.paused = false
+	s.cancelRun = false
 	err := s.applyCodeLocked()
 	s.mu.Unlock()
 	if err != nil {
@@ -980,8 +1383,7 @@ func (s *session) applyCodeLocked() error {
 	s.goBtn.SetText("go")
 	s.clock = nl.RunClock{}
 	s.vm = vm
-	s.vm.OnPrint = func(line string) { s.log(line) }
-	s.vm.OnClear = func() { s.clearLog() }
+	s.hookVM()
 	s.rebuildSide()
 	s.publishViewLocked()
 	s.noteWorld()

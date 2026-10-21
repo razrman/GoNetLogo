@@ -189,6 +189,7 @@ func directLets(stmts []Stmt) bool {
 }
 
 func (c *compiler) compileStmts(stmts []Stmt, locals map[string]bool) cmdFn {
+	c.sealLambdas(stmts, locals)
 	fns := make([]cmdFn, len(stmts))
 	loc := locals
 	for i, s := range stmts {
@@ -268,6 +269,7 @@ func (c *compiler) compileStmt(s Stmt, locals map[string]bool) cmdFn {
 				if !truthAt(vm, cond(vm), pos) {
 					return
 				}
+				vm.checkpoint()
 				body(vm)
 			}
 		}
@@ -284,6 +286,7 @@ func (c *compiler) compileStmt(s Stmt, locals map[string]bool) cmdFn {
 				vm.fail(pos, "repeat expected a non-negative number")
 			}
 			for i := 0; i < k; i++ {
+				vm.checkpoint()
 				body(vm)
 			}
 		}
@@ -291,6 +294,7 @@ func (c *compiler) compileStmt(s Stmt, locals map[string]bool) cmdFn {
 		body := c.compileBlock(s.Body, locals)
 		return func(vm *VM) {
 			for {
+				vm.checkpoint()
 				body(vm)
 			}
 		}
@@ -435,10 +439,18 @@ func (c *compiler) compileSet(s *setStmt, locals map[string]bool) cmdFn {
 }
 
 func (c *compiler) compileAsk(s *askStmt, locals map[string]bool) cmdFn {
-	agents := c.compileExpr(s.Agents, locals)
 	body := c.compileStmts(s.Body, locals)
 	child := directLets(s.Body)
 	pos := s.Pos
+	if id, ok := s.Agents.(*identExpr); ok && c.breeds[id.Name] {
+		breed := id.Name
+		return func(vm *VM) {
+			buf := vm.World.collectBreed(breed, vm.askBuf)
+			vm.askBuf = buf
+			vm.runAskList(buf, body, child)
+		}
+	}
+	agents := c.compileExpr(s.Agents, locals)
 	return func(vm *VM) {
 		v := agents(vm)
 		var list []Agent
@@ -452,16 +464,39 @@ func (c *compiler) compileAsk(s *askStmt, locals map[string]bool) cmdFn {
 			if vm.self != nil && v.Set != nil && v.Set.All && (v.Set.Kind == KindTurtle || v.Set.Kind == KindPatch) {
 				vm.fail(pos, "only the observer can ASK the set of all %ss", v.Set.Kind)
 			}
-			list = vm.World.Shuffle(v.Set.Alive())
+			// runAskList shuffles. Shuffling here as well would consume
+			// a second permutation and diverge from the tree walker.
+			list = v.Set.Alive()
 		default:
 			vm.fail(pos, "ask expected an agent or agentset, got %s", v.TypeName())
 		}
-		for _, a := range list {
-			if a.IsDead() {
-				continue
-			}
+		vm.runAskList(list, body, child)
+	}
+}
+
+// runAskList runs an ask body. A one-agent list does not allocate. A longer
+// list is copied so a nested ask can reuse askBuf, then shuffled with the
+// same RNG consumption as World.Shuffle.
+func (vm *VM) runAskList(list []Agent, body cmdFn, child bool) {
+	if len(list) == 0 {
+		return
+	}
+	if len(list) == 1 {
+		a := list[0]
+		if a != nil && !a.IsDead() {
+			vm.checkpoint()
 			vm.runAgent(a, body, child)
 		}
+		return
+	}
+	agents := append([]Agent(nil), list...)
+	vm.World.rng.Shuffle(len(agents), func(i, j int) { agents[i], agents[j] = agents[j], agents[i] })
+	for _, a := range agents {
+		if a == nil || a.IsDead() {
+			continue
+		}
+		vm.checkpoint()
+		vm.runAgent(a, body, child)
 	}
 }
 
@@ -690,6 +725,29 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 		}
 	case "any?":
 		if len(e.Args) == 1 {
+			if id, ok := e.Args[0].(*identExpr); ok && strings.HasSuffix(id.Name, "-here") {
+				breed := strings.TrimSuffix(id.Name, "-here")
+				if c.breeds[breed] {
+					br := breed
+					return func(vm *VM) Value {
+						return Bool(vm.World.anyBreedOn(vm.patchUnderSelf(), br))
+					}
+				}
+			}
+			if call, ok := e.Args[0].(*callExpr); ok && strings.HasSuffix(call.Name, "-on") && len(call.Args) == 1 {
+				breed := strings.TrimSuffix(call.Name, "-on")
+				if c.breeds[breed] {
+					arg := c.compileExpr(call.Args[0], locals)
+					br := breed
+					return func(vm *VM) Value {
+						p, err := vm.agentPatch(arg(vm))
+						if err != nil {
+							vm.fail(pos, "%s", err.Error())
+						}
+						return Bool(vm.World.anyBreedOn(p, br))
+					}
+				}
+			}
 			arg := c.compileExpr(e.Args[0], locals)
 			return func(vm *VM) Value {
 				ags, err := vm.asAgentset(arg(vm))
@@ -697,6 +755,50 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 					vm.fail(pos, "%s", err.Error())
 				}
 				return Bool(ags.Count() > 0)
+			}
+		}
+	case "is-patch?":
+		if len(e.Args) == 1 {
+			arg := c.compileExpr(e.Args[0], locals)
+			return func(vm *VM) Value {
+				v := arg(vm)
+				_, ok := v.A.(*Patch)
+				return Bool(ok && v.K == KindAgent)
+			}
+		}
+	case "patch-at":
+		if len(e.Args) == 2 {
+			dx := c.compileExpr(e.Args[0], locals)
+			dy := c.compileExpr(e.Args[1], locals)
+			return func(vm *VM) Value {
+				x, err := dx(vm).Num()
+				if err != nil {
+					vm.fail(pos, "%s", err.Error())
+				}
+				y, err := dy(vm).Num()
+				if err != nil {
+					vm.fail(pos, "%s", err.Error())
+				}
+				p := vm.patchAtOffset(x, y)
+				if p == nil {
+					return Nobody()
+				}
+				return AgentVal(p)
+			}
+		}
+	case "can-move?":
+		if len(e.Args) == 1 {
+			arg := c.compileExpr(e.Args[0], locals)
+			return func(vm *VM) Value {
+				d, err := arg(vm).Num()
+				if err != nil {
+					vm.fail(pos, "%s", err.Error())
+				}
+				t, ok := vm.self.(*Turtle)
+				if !ok {
+					vm.fail(pos, "can-move? can only be used by a turtle")
+				}
+				return Bool(vm.World.CanMove(t, d))
 			}
 		}
 	case "one-of":
@@ -1052,6 +1154,120 @@ func truthAt(vm *VM, v Value, pos Pos) bool {
 		vm.fail(pos, "%s", err.Error())
 	}
 	return t
+}
+
+// sealLambdas compiles every arrow task in this statement list before the
+// statements themselves are compiled. Foreach and map otherwise tree-walk
+// the task on every call. Enclosing let names stay in the locals map so
+// the task reads and sets them through the captured scope.
+func (c *compiler) sealLambdas(stmts []Stmt, locals map[string]bool) {
+	loc := locals
+	for _, s := range stmts {
+		c.sealStmt(s, loc)
+		if ls, ok := s.(*letStmt); ok {
+			loc = copyLocals(loc)
+			for _, name := range ls.Names {
+				loc[name] = true
+			}
+		}
+	}
+}
+
+func (c *compiler) sealStmt(s Stmt, locals map[string]bool) {
+	switch s := s.(type) {
+	case *cmdStmt:
+		c.sealExprs(s.Args, locals)
+	case *letStmt:
+		c.sealExpr(s.Value, locals)
+	case *setStmt:
+		c.sealExpr(s.Value, locals)
+	case *ifStmt:
+		c.sealExpr(s.Cond, locals)
+		c.sealLambdas(s.Body, locals)
+	case *ifelseStmt:
+		c.sealExpr(s.Cond, locals)
+		c.sealLambdas(s.Then, locals)
+		c.sealLambdas(s.Else, locals)
+	case *whileStmt:
+		c.sealExpr(s.Cond, locals)
+		c.sealLambdas(s.Body, locals)
+	case *repeatStmt:
+		c.sealExpr(s.Times, locals)
+		c.sealLambdas(s.Body, locals)
+	case *loopStmt:
+		c.sealLambdas(s.Body, locals)
+	case *askStmt:
+		c.sealExpr(s.Agents, locals)
+		c.sealLambdas(s.Body, locals)
+	case *createStmt:
+		c.sealExpr(s.Count, locals)
+		c.sealLambdas(s.Body, locals)
+	case *sproutStmt:
+		c.sealExpr(s.Count, locals)
+		c.sealLambdas(s.Body, locals)
+	case *hatchStmt:
+		c.sealExpr(s.Count, locals)
+		c.sealLambdas(s.Body, locals)
+	case *foreachStmt:
+		c.sealExprs(s.Lists, locals)
+		c.sealExpr(s.Task, locals)
+	case *reportStmt:
+		c.sealExpr(s.Value, locals)
+	}
+}
+
+func (c *compiler) sealExprs(es []Expr, locals map[string]bool) {
+	for _, e := range es {
+		c.sealExpr(e, locals)
+	}
+}
+
+func (c *compiler) sealExpr(e Expr, locals map[string]bool) {
+	if e == nil {
+		return
+	}
+	switch e := e.(type) {
+	case *listExpr:
+		c.sealExprs(e.Elems, locals)
+	case *callExpr:
+		c.sealExprs(e.Args, locals)
+	case *infixExpr:
+		c.sealExpr(e.Left, locals)
+		c.sealExpr(e.Right, locals)
+	case *prefixExpr:
+		c.sealExpr(e.Right, locals)
+	case *lambdaExpr:
+		c.sealLambda(e, locals)
+	case *ofExpr:
+		c.sealExpr(e.Block, locals)
+		c.sealExpr(e.Agents, locals)
+	case *withExpr:
+		c.sealExpr(e.Agents, locals)
+		c.sealExpr(e.Block, locals)
+	case *cmdBlockExpr:
+		c.sealLambdas(e.Body, locals)
+	case *repBlockExpr:
+		c.sealExpr(e.Body, locals)
+	}
+}
+
+func (c *compiler) sealLambda(e *lambdaExpr, locals map[string]bool) {
+	if e == nil || e.sealed {
+		return
+	}
+	e.sealed = true
+	loc := copyLocals(locals)
+	for _, name := range e.Params {
+		loc[name] = true
+	}
+	if e.IsCommand {
+		e.cmdFn = c.compileStmts(e.Body, loc)
+		return
+	}
+	if e.Rep != nil {
+		c.sealExpr(e.Rep, loc)
+		e.repFn = c.compileExpr(e.Rep, loc)
+	}
 }
 
 func agentBuiltin(name string) bool {

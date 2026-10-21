@@ -56,6 +56,9 @@ type Task struct {
 	RepBody   Expr
 	IsCommand bool
 	Scope     *scope
+	// cmdFn and repFn are the closure-compiled body. Nil means tree-walk.
+	cmdFn cmdFn
+	repFn repFn
 }
 
 // Value is a NetLogo value. Unused fields are zero.
