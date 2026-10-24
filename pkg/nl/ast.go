@@ -27,6 +27,8 @@ type Program struct {
 	procs         map[string]*Procedure
 	// compiled is set once procedure bodies have been turned into closures.
 	compiled bool
+	// noClosure forces the tree walker even if bodies were compiled.
+	noClosure bool
 }
 
 type BreedDecl struct {
@@ -310,6 +312,11 @@ type lambdaExpr struct {
 	Body      []Stmt
 	Rep       Expr
 	Pos       Pos
+	// cmdFn and repFn are set by the closure compiler. The tree walker
+	// leaves them nil and executes Body / Rep directly.
+	cmdFn  cmdFn
+	repFn  repFn
+	sealed bool
 }
 
 func (*lambdaExpr) expr()     {}
