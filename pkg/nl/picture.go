@@ -98,9 +98,10 @@ func (w *World) captureView() *ViewSnap {
 			})
 		}
 	}
-	if len(w.marks) > 0 {
-		s.marks = make([]snapMark, len(w.marks))
-		for i, m := range w.marks {
+	if n := w.drawing.n; n > 0 {
+		s.marks = make([]snapMark, n)
+		for i := 0; i < n; i++ {
+			m := w.drawing.at(i)
 			s.marks[i] = snapMark{
 				pen: m.Pen, erase: m.Erase,
 				x: m.X, y: m.Y, x2: m.X2, y2: m.Y2,

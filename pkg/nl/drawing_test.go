@@ -268,6 +268,32 @@ func paintShape(t *testing.T, shape string) *image.RGBA {
 	return RenderWorld(w, 8)
 }
 
+func TestDrawingMarkCapDropsOldest(t *testing.T) {
+	w := NewWorld(-2, 2, -2, 2, true, true)
+	turt := w.CreateTurtle("", 0, 0, 0, 0)
+	turt.Shape = "dot"
+	turt.Size = 1
+	extra := 5
+	for i := 0; i < MaxDrawingMarks+extra; i++ {
+		turt.X = float64(i)
+		w.Stamp(turt, false)
+	}
+	marks := w.Marks()
+	if len(marks) != MaxDrawingMarks {
+		t.Fatalf("marks = %d, want %d", len(marks), MaxDrawingMarks)
+	}
+	if marks[0].X != float64(extra) {
+		t.Fatalf("oldest kept x = %v, want %d", marks[0].X, extra)
+	}
+	if marks[len(marks)-1].X != float64(MaxDrawingMarks+extra-1) {
+		t.Fatalf("newest x = %v", marks[len(marks)-1].X)
+	}
+	w.ClearDrawing()
+	if len(w.Marks()) != 0 {
+		t.Fatal("clear-drawing left marks")
+	}
+}
+
 func mostlyRed(img *image.RGBA, x, y int) bool {
 	c := img.RGBAAt(x, y)
 	return c.R > 180 && c.G < 90 && c.B < 90

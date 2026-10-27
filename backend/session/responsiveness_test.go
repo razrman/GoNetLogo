@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +111,45 @@ func TestStopDuringLongGoReturnsPromptly(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("model still running after Stop")
+}
+
+func TestCommandsIgnoredWhileRunning(t *testing.T) {
+	s := newSession()
+	defer s.Close()
+	if err := s.useModel("long.nlogo", longGo); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	go s.loop()
+	if err := s.Go(); err != nil {
+		t.Fatal(err)
+	}
+	waitBusy(t, s)
+
+	if err := s.Step(); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+		t.Fatalf("step: %v", err)
+	}
+	if err := s.Setup(); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+		t.Fatalf("setup: %v", err)
+	}
+	s.mu.Lock()
+	setupIdx := s.findButtonLocked("setup")
+	s.mu.Unlock()
+	if err := s.PressButton(setupIdx); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+		t.Fatalf("press: %v", err)
+	}
+	if _, err := s.RunCommand("clear-all"); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+		t.Fatalf("command: %v", err)
+	}
+	if err := s.SetCode("to go\nend\n"); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+		t.Fatalf("set code: %v", err)
+	}
+	if !s.Session().Running {
+		t.Fatal("ignored requests stopped the run")
+	}
+	s.Stop()
 }
 
 func TestSetSpeedAndFrameRateDuringLongGo(t *testing.T) {

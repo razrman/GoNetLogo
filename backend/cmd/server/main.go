@@ -4,10 +4,16 @@
 package main
 
 import (
+	"context"
 	"flag"
-	"log"
+	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
+	"os"
 	"time"
+
+	_ "net/http/pprof"
 
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
@@ -18,24 +24,46 @@ import (
 
 	"gonetlogo/backend/graph"
 	"gonetlogo/backend/session"
+	"gonetlogo/internal/logcfg"
 )
 
 func main() {
 	addr := flag.String("addr", "0.0.0.0:43131", "listen address")
 	webDir := flag.String("web", "", "directory of a built frontend (overrides files embedded with -tags web)")
+	logs := logcfg.Register(flag.CommandLine)
+	pprofOn := flag.Bool("pprof", false, "serve Go pprof handlers on 127.0.0.1:6060 only; off by default")
 	flag.Parse()
+	if _, err := logs.Apply(os.Getenv); err != nil {
+		fmt.Fprintf(os.Stderr, "gonetlogo-server: %v\n", err)
+		os.Exit(2)
+	}
+
+	if *pprofOn {
+		ln, err := net.Listen("tcp", "127.0.0.1:6060")
+		if err != nil {
+			slog.Error("pprof listen", "addr", "127.0.0.1:6060", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("pprof", "url", "http://127.0.0.1:6060/debug/pprof/")
+		go func() {
+			if err := http.Serve(ln, nil); err != nil {
+				slog.Error("pprof", "err", err)
+			}
+		}()
+	}
 
 	store := session.NewStore()
 	if dir, err := session.ModelsDir(); err != nil {
-		log.Printf("model files: %v (embedded demos still load)", err)
+		slog.Warn("model files unavailable; embedded demos still load", "err", err)
 	} else {
-		log.Printf("model files confined to %s", dir)
+		slog.Info("model files confined", "dir", dir)
 	}
 	srv := newHandler(store)
 
 	ui, err := openUI(*webDir)
 	if err != nil {
-		log.Fatalf("web UI: %v", err)
+		slog.Error("web UI", "err", err)
+		os.Exit(1)
 	}
 
 	mux := http.NewServeMux()
@@ -44,14 +72,17 @@ func main() {
 		// The app owns /. The playground stays available beside it.
 		mux.Handle("/", spaHandler(ui))
 		mux.Handle("/playground", playground.Handler("GoNetLogo GraphQL", "/graphql"))
-		log.Printf("web UI at http://%s/", *addr)
-		log.Printf("GraphQL playground at http://%s/playground", *addr)
+		slog.Info("web UI", "url", "http://"+*addr+"/")
+		slog.Info("GraphQL playground", "url", "http://"+*addr+"/playground")
 	} else {
 		mux.Handle("/", playground.Handler("GoNetLogo GraphQL", "/graphql"))
-		log.Printf("GraphQL playground at http://%s/", *addr)
+		slog.Info("GraphQL playground", "url", "http://"+*addr+"/")
 	}
-	log.Printf("GraphQL at http://%s/graphql", *addr)
-	log.Fatal(http.ListenAndServe(*addr, cors(mux)))
+	slog.Info("GraphQL endpoint", "url", "http://"+*addr+"/graphql")
+	if err := http.ListenAndServe(*addr, logHTTP(cors(mux))); err != nil {
+		slog.Error("listen", "addr", *addr, "err", err)
+		os.Exit(1)
+	}
 }
 
 func newHandler(store *session.Store) http.Handler {
@@ -61,12 +92,29 @@ func newHandler(store *session.Store) http.Handler {
 		Upgrader: websocket.Upgrader{
 			CheckOrigin: func(*http.Request) bool { return true },
 		},
+		InitFunc: func(ctx context.Context, _ transport.InitPayload) (context.Context, *transport.InitPayload, error) {
+			if slog.Default().Enabled(ctx, slog.LevelDebug) {
+				method, path := requestFields(ctx)
+				slog.Debug("websocket connected", "method", method, "path", path)
+			}
+			return ctx, nil, nil
+		},
+		CloseFunc: func(ctx context.Context, code int) {
+			if slog.Default().Enabled(ctx, slog.LevelDebug) {
+				_, path := requestFields(ctx)
+				slog.Debug("websocket disconnected", "path", path, "code", code)
+			}
+		},
+		ErrorFunc: func(_ context.Context, err error) {
+			slog.Warn("websocket", "err", err)
+		},
 	})
 	srv.AddTransport(transport.Options{})
 	srv.AddTransport(transport.GET{})
 	srv.AddTransport(transport.POST{})
 	srv.SetQueryCache(lru.New(256))
 	srv.Use(extension.Introspection{})
+	logGraphQL(srv)
 	return srv
 }
 

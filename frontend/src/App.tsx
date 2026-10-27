@@ -22,6 +22,9 @@ import {
   Step,
   Stop,
   WorldSettingsQuery,
+  isDisconnectError,
+  onConnection,
+  reportDisconnect,
 } from './api'
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
 import { WorldCanvas } from './WorldCanvas'
@@ -60,6 +63,7 @@ export function App() {
   const [frame, setFrame] = useState<Frame | null>(null)
   const [tab, setTab] = useState<'world' | 'code'>('world')
   const [banner, setBanner] = useState<string | null>(null)
+  const [online, setOnline] = useState(true)
   const [compileError, setCompileError] = useState<string | null>(null)
   const [command, setCommand] = useState('')
   const [commandError, setCommandError] = useState<string | null>(null)
@@ -77,6 +81,11 @@ export function App() {
   }
   const fileRef = useRef<HTMLInputElement>(null)
 
+  useEffect(() => onConnection(setOnline), [])
+  useEffect(() => {
+    if (models.error) reportDisconnect(models.error.message)
+  }, [models.error])
+
   const [settingsQ] = useQuery<{ worldSettings: WorldView }>({
     query: WorldSettingsQuery,
     variables: { id: sessionId ?? '' },
@@ -89,7 +98,8 @@ export function App() {
       const created = await createSession({ model: 'fire.nlogo' })
       if (cancel) return
       if (created.error || !created.data) {
-        setBanner(created.error?.message ?? 'Could not open a session')
+        const message = created.error?.message ?? 'Could not open a session'
+        if (!reportDisconnect(message)) setBanner(message)
         setBooting(false)
         return
       }
@@ -100,9 +110,9 @@ export function App() {
       setNotes(info.notes ?? [])
       await speedMut({ id: info.id, speed: 30 })
       const setup = await setupMut({ id: info.id })
-      if (setup.error) setBanner(setup.error.message)
+      if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
       const go = await goMut({ id: info.id })
-      if (go.error) setBanner(go.error.message)
+      if (go.error && !reportDisconnect(go.error.message)) setBanner(go.error.message)
       else setActive(foreverIndex(info.widgets))
       if (!cancel) setBooting(false)
     })()
@@ -127,7 +137,8 @@ export function App() {
     setBanner(null)
     const res = await loadModel({ id: sessionId, model: name })
     if (res.error || !res.data) {
-      setBanner(res.error?.message ?? 'Could not load that model')
+      const message = res.error?.message ?? 'Could not load that model'
+      if (!reportDisconnect(message)) setBanner(message)
       return
     }
     const info = res.data.loadModel
@@ -138,14 +149,14 @@ export function App() {
     setActive(null)
     resetPlots()
     const setup = await setupMut({ id: sessionId })
-    if (setup.error) setBanner(setup.error.message)
+    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
   }
 
   async function onSetup() {
     if (!sessionId) return
     setBanner(null)
     const res = await setupMut({ id: sessionId })
-    if (res.error) setBanner(res.error.message)
+    if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
   }
 
   async function onGo() {
@@ -153,12 +164,12 @@ export function App() {
     setBanner(null)
     if (frame?.running) {
       const res = await stopMut({ id: sessionId })
-      if (res.error) setBanner(res.error.message)
+      if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
       setActive(null)
       return
     }
     const res = await goMut({ id: sessionId })
-    if (res.error) setBanner(res.error.message)
+    if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
     else setActive(foreverIndex(frame?.widgets ?? []))
   }
 
@@ -166,7 +177,7 @@ export function App() {
     if (!sessionId) return
     setBanner(null)
     const res = await stepMut({ id: sessionId })
-    if (res.error) setBanner(res.error.message)
+    if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
   }
 
   async function onPress(widget: Widget) {
@@ -174,7 +185,7 @@ export function App() {
     setBanner(null)
     const res = await pressMut({ id: sessionId, index: widget.index })
     if (res.error) {
-      setBanner(res.error.message)
+      if (!reportDisconnect(res.error.message)) setBanner(res.error.message)
       return
     }
     if (widget.forever) {
@@ -209,7 +220,7 @@ export function App() {
     setActive(null)
     resetPlots()
     const setup = await setupMut({ id: sessionId })
-    if (setup.error) setBanner(setup.error.message)
+    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
   }
 
   async function onPickFile(file: File | undefined) {
@@ -237,7 +248,7 @@ export function App() {
     if (!sessionId || !command.trim()) return
     const res = await runCommand({ id: sessionId, text: command })
     if (res.error) {
-      setCommandError(res.error.message)
+      if (!reportDisconnect(res.error.message)) setCommandError(res.error.message)
       return
     }
     setCommandError(res.data?.runCommand.error ?? null)
@@ -247,6 +258,7 @@ export function App() {
   async function onWorld(next: WorldView) {
     if (!sessionId) return 'No session'
     const res = await setWorldMut({ id: sessionId, ...next })
+    if (reportDisconnect(res.error?.message)) return 'Server disconnected. Reconnecting…'
     return res.error?.message ?? null
   }
 
@@ -366,11 +378,24 @@ export function App() {
       </header>
 
       {sessionId && (
-        <FrameBridge sessionId={sessionId} onFrame={onFrame} onError={setBanner} />
+        <FrameBridge
+          sessionId={sessionId}
+          onFrame={onFrame}
+          onError={(message) => {
+            if (!reportDisconnect(message)) setBanner(message)
+          }}
+        />
       )}
 
-      {models.error && <div className="banner">{models.error.message}</div>}
-      {banner && <div className="banner">{banner}</div>}
+      {!online && (
+        <div className="banner reconnect" role="status">
+          Server disconnected. Reconnecting…
+        </div>
+      )}
+      {online && models.error && !isDisconnectError(models.error.message) && (
+        <div className="banner">{models.error.message}</div>
+      )}
+      {online && banner && <div className="banner">{banner}</div>}
       {compileError && (
         <div className="compile-error" role="alert">
           <strong>{/line \d+/i.test(compileError) ? 'Compile error' : 'Could not load model'}</strong>

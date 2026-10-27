@@ -6,6 +6,8 @@ package graph
 
 import (
 	"context"
+	"log/slog"
+	"time"
 
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
@@ -207,9 +209,19 @@ func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-
 	}
 	wake, cancel := s.Subscribe()
 	out := make(chan *model.Frame, 1)
+	logger := slog.Default()
+	started := time.Now()
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("subscription connected", "session", sessionID, "op", "frames")
+	}
 	go func() {
 		defer cancel()
 		defer close(out)
+		defer func() {
+			if logger.Enabled(context.Background(), slog.LevelDebug) {
+				logger.Debug("subscription disconnected", "session", sessionID, "op", "frames", "duration", time.Since(started))
+			}
+		}()
 		// epoch/seq and the pen cursors are the last frame this subscriber
 		// actually received. An unread payload still in out is replaced,
 		// and the replacement is computed from that same cursor so the

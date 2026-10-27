@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"gonetlogo/internal/gui"
+	"gonetlogo/internal/logcfg"
 	"gonetlogo/models"
 	"gonetlogo/pkg/nl"
 )
 
 func main() {
+	logs := logcfg.Register(flag.CommandLine)
 	snapshot := flag.String("snapshot", "", "write a PNG of the interface after running and exit")
 	model := flag.String("model", "fire.nlogo", "built-in model name or path to a .nlogo/.nlogox file")
 	steps := flag.Int("steps", 30, "forever-button steps to run before -snapshot")
@@ -25,6 +27,10 @@ func main() {
 	sampleEvery := flag.Int("sample", 100, "record a benchmark sample every N ticks")
 	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile while -bench runs")
 	flag.Parse()
+	if _, err := logs.Apply(os.Getenv); err != nil {
+		fmt.Fprintf(os.Stderr, "gonetlogo: %v\n", err)
+		os.Exit(2)
+	}
 
 	if *bench {
 		name := *model

@@ -202,6 +202,12 @@ button.act:disabled {
   padding: 8px 12px;
 }
 
+.banner.reconnect {
+  background: #2a2416;
+  color: #ffe7b8;
+  border-color: rgba(212, 160, 23, 0.55);
+}
+
 .compile-error {
   background: #3a241c;
   color: #ffd7c8;
