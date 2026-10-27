@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime/pprof"
 	"strings"
@@ -31,6 +32,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "gonetlogo: %v\n", err)
 		os.Exit(2)
 	}
+	defer logcfg.Close()
+	defer logcfg.Recover()
+	logcfg.CloseOnSignal()
 
 	if *bench {
 		name := *model
@@ -38,20 +42,28 @@ func main() {
 			name = "wolfsheep.nlogo"
 		}
 		if err := runBench(name, *ticks, *seed, *sampleEvery, *cpuprofile); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			commandErr(err)
 		}
 		return
 	}
 
 	if *snapshot != "" {
 		if err := writeSnapshot(*model, *snapshot, *steps, *seed); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			commandErr(err)
 		}
 		return
 	}
 	gui.Run(models.FS)
+}
+
+// commandErr prints a command failure on stderr and records it in the log file.
+func commandErr(err error) {
+	if logcfg.ToFile() {
+		slog.Error("exit", "err", err)
+	}
+	fmt.Fprintln(os.Stderr, err)
+	logcfg.Close()
+	os.Exit(1)
 }
 
 func runBench(model string, ticks int, seed int64, sampleEvery int, cpuprofile string) error {

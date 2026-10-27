@@ -37,12 +37,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "gonetlogo-server: %v\n", err)
 		os.Exit(2)
 	}
+	defer logcfg.Close()
+	defer logcfg.Recover()
+	logcfg.CloseOnSignal()
 
 	if *pprofOn {
 		ln, err := net.Listen("tcp", "127.0.0.1:6060")
 		if err != nil {
-			slog.Error("pprof listen", "addr", "127.0.0.1:6060", "err", err)
-			os.Exit(1)
+			logcfg.Fail(1, "pprof listen", "addr", "127.0.0.1:6060", "err", err)
 		}
 		slog.Info("pprof", "url", "http://127.0.0.1:6060/debug/pprof/")
 		go func() {
@@ -62,8 +64,7 @@ func main() {
 
 	ui, err := openUI(*webDir)
 	if err != nil {
-		slog.Error("web UI", "err", err)
-		os.Exit(1)
+		logcfg.Fail(1, "web UI", "err", err)
 	}
 
 	mux := http.NewServeMux()
@@ -80,8 +81,7 @@ func main() {
 	}
 	slog.Info("GraphQL endpoint", "url", "http://"+*addr+"/graphql")
 	if err := http.ListenAndServe(*addr, logHTTP(cors(mux))); err != nil {
-		slog.Error("listen", "addr", *addr, "err", err)
-		os.Exit(1)
+		logcfg.Fail(1, "listen", "addr", *addr, "err", err)
 	}
 }
 
