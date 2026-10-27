@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { World } from './types'
+import type { TurtleShape, World } from './types'
 
 // Draw the patch grid, links, and turtles. NetLogo y grows upward and
 // heading 0 points north, increasing clockwise. Patch colors arrive as
@@ -95,6 +95,7 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   const xOf = (x: number) => ox + (x - (world.minPxcor - 0.5)) * scale
   const yOf = (y: number) => oy + (world.maxPycor + 0.5 - y) * scale
 
+  const shapes = shapeMap(world)
   const marks = world.drawing ?? []
   if (marks.length > 0) {
     const lw = Math.max(1, Math.round(dw))
@@ -107,7 +108,7 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
     if (lctx) {
       lctx.clearRect(0, 0, lw, lh)
       lctx.imageSmoothingEnabled = false
-      drawDrawing(lctx, world, dw / world.width)
+      drawDrawing(lctx, world, dw / world.width, shapes)
       ctx.drawImage(layer, ox, oy, dw, dh)
     }
   }
@@ -126,34 +127,28 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
 
   for (const t of world.turtles) {
     if (t.hidden) continue
-    const rad = agentRadius(t.size, scale)
-    ctx.save()
-    ctx.translate(xOf(t.x), yOf(t.y))
-    ctx.rotate((t.heading * Math.PI) / 180)
-    drawShape(ctx, t.shape, rad, t.r, t.g, t.b)
-    ctx.restore()
+    drawAgent(ctx, xOf(t.x), yOf(t.y), t.size, t.heading, t.shape, t.r, t.g, t.b, scale, shapes)
   }
 
   const labels = world.labels ?? []
   if (labels.length > 0) {
     const byWho = new Map<number, (typeof world.turtles)[number]>()
     for (const t of world.turtles) byWho.set(t.who, t)
-    ctx.font = `${Math.max(12, Math.round(scale * 0.7))}px ui-sans-serif, system-ui, sans-serif`
+    const fontPx = labelFontPx(scale, world.patchSize, world.labelFont)
+    ctx.font = `${fontPx}px ui-sans-serif, system-ui, sans-serif`
     ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
     for (const label of labels) {
       ctx.fillStyle = rgbCss(label.r, label.g, label.b)
       if (label.who != null) {
         const t = byWho.get(label.who)
         if (!t || t.hidden) continue
-        const rad = agentRadius(t.size, scale)
-        ctx.textBaseline = 'top'
-        ctx.fillText(label.text, xOf(t.x) + rad * 0.5, yOf(t.y) + rad * 0.2)
+        const size = t.size || 1
+        paintLabel(ctx, xOf(t.x + size * 0.5), yOf(t.y - size * 0.5), label.text, fontPx)
       } else if (label.px != null && label.py != null) {
-        ctx.textBaseline = 'middle'
-        ctx.fillText(label.text, xOf(label.px), yOf(label.py))
+        paintLabel(ctx, xOf(label.px + 0.5), yOf(label.py - 0.5), label.text, fontPx)
       } else if (label.lx != null && label.ly != null) {
-        ctx.textBaseline = 'bottom'
-        ctx.fillText(label.text, xOf(label.lx), yOf(label.ly))
+        paintLabel(ctx, xOf(label.lx), yOf(label.ly), label.text, fontPx)
       }
     }
   }
@@ -163,6 +158,110 @@ const layer = document.createElement('canvas')
 
 function agentRadius(size: number, scale: number) {
   return Math.max(2, size * scale * 0.45)
+}
+
+const shapeBox = 300
+
+function shapeMap(world: World) {
+  const out = new Map<string, TurtleShape>()
+  for (const sh of world.shapes ?? []) {
+    out.set(sh.name.toLowerCase().trim(), sh)
+  }
+  return out
+}
+
+function labelFontPx(patchPx: number, patchSize: number, fontSize: number) {
+  const font = fontSize > 0 ? fontSize : 10
+  const size = patchSize > 0 ? patchSize : 13
+  return (font * patchPx) / size
+}
+
+// NetLogo anchors a label at the bottom-right of the size box. The first
+// line grows up and to the left. Later lines stay left-aligned with it.
+function paintLabel(
+  ctx: CanvasRenderingContext2D,
+  ax: number,
+  ay: number,
+  text: string,
+  fontPx: number,
+) {
+  const lines = text.split('\n')
+  if (lines.length === 0 || (lines[0] === '' && lines.length === 1)) return
+  const left = ax - ctx.measureText(lines[0]).width
+  let baseline = ay - fontPx * 0.2
+  for (const line of lines) {
+    ctx.fillText(line, left, baseline)
+    baseline += fontPx
+  }
+}
+
+// drawAgent paints a library shape in the 300-box, or the old approximation
+// when the library has no match. Heading is ignored when rotatable is false.
+function drawAgent(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  heading: number,
+  shape: string,
+  r: number,
+  g: number,
+  b: number,
+  patchPx: number,
+  shapes: Map<string, TurtleShape>,
+) {
+  const name = shape.toLowerCase().trim()
+  const spec = shapes.get(name) ?? shapes.get('default')
+  ctx.save()
+  ctx.translate(cx, cy)
+  if (!spec || spec.elements.length === 0) {
+    ctx.rotate((heading * Math.PI) / 180)
+    drawShape(ctx, shape, agentRadius(size || 1, patchPx), r, g, b)
+    ctx.restore()
+    return
+  }
+  if (spec.rotatable) ctx.rotate((heading * Math.PI) / 180)
+  const scale = ((size || 1) * patchPx) / shapeBox
+  ctx.lineWidth = 1
+  ctx.lineJoin = 'miter'
+  ctx.lineCap = 'butt'
+  for (const el of spec.elements) {
+    const css = el.marked ? rgbCss(r, g, b) : rgbCss(el.r, el.g, el.b)
+    ctx.fillStyle = css
+    ctx.strokeStyle = css
+    if (el.kind === 'polygon') {
+      traceShape(ctx, el.points ?? [], scale, true)
+      if (el.filled) ctx.fill('evenodd')
+      else ctx.stroke()
+    } else if (el.kind === 'rectangle') {
+      traceShape(ctx, [el.x, el.y, el.x + el.w, el.y, el.x + el.w, el.y + el.h, el.x, el.y + el.h], scale, true)
+      if (el.filled) ctx.fill('evenodd')
+      else ctx.stroke()
+    } else if (el.kind === 'circle') {
+      const rx = (Math.abs(el.w) / 2) * scale
+      const ry = (Math.abs(el.h) / 2) * scale
+      ctx.beginPath()
+      ctx.ellipse((el.x + el.w / 2 - 150) * scale, (el.y + el.h / 2 - 150) * scale, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2)
+      if (el.filled) ctx.fill()
+      else ctx.stroke()
+    } else if (el.kind === 'line') {
+      traceShape(ctx, (el.points ?? []).slice(0, 4), scale, false)
+      ctx.stroke()
+    }
+  }
+  ctx.restore()
+}
+
+function traceShape(ctx: CanvasRenderingContext2D, flat: number[], scale: number, close: boolean) {
+  if (flat.length < 4) return
+  ctx.beginPath()
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    const x = (flat[i] - 150) * scale
+    const y = (flat[i + 1] - 150) * scale
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  if (close) ctx.closePath()
 }
 
 // Shapes are drawn with heading 0 pointing up. The caller has already rotated.
@@ -204,7 +303,12 @@ function drawShape(
   drawArrow(ctx, rad)
 }
 
-function drawDrawing(ctx: CanvasRenderingContext2D, world: World, ps: number) {
+function drawDrawing(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  ps: number,
+  shapes: Map<string, TurtleShape>,
+) {
   const xOf = (x: number) => (x - (world.minPxcor - 0.5)) * ps
   const yOf = (y: number) => (world.maxPycor + 0.5 - y) * ps
   for (const m of world.drawing ?? []) {
@@ -220,9 +324,7 @@ function drawDrawing(ctx: CanvasRenderingContext2D, world: World, ps: number) {
       ctx.stroke()
     } else {
       if (m.erase) ctx.globalCompositeOperation = 'destination-out'
-      ctx.translate(xOf(m.x), yOf(m.y))
-      ctx.rotate((m.heading * Math.PI) / 180)
-      drawShape(ctx, m.shape, agentRadius(m.size, ps), m.r, m.g, m.b)
+      drawAgent(ctx, xOf(m.x), yOf(m.y), m.size, m.heading, m.shape, m.r, m.g, m.b, ps, shapes)
     }
     ctx.restore()
   }

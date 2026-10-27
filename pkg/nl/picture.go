@@ -5,7 +5,9 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"math"
 	"os"
+	"strings"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
@@ -22,6 +24,9 @@ type ViewSnap struct {
 	turtles       []snapTurtle
 	marks         []snapMark
 	labels        []snapLabel
+	shapes        *ShapeList
+	patchSize     float64
+	labelFont     int
 }
 
 type snapPatch struct {
@@ -84,11 +89,14 @@ func (w *World) CurrentView() *ViewSnap {
 // or the world is not yet shared.
 func (w *World) captureView() *ViewSnap {
 	s := &ViewSnap{
-		Width:   w.width,
-		Height:  w.height,
-		minPx:   w.MinPxcor,
-		maxPy:   w.MaxPycor,
-		patches: make([]snapPatch, len(w.patchOrder)),
+		Width:     w.width,
+		Height:    w.height,
+		minPx:     w.MinPxcor,
+		maxPy:     w.MaxPycor,
+		patches:   make([]snapPatch, len(w.patchOrder)),
+		shapes:    w.Shapes,
+		patchSize: w.PatchSize,
+		labelFont: w.LabelFont,
 	}
 	for i, p := range w.patchOrder {
 		s.patches[i] = snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p)}
@@ -183,7 +191,7 @@ func (s *ViewSnap) Paint(patchPx int) *image.RGBA {
 		drawLine(img, x1, y1, x2, y2, l.c)
 	}
 	for _, t := range s.turtles {
-		drawTurtle(img, s.minPx, s.maxPy, t, patchPx)
+		drawTurtle(img, s.minPx, s.maxPy, t, s.shapes, patchPx)
 	}
 	s.paintLabels(img, patchPx)
 	return img
@@ -219,54 +227,93 @@ func (s *ViewSnap) paintDrawing(patchPx int) *image.RGBA {
 		p.erase = m.erase
 		p.c = ColorRGBA(m.color)
 		cx, cy := worldToPx(s.minPx, s.maxPy, m.x, m.y, patchPx)
-		drawAgentShape(p, cx, cy, agentRadius(m.size, patchPx), m.heading, m.shape)
+		drawTurtleShape(p, cx, cy, m.size, m.heading, m.shape, s.shapes, patchPx)
 	}
 	return layer
 }
 
 func (s *ViewSnap) paintLabels(img *image.RGBA, patchPx int) {
-	scale := labelScale(patchPx)
+	// NetLogo anchors a label at the bottom-right of the agent's size
+	// box. The text grows up and to the left, so a turtle on the bottom
+	// row keeps its label inside the view.
+	scale := labelBitmapScale(labelFontPx(patchPx, s.patchSize, s.labelFont))
 	for _, lb := range s.labels {
-		if lb.patch {
-			cx := (int(lb.x)-s.minPx)*patchPx + patchPx/2
-			cy := (s.maxPy-int(lb.y))*patchPx + patchPx/2
-			paintLabel(img, cx, cy-6*scale, lb.text, lb.c, scale)
-			continue
+		size := 0.0
+		switch {
+		case lb.patch:
+			size = 1
+		case lb.link:
+			size = 0
+		default:
+			size = lb.size
+			if size == 0 {
+				size = 1
+			}
 		}
-		if lb.link {
-			cx, cy := worldToPx(s.minPx, s.maxPy, lb.x, lb.y, patchPx)
-			paintLabel(img, cx, cy-6*scale, lb.text, lb.c, scale)
-			continue
-		}
-		cx, cy := worldToPx(s.minPx, s.maxPy, lb.x, lb.y, patchPx)
-		r := agentRadius(lb.size, patchPx)
-		paintLabel(img, cx+int(r*0.5), cy+int(r*0.2), lb.text, lb.c, scale)
+		ax, ay := labelAnchor(s.minPx, s.maxPy, lb.x, lb.y, size, patchPx)
+		paintAnchoredLabel(img, ax, ay, lb.text, lb.c, scale)
 	}
 }
 
-func labelScale(patchPx int) int {
-	n := patchPx / 8
+// labelFontPx is the view font size scaled to the patch size being painted.
+// NetLogo stores the point size for the model's patch size.
+func labelFontPx(patchPx int, patchSize float64, fontSize int) float64 {
+	if fontSize <= 0 {
+		fontSize = 10
+	}
+	if patchSize <= 0 {
+		patchSize = 13
+	}
+	return float64(fontSize) * float64(patchPx) / patchSize
+}
+
+func labelBitmapScale(fontPx float64) int {
+	n := int(math.Round(fontPx / 13))
 	if n < 1 {
 		n = 1
 	}
-	if n > 4 {
-		n = 4
+	if n > 6 {
+		n = 6
 	}
 	return n
 }
 
-func paintLabel(img *image.RGBA, x, y int, text string, c color.Color, scale int) {
-	if text == "" {
+func labelAnchor(minPx, maxPy int, x, y, size float64, patchPx int) (float64, float64) {
+	ax := float64(patchPx) * ((x + 0.5*size) - float64(minPx) + 0.5)
+	ay := float64(patchPx) * (-(y - 0.5*size) + float64(maxPy) + 0.5)
+	return ax, ay
+}
+
+func paintAnchoredLabel(img *image.RGBA, ax, ay float64, text string, c color.Color, scale int) {
+	if text == "" || scale < 1 {
 		return
 	}
-	if scale <= 1 {
-		drawText(img, x, y, text, c)
+	lines := strings.Split(text, "\n")
+	firstW := 7 * len(lines[0]) * scale
+	// Face7x13 ascent is 11 and descent is 2. The baseline sits one
+	// descent above the anchor, so the glyph bottoms rest on it.
+	baseline := int(math.Round(ay)) - 2*scale
+	left := int(math.Round(ax)) - firstW
+	lineH := 13 * scale
+	for i, line := range lines {
+		drawScaledText(img, left, baseline-11*scale+i*lineH, line, c, scale)
+	}
+}
+
+func drawScaledText(img *image.RGBA, x, y int, s string, c color.Color, scale int) {
+	if s == "" {
 		return
 	}
-	w := 7*len(text) + 1
+	w := 7*len(s) + 1
 	h := 13
 	tmp := image.NewRGBA(image.Rect(0, 0, w, h))
-	drawText(tmp, 0, 1, text, c)
+	d := &font.Drawer{
+		Dst:  tmp,
+		Src:  image.NewUniform(c),
+		Face: basicfont.Face7x13,
+		Dot:  fixed.P(0, 11),
+	}
+	d.DrawString(s)
 	for yy := 0; yy < h; yy++ {
 		for xx := 0; xx < w; xx++ {
 			p := tmp.RGBAAt(xx, yy)
@@ -300,10 +347,10 @@ func worldToPx(minPx, maxPy int, x, y float64, patchPx int) (int, int) {
 	return px, py
 }
 
-func drawTurtle(img *image.RGBA, minPx, maxPy int, t snapTurtle, patchPx int) {
+func drawTurtle(img *image.RGBA, minPx, maxPy int, t snapTurtle, shapes *ShapeList, patchPx int) {
 	cx, cy := worldToPx(minPx, maxPy, t.x, t.y, patchPx)
 	p := &painter{img: img, c: ColorRGBA(t.color)}
-	drawAgentShape(p, cx, cy, agentRadius(t.size, patchPx), t.heading, t.shape)
+	drawTurtleShape(p, cx, cy, t.size, t.heading, t.shape, shapes, patchPx)
 }
 
 func drawRect(img *image.RGBA, x0, y0, x1, y1 int, c color.RGBA) {

@@ -214,6 +214,20 @@ type ComplexityRoot struct {
 		World         func(childComplexity int) int
 	}
 
+	ShapeElement struct {
+		B      func(childComplexity int) int
+		Filled func(childComplexity int) int
+		G      func(childComplexity int) int
+		H      func(childComplexity int) int
+		Kind   func(childComplexity int) int
+		Marked func(childComplexity int) int
+		Points func(childComplexity int) int
+		R      func(childComplexity int) int
+		W      func(childComplexity int) int
+		X      func(childComplexity int) int
+		Y      func(childComplexity int) int
+	}
+
 	Subscription struct {
 		Frames func(childComplexity int, sessionID string) int
 	}
@@ -229,6 +243,12 @@ type ComplexityRoot struct {
 		Who     func(childComplexity int) int
 		X       func(childComplexity int) int
 		Y       func(childComplexity int) int
+	}
+
+	TurtleShape struct {
+		Elements  func(childComplexity int) int
+		Name      func(childComplexity int) int
+		Rotatable func(childComplexity int) int
 	}
 
 	Widget struct {
@@ -258,6 +278,7 @@ type ComplexityRoot struct {
 	World struct {
 		Drawing     func(childComplexity int) int
 		Height      func(childComplexity int) int
+		LabelFont   func(childComplexity int) int
 		Labels      func(childComplexity int) int
 		Links       func(childComplexity int) int
 		MaxPxcor    func(childComplexity int) int
@@ -266,6 +287,7 @@ type ComplexityRoot struct {
 		MinPycor    func(childComplexity int) int
 		PatchColors func(childComplexity int) int
 		PatchSize   func(childComplexity int) int
+		Shapes      func(childComplexity int) int
 		Turtles     func(childComplexity int) int
 		Width       func(childComplexity int) int
 		WrapX       func(childComplexity int) int
@@ -1314,6 +1336,83 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Session.World(childComplexity), true
 
+	case "ShapeElement.b":
+		if e.complexity.ShapeElement.B == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.B(childComplexity), true
+
+	case "ShapeElement.filled":
+		if e.complexity.ShapeElement.Filled == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.Filled(childComplexity), true
+
+	case "ShapeElement.g":
+		if e.complexity.ShapeElement.G == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.G(childComplexity), true
+
+	case "ShapeElement.h":
+		if e.complexity.ShapeElement.H == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.H(childComplexity), true
+
+	case "ShapeElement.kind":
+		if e.complexity.ShapeElement.Kind == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.Kind(childComplexity), true
+
+	case "ShapeElement.marked":
+		if e.complexity.ShapeElement.Marked == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.Marked(childComplexity), true
+
+	case "ShapeElement.points":
+		if e.complexity.ShapeElement.Points == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.Points(childComplexity), true
+
+	case "ShapeElement.r":
+		if e.complexity.ShapeElement.R == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.R(childComplexity), true
+
+	case "ShapeElement.w":
+		if e.complexity.ShapeElement.W == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.W(childComplexity), true
+
+	case "ShapeElement.x":
+		if e.complexity.ShapeElement.X == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.X(childComplexity), true
+
+	case "ShapeElement.y":
+		if e.complexity.ShapeElement.Y == nil {
+			break
+		}
+
+		return e.complexity.ShapeElement.Y(childComplexity), true
+
 	case "Subscription.frames":
 		if e.complexity.Subscription.Frames == nil {
 			break
@@ -1395,6 +1494,27 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Turtle.Y(childComplexity), true
+
+	case "TurtleShape.elements":
+		if e.complexity.TurtleShape.Elements == nil {
+			break
+		}
+
+		return e.complexity.TurtleShape.Elements(childComplexity), true
+
+	case "TurtleShape.name":
+		if e.complexity.TurtleShape.Name == nil {
+			break
+		}
+
+		return e.complexity.TurtleShape.Name(childComplexity), true
+
+	case "TurtleShape.rotatable":
+		if e.complexity.TurtleShape.Rotatable == nil {
+			break
+		}
+
+		return e.complexity.TurtleShape.Rotatable(childComplexity), true
 
 	case "Widget.choices":
 		if e.complexity.Widget.Choices == nil {
@@ -1557,6 +1677,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Height(childComplexity), true
 
+	case "World.labelFont":
+		if e.complexity.World.LabelFont == nil {
+			break
+		}
+
+		return e.complexity.World.LabelFont(childComplexity), true
+
 	case "World.labels":
 		if e.complexity.World.Labels == nil {
 			break
@@ -1612,6 +1739,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.World.PatchSize(childComplexity), true
+
+	case "World.shapes":
+		if e.complexity.World.Shapes == nil {
+			break
+		}
+
+		return e.complexity.World.Shapes(childComplexity), true
 
 	case "World.turtles":
 		if e.complexity.World.Turtles == nil {
@@ -2080,6 +2214,16 @@ type World {
   wrapX: Boolean!
   wrapY: Boolean!
   """
+  Label point size at patchSize. NetLogo's default is 10.
+  The view scales it with the patch when the canvas is a different size.
+  """
+  labelFont: Int!
+  """
+  Turtle shapes from the model, in file order. Empty only when no library
+  is loaded. A shape with rotatable false ignores heading.
+  """
+  shapes: [TurtleShape!]!
+  """
   Base64 RGB bytes, one pixel per patch, row-major.
   Row 0 is maxPycor and column 0 is minPxcor.
   The decoded length is width * height * 3.
@@ -2139,6 +2283,35 @@ type AgentLabel {
   r: Int!
   g: Int!
   b: Int!
+}
+
+"""A turtle shape in NetLogo's 300 by 300 editor. Y grows downward."""
+type TurtleShape {
+  name: String!
+  """When false, the shape is drawn upright and heading is ignored."""
+  rotatable: Boolean!
+  elements: [ShapeElement!]!
+}
+
+"""One polygon, rectangle, circle, or line in a turtle shape."""
+type ShapeElement {
+  """polygon, rectangle, circle, or line."""
+  kind: String!
+  filled: Boolean!
+  """When true, paint this element with the turtle's color."""
+  marked: Boolean!
+  r: Int!
+  g: Int!
+  b: Int!
+  """Polygon vertices or a line's endpoints, as x, y pairs."""
+  points: [Float!]!
+  """Circle or rectangle origin in editor coordinates."""
+  x: Float!
+  y: Float!
+  """Rectangle width, or circle diameter."""
+  w: Float!
+  """Rectangle height, or circle diameter."""
+  h: Float!
 }
 
 type Turtle {
@@ -4982,6 +5155,10 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_wrapX(ctx, field)
 			case "wrapY":
 				return ec.fieldContext_World_wrapY(ctx, field)
+			case "labelFont":
+				return ec.fieldContext_World_labelFont(ctx, field)
+			case "shapes":
+				return ec.fieldContext_World_shapes(ctx, field)
 			case "patchColors":
 				return ec.fieldContext_World_patchColors(ctx, field)
 			case "drawing":
@@ -9643,6 +9820,10 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_wrapX(ctx, field)
 			case "wrapY":
 				return ec.fieldContext_World_wrapY(ctx, field)
+			case "labelFont":
+				return ec.fieldContext_World_labelFont(ctx, field)
+			case "shapes":
+				return ec.fieldContext_World_shapes(ctx, field)
 			case "patchColors":
 				return ec.fieldContext_World_patchColors(ctx, field)
 			case "drawing":
@@ -9655,6 +9836,490 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_links(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type World", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_kind(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_kind(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Kind, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_filled(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_filled(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Filled, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_filled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_marked(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_marked(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Marked, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_marked(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_r(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_r(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.R, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_r(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_g(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_g(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.G, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_g(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_b(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_b(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.B, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_b(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_points(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_points(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Points, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]float64)
+	fc.Result = res
+	return ec.marshalNFloat2ᚕfloat64ᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_points(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_x(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_x(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.X, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_x(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_y(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_y(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Y, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_y(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_w(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_w(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.W, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_w(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ShapeElement_h(ctx context.Context, field graphql.CollectedField, obj *model.ShapeElement) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ShapeElement_h(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.H, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ShapeElement_h(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ShapeElement",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10210,6 +10875,162 @@ func (ec *executionContext) fieldContext_Turtle_b(_ context.Context, field graph
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TurtleShape_name(ctx context.Context, field graphql.CollectedField, obj *model.TurtleShape) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TurtleShape_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TurtleShape_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TurtleShape",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TurtleShape_rotatable(ctx context.Context, field graphql.CollectedField, obj *model.TurtleShape) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TurtleShape_rotatable(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Rotatable, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TurtleShape_rotatable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TurtleShape",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TurtleShape_elements(ctx context.Context, field graphql.CollectedField, obj *model.TurtleShape) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TurtleShape_elements(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Elements, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.ShapeElement)
+	fc.Result = res
+	return ec.marshalNShapeElement2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐShapeElementᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TurtleShape_elements(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TurtleShape",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "kind":
+				return ec.fieldContext_ShapeElement_kind(ctx, field)
+			case "filled":
+				return ec.fieldContext_ShapeElement_filled(ctx, field)
+			case "marked":
+				return ec.fieldContext_ShapeElement_marked(ctx, field)
+			case "r":
+				return ec.fieldContext_ShapeElement_r(ctx, field)
+			case "g":
+				return ec.fieldContext_ShapeElement_g(ctx, field)
+			case "b":
+				return ec.fieldContext_ShapeElement_b(ctx, field)
+			case "points":
+				return ec.fieldContext_ShapeElement_points(ctx, field)
+			case "x":
+				return ec.fieldContext_ShapeElement_x(ctx, field)
+			case "y":
+				return ec.fieldContext_ShapeElement_y(ctx, field)
+			case "w":
+				return ec.fieldContext_ShapeElement_w(ctx, field)
+			case "h":
+				return ec.fieldContext_ShapeElement_h(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ShapeElement", field.Name)
 		},
 	}
 	return fc, nil
@@ -11497,6 +12318,102 @@ func (ec *executionContext) fieldContext_World_wrapY(_ context.Context, field gr
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_labelFont(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_labelFont(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LabelFont, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_labelFont(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_shapes(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_shapes(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Shapes, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.TurtleShape)
+	fc.Result = res
+	return ec.marshalNTurtleShape2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐTurtleShapeᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_shapes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_TurtleShape_name(ctx, field)
+			case "rotatable":
+				return ec.fieldContext_TurtleShape_rotatable(ctx, field)
+			case "elements":
+				return ec.fieldContext_TurtleShape_elements(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type TurtleShape", field.Name)
 		},
 	}
 	return fc, nil
@@ -15091,6 +16008,95 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 	return out
 }
 
+var shapeElementImplementors = []string{"ShapeElement"}
+
+func (ec *executionContext) _ShapeElement(ctx context.Context, sel ast.SelectionSet, obj *model.ShapeElement) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, shapeElementImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ShapeElement")
+		case "kind":
+			out.Values[i] = ec._ShapeElement_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "filled":
+			out.Values[i] = ec._ShapeElement_filled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "marked":
+			out.Values[i] = ec._ShapeElement_marked(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "r":
+			out.Values[i] = ec._ShapeElement_r(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "g":
+			out.Values[i] = ec._ShapeElement_g(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "b":
+			out.Values[i] = ec._ShapeElement_b(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "points":
+			out.Values[i] = ec._ShapeElement_points(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "x":
+			out.Values[i] = ec._ShapeElement_x(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "y":
+			out.Values[i] = ec._ShapeElement_y(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "w":
+			out.Values[i] = ec._ShapeElement_w(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "h":
+			out.Values[i] = ec._ShapeElement_h(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var subscriptionImplementors = []string{"Subscription"}
 
 func (ec *executionContext) _Subscription(ctx context.Context, sel ast.SelectionSet) func(ctx context.Context) graphql.Marshaler {
@@ -15169,6 +16175,55 @@ func (ec *executionContext) _Turtle(ctx context.Context, sel ast.SelectionSet, o
 			}
 		case "b":
 			out.Values[i] = ec._Turtle_b(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var turtleShapeImplementors = []string{"TurtleShape"}
+
+func (ec *executionContext) _TurtleShape(ctx context.Context, sel ast.SelectionSet, obj *model.TurtleShape) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, turtleShapeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TurtleShape")
+		case "name":
+			out.Values[i] = ec._TurtleShape_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rotatable":
+			out.Values[i] = ec._TurtleShape_rotatable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "elements":
+			out.Values[i] = ec._TurtleShape_elements(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -15354,6 +16409,16 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "wrapY":
 			out.Values[i] = ec._World_wrapY(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "labelFont":
+			out.Values[i] = ec._World_labelFont(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "shapes":
+			out.Values[i] = ec._World_shapes(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -15959,6 +17024,38 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 	return res
 }
 
+func (ec *executionContext) unmarshalNFloat2ᚕfloat64ᚄ(ctx context.Context, v interface{}) ([]float64, error) {
+	var vSlice []interface{}
+	if v != nil {
+		vSlice = graphql.CoerceList(v)
+	}
+	var err error
+	res := make([]float64, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNFloat2float64(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalNFloat2ᚕfloat64ᚄ(ctx context.Context, sel ast.SelectionSet, v []float64) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	for i := range v {
+		ret[i] = ec.marshalNFloat2float64(ctx, sel, v[i])
+	}
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) marshalNFrame2gonetlogoᚋbackendᚋgraphᚋmodelᚐFrame(ctx context.Context, sel ast.SelectionSet, v model.Frame) graphql.Marshaler {
 	return ec._Frame(ctx, sel, &v)
 }
@@ -16257,6 +17354,54 @@ func (ec *executionContext) marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmod
 	return ec._Session(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNShapeElement2gonetlogoᚋbackendᚋgraphᚋmodelᚐShapeElement(ctx context.Context, sel ast.SelectionSet, v model.ShapeElement) graphql.Marshaler {
+	return ec._ShapeElement(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNShapeElement2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐShapeElementᚄ(ctx context.Context, sel ast.SelectionSet, v []model.ShapeElement) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNShapeElement2gonetlogoᚋbackendᚋgraphᚋmodelᚐShapeElement(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v interface{}) (string, error) {
 	res, err := scalar.UnmarshalString(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -16333,6 +17478,54 @@ func (ec *executionContext) marshalNTurtle2ᚕgonetlogoᚋbackendᚋgraphᚋmode
 				defer wg.Done()
 			}
 			ret[i] = ec.marshalNTurtle2gonetlogoᚋbackendᚋgraphᚋmodelᚐTurtle(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNTurtleShape2gonetlogoᚋbackendᚋgraphᚋmodelᚐTurtleShape(ctx context.Context, sel ast.SelectionSet, v model.TurtleShape) graphql.Marshaler {
+	return ec._TurtleShape(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNTurtleShape2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐTurtleShapeᚄ(ctx context.Context, sel ast.SelectionSet, v []model.TurtleShape) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNTurtleShape2gonetlogoᚋbackendᚋgraphᚋmodelᚐTurtleShape(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)

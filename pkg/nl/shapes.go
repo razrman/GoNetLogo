@@ -31,6 +31,24 @@ func agentRadius(size float64, patchPx int) float64 {
 	return r
 }
 
+// stampCovers reports whether the center of patch (px, py) lies on a stamp.
+// Model shapes use their real geometry and skip heading when they are
+// not rotatable. Anything else uses the built-in approximations.
+func (w *World) stampCovers(m Mark, px, py int) bool {
+	var lib *ShapeList
+	if w != nil {
+		lib = w.Shapes
+	}
+	sh := lib.Get(m.Shape)
+	if sh == nil {
+		sh = lib.Get("default")
+	}
+	if sh != nil && len(sh.Elements) > 0 {
+		return vectorCovers(sh, m, float64(px), float64(py))
+	}
+	return shapeCovers(m, px, py)
+}
+
 // shapeCovers reports whether the center of patch (px, py) lies inside a stamp.
 func shapeCovers(m Mark, px, py int) bool {
 	if m.Pen {
@@ -155,6 +173,25 @@ func (p *painter) fillCircle(cx, cy int, r float64) {
 		for x := -ri; x <= ri; x++ {
 			if float64(x*x+y*y) <= rr {
 				p.set(cx+x, cy+y)
+			}
+		}
+	}
+}
+
+func (p *painter) fillEllipse(cx, cy, rx, ry float64) {
+	if rx <= 0 || ry <= 0 {
+		return
+	}
+	minX := int(math.Floor(cx - rx - 1))
+	maxX := int(math.Ceil(cx + rx + 1))
+	minY := int(math.Floor(cy - ry - 1))
+	maxY := int(math.Ceil(cy + ry + 1))
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			dx := (float64(x) + 0.5 - cx) / rx
+			dy := (float64(y) + 0.5 - cy) / ry
+			if dx*dx+dy*dy <= 1 {
+				p.set(x, y)
 			}
 		}
 	}
@@ -411,6 +448,129 @@ func pointInTri(x, y float64, pts [3][2]float64) bool {
 
 func edge(x, y float64, a, b [2]float64) float64 {
 	return (x-b[0])*(a[1]-b[1]) - (a[0]-b[0])*(y-b[1])
+}
+
+// drawTurtleShape paints a model vector shape when the library has one.
+// Unknown names use the library's default arrow, then the built-in
+// approximations. A shape with rotatable false ignores heading.
+func drawTurtleShape(p *painter, cx, cy int, size, heading float64, shape string, lib *ShapeList, patchPx int) {
+	if size == 0 {
+		size = 1
+	}
+	sh := lib.Get(shape)
+	if sh == nil {
+		sh = lib.Get("default")
+	}
+	if sh != nil && len(sh.Elements) > 0 {
+		paintVectorShape(p, cx, cy, size, heading, sh, patchPx)
+		return
+	}
+	drawAgentShape(p, cx, cy, agentRadius(size, patchPx), heading, shape)
+}
+
+func paintVectorShape(p *painter, cx, cy int, size, heading float64, sh *VectorShape, patchPx int) {
+	scale := size * float64(patchPx) / shapeBox
+	if scale <= 0 || sh == nil {
+		return
+	}
+	rot := 0.0
+	if sh.Rotatable {
+		rot = heading
+	}
+	base := p.c
+	for i := range sh.Elements {
+		el := &sh.Elements[i]
+		if el.Marked {
+			p.c = base
+		} else if !p.erase {
+			p.c = color.RGBA{R: el.R, G: el.G, B: el.B, A: 255}
+		}
+		switch el.Kind {
+		case "polygon":
+			pts := projectShape(el.Points, scale, rot, cx, cy)
+			if el.Filled {
+				p.fillPolygon(pts)
+			} else {
+				p.strokeClosed(pts)
+			}
+		case "rectangle":
+			flat := []float64{
+				el.X, el.Y,
+				el.X + el.W, el.Y,
+				el.X + el.W, el.Y + el.H,
+				el.X, el.Y + el.H,
+			}
+			pts := projectShape(flat, scale, rot, cx, cy)
+			if el.Filled {
+				p.fillPolygon(pts)
+			} else {
+				p.strokeClosed(pts)
+			}
+		case "circle":
+			sx, sy := projectShapePoint(el.X+el.W/2, el.Y+el.H/2, scale, rot, cx, cy)
+			rx := math.Abs(el.W) / 2 * scale
+			ry := math.Abs(el.H) / 2 * scale
+			if el.Filled {
+				p.fillEllipse(sx, sy, rx, ry)
+			} else {
+				p.strokeEllipse(sx, sy, rx, ry)
+			}
+		case "line":
+			if len(el.Points) >= 4 {
+				x0, y0 := projectShapePoint(el.Points[0], el.Points[1], scale, rot, cx, cy)
+				x1, y1 := projectShapePoint(el.Points[2], el.Points[3], scale, rot, cx, cy)
+				p.thickLine(int(math.Round(x0)), int(math.Round(y0)), int(math.Round(x1)), int(math.Round(y1)), 1)
+			}
+		}
+	}
+	p.c = base
+}
+
+func projectShape(flat []float64, scale, rot float64, cx, cy int) [][2]float64 {
+	out := make([][2]float64, 0, len(flat)/2)
+	for i := 0; i+1 < len(flat); i += 2 {
+		x, y := projectShapePoint(flat[i], flat[i+1], scale, rot, cx, cy)
+		out = append(out, [2]float64{x, y})
+	}
+	return out
+}
+
+func projectShapePoint(sx, sy, scale, rot float64, cx, cy int) (float64, float64) {
+	lx := (sx - 150) * scale
+	ly := (sy - 150) * scale
+	h := rot * math.Pi / 180
+	cos, sin := math.Cos(h), math.Sin(h)
+	return float64(cx) + lx*cos - ly*sin, float64(cy) + lx*sin + ly*cos
+}
+
+func (p *painter) strokeClosed(pts [][2]float64) {
+	if len(pts) < 2 {
+		return
+	}
+	for i := range pts {
+		j := (i + 1) % len(pts)
+		p.thickLine(int(math.Round(pts[i][0])), int(math.Round(pts[i][1])), int(math.Round(pts[j][0])), int(math.Round(pts[j][1])), 1)
+	}
+}
+
+func (p *painter) strokeEllipse(cx, cy, rx, ry float64) {
+	if rx <= 0 || ry <= 0 {
+		return
+	}
+	steps := int(math.Max(rx, ry)*2) + 12
+	if steps < 16 {
+		steps = 16
+	}
+	var prevX, prevY float64
+	for i := 0; i <= steps; i++ {
+		a := 2 * math.Pi * float64(i) / float64(steps)
+		x := cx + math.Cos(a)*rx
+		y := cy + math.Sin(a)*ry
+		if i > 0 {
+			p.thickLine(int(math.Round(prevX)), int(math.Round(prevY)), int(math.Round(x)), int(math.Round(y)), 1)
+		}
+		prevX, prevY = x, y
+	}
 }
 
 func pointInPoly(x, y float64, pts [][2]float64) bool {
