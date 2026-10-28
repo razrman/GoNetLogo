@@ -89,7 +89,7 @@ Foreground is the default; Ctrl-C stops the process. Background mode writes `run
 ./startup.sh stop
 ```
 
-`./build.sh --desktop` also builds the Fyne window at `bin/gonetlogo`. Run that binary when you want the local window. The scripts do not use Docker. `docker-compose.yml` is still there as an optional extra.
+`./build.sh --desktop` also builds the Fyne window at `bin/gonetlogo`. Run that binary when you want the local window.
 
 ## Run both
 
@@ -100,14 +100,6 @@ Go 1.22 or newer, and Node 22. From the repo root:
 ```
 
 The script starts the API on `0.0.0.0:43131` and the UI on `0.0.0.0:43132`. Open [http://127.0.0.1:43132](http://127.0.0.1:43132). The page loads the forest-fire model, runs setup, and starts go. Pick another model from the menu. **setup** runs once. **go** is the forever button; click it again to stop. **step** runs go a single time. The speed slider slows the loop below the midpoint and runs extra steps per frame above it. If the browser loses the server, the page shows the banner "Server disconnected. Reconnecting…" and the websocket keeps trying.
-
-The same pair of processes is described in `docker-compose.yml`:
-
-```bash
-docker compose up --build
-```
-
-The UI is published on port 43132. Nginx proxies `/graphql`, including the websocket, to the API.
 
 ### Tests
 
@@ -187,7 +179,7 @@ The schema lives in `schema/schema.graphqls`. Operations:
 
 `Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World panel calls `worldSettings` and `setWorld`. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second.
 
-The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` and the Docker image serve a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
+The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
 
 Regenerate the Go types from `backend/` with:
 
