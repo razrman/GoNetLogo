@@ -18,12 +18,15 @@ type ViewSpec struct {
 	MinPycor, MaxPycor int
 	WrapX, WrapY       bool
 	PatchSize          float64
-	Set                bool
+	// FontSize is the label point size drawn at PatchSize. Zero means
+	// NetLogo's default of 10.
+	FontSize int
+	Set      bool
 }
 
 // DefaultView is NetLogo's default world: -16..16, wrapping, patch size 13.
 func DefaultView() ViewSpec {
-	return ViewSpec{MinPxcor: -16, MaxPxcor: 16, MinPycor: -16, MaxPycor: 16, WrapX: true, WrapY: true, PatchSize: 13, Set: true}
+	return ViewSpec{MinPxcor: -16, MaxPxcor: 16, MinPycor: -16, MaxPycor: 16, WrapX: true, WrapY: true, PatchSize: 13, FontSize: 10, Set: true}
 }
 
 // Widget is one interface widget. A plot widget's pens and ranges are in
@@ -67,6 +70,9 @@ type FileModel struct {
 	Code    string
 	View    ViewSpec
 	Widgets []Widget
+	// Shapes is the turtle shape library from the file. Nil when the
+	// file has no shapes section; the world then keeps DefaultShapes.
+	Shapes *ShapeList
 	// Notes lists widgets this loader does not run.
 	Notes []string
 }
@@ -132,6 +138,11 @@ func parseNLogo(name, content string) (*FileModel, error) {
 	if strings.TrimSpace(widgets) != "" {
 		if err := parseWidgetSection(m, widgets); err != nil {
 			return nil, err
+		}
+	}
+	if len(parts) > 3 {
+		if lib := ParseVectorShapes(parts[3]); lib.Len() > 0 {
+			m.Shapes = lib
 		}
 	}
 	if !m.View.Set {
@@ -244,6 +255,7 @@ func parseViewLines(lines []string) (ViewSpec, error) {
 		MinPycor:  atoi(lineAt(lines, 19)),
 		MaxPycor:  atoi(lineAt(lines, 20)),
 		PatchSize: ps,
+		FontSize:  atoi(lineAt(lines, 9)),
 		Set:       true,
 	}
 	if v.MaxPxcor < v.MinPxcor || v.MaxPycor < v.MinPycor {
@@ -510,6 +522,14 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			if err := dec.Skip(); err != nil {
 				return nil, err
 			}
+		case "turtleShapes":
+			lib, err := readTurtleShapesXML(dec, se)
+			if err != nil {
+				return nil, err
+			}
+			if lib.Len() > 0 {
+				m.Shapes = lib
+			}
 		}
 	}
 	if strings.TrimSpace(m.Code) == "" {
@@ -534,6 +554,7 @@ func viewFromXML(se xml.StartElement) ViewSpec {
 		WrapX:     attr(se, "wrappingAllowedX") == "true",
 		WrapY:     attr(se, "wrappingAllowedY") == "true",
 		PatchSize: ps,
+		FontSize:  atoi(attr(se, "fontSize")),
 		Set:       true,
 	}
 }
@@ -1072,6 +1093,12 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 	w := NewWorld(v.MinPxcor, v.MaxPxcor, v.MinPycor, v.MaxPycor, v.WrapX, v.WrapY)
 	if v.PatchSize > 0 {
 		w.PatchSize = v.PatchSize
+	}
+	if v.FontSize > 0 {
+		w.LabelFont = v.FontSize
+	}
+	if m.Shapes != nil && m.Shapes.Len() > 0 {
+		w.Shapes = m.Shapes
 	}
 	if seed != 0 {
 		w.Seed(seed)

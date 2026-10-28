@@ -260,6 +260,16 @@ type World {
   wrapX: Boolean!
   wrapY: Boolean!
   """
+  Label point size at patchSize. NetLogo's default is 10.
+  The view scales it with the patch when the canvas is a different size.
+  """
+  labelFont: Int!
+  """
+  Turtle shapes from the model, in file order. Empty only when no library
+  is loaded. A shape with rotatable false ignores heading.
+  """
+  shapes: [TurtleShape!]!
+  """
   Base64 RGB bytes, one pixel per patch, row-major.
   Row 0 is maxPycor and column 0 is minPxcor.
   The decoded length is width * height * 3.
@@ -319,6 +329,35 @@ type AgentLabel {
   r: Int!
   g: Int!
   b: Int!
+}
+
+"""A turtle shape in NetLogo's 300 by 300 editor. Y grows downward."""
+type TurtleShape {
+  name: String!
+  """When false, the shape is drawn upright and heading is ignored."""
+  rotatable: Boolean!
+  elements: [ShapeElement!]!
+}
+
+"""One polygon, rectangle, circle, or line in a turtle shape."""
+type ShapeElement {
+  """polygon, rectangle, circle, or line."""
+  kind: String!
+  filled: Boolean!
+  """When true, paint this element with the turtle's color."""
+  marked: Boolean!
+  r: Int!
+  g: Int!
+  b: Int!
+  """Polygon vertices or a line's endpoints, as x, y pairs."""
+  points: [Float!]!
+  """Circle or rectangle origin in editor coordinates."""
+  x: Float!
+  y: Float!
+  """Rectangle width, or circle diameter."""
+  w: Float!
+  """Rectangle height, or circle diameter."""
+  h: Float!
 }
 
 type Turtle {

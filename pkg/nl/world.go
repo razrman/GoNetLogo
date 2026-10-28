@@ -17,6 +17,12 @@ type World struct {
 	MinPycor, MaxPycor int
 	WrapX, WrapY       bool
 	PatchSize          float64
+	// LabelFont is the view's label point size at PatchSize. NetLogo's
+	// default is 10. Zero is treated as that default when painting.
+	LabelFont int
+	// Shapes is the turtle shape library. Nil falls back to the built-in
+	// approximations. Models replace DefaultShapes with their own section.
+	Shapes *ShapeList
 
 	width, height int
 	patches       []*Patch
@@ -175,6 +181,8 @@ func NewWorld(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) *World {
 		WrapX:        wrapX,
 		WrapY:        wrapY,
 		PatchSize:    12,
+		LabelFont:    10,
+		Shapes:       DefaultShapes(),
 		turtles:      map[int]*Turtle{},
 		globals:      map[string]Value{},
 		ifaceGlob:    map[string]bool{},
@@ -1444,7 +1452,7 @@ func (w *World) DrawingAt(px, py int) (colorRGBA, bool) {
 			hit = true
 			continue
 		}
-		if !shapeCovers(*m, px, py) {
+		if !w.stampCovers(*m, px, py) {
 			continue
 		}
 		if m.Erase {

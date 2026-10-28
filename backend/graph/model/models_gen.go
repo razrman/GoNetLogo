@@ -194,6 +194,27 @@ type Session struct {
 	World         World    `json:"world"`
 }
 
+// One polygon, rectangle, circle, or line in a turtle shape.
+type ShapeElement struct {
+	// polygon, rectangle, circle, or line.
+	Kind   string `json:"kind"`
+	Filled bool   `json:"filled"`
+	// When true, paint this element with the turtle's color.
+	Marked bool `json:"marked"`
+	R      int  `json:"r"`
+	G      int  `json:"g"`
+	B      int  `json:"b"`
+	// Polygon vertices or a line's endpoints, as x, y pairs.
+	Points []float64 `json:"points"`
+	// Circle or rectangle origin in editor coordinates.
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	// Rectangle width, or circle diameter.
+	W float64 `json:"w"`
+	// Rectangle height, or circle diameter.
+	H float64 `json:"h"`
+}
+
 type Subscription struct {
 }
 
@@ -208,6 +229,14 @@ type Turtle struct {
 	R       int     `json:"r"`
 	G       int     `json:"g"`
 	B       int     `json:"b"`
+}
+
+// A turtle shape in NetLogo's 300 by 300 editor. Y grows downward.
+type TurtleShape struct {
+	Name string `json:"name"`
+	// When false, the shape is drawn upright and heading is ignored.
+	Rotatable bool           `json:"rotatable"`
+	Elements  []ShapeElement `json:"elements"`
 }
 
 type Widget struct {
@@ -246,6 +275,12 @@ type World struct {
 	PatchSize float64 `json:"patchSize"`
 	WrapX     bool    `json:"wrapX"`
 	WrapY     bool    `json:"wrapY"`
+	// Label point size at patchSize. NetLogo's default is 10.
+	// The view scales it with the patch when the canvas is a different size.
+	LabelFont int `json:"labelFont"`
+	// Turtle shapes from the model, in file order. Empty only when no library
+	// is loaded. A shape with rotatable false ignores heading.
+	Shapes []TurtleShape `json:"shapes"`
 	// Base64 RGB bytes, one pixel per patch, row-major.
 	// Row 0 is maxPycor and column 0 is minPxcor.
 	// The decoded length is width * height * 3.

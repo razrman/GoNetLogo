@@ -1145,10 +1145,12 @@ func (s *Session) sessionLocked() *model.Session {
 		Output:    []string{},
 		Widgets:   []model.Widget{},
 		World: model.World{
-			Turtles: []model.Turtle{},
-			Links:   []model.Link{},
-			Drawing: []model.DrawingMark{},
-			Labels:  []model.AgentLabel{},
+			LabelFont: 10,
+			Shapes:    []model.TurtleShape{},
+			Turtles:   []model.Turtle{},
+			Links:     []model.Link{},
+			Drawing:   []model.DrawingMark{},
+			Labels:    []model.AgentLabel{},
 		},
 	}
 	s.logMu.Lock()
@@ -1270,6 +1272,43 @@ func (s *Session) widgetsLocked() []model.Widget {
 	return out
 }
 
+func labelFontOf(w *nl.World) int {
+	if w == nil || w.LabelFont <= 0 {
+		return 10
+	}
+	return w.LabelFont
+}
+
+// shapeViews copies the model's turtle shapes for the view. The list is
+// static for a loaded model. An empty slice stays non-null for GraphQL.
+func shapeViews(w *nl.World) []model.TurtleShape {
+	out := []model.TurtleShape{}
+	if w == nil || w.Shapes == nil {
+		return out
+	}
+	for _, sh := range w.Shapes.All() {
+		if sh == nil {
+			continue
+		}
+		els := make([]model.ShapeElement, 0, len(sh.Elements))
+		for _, el := range sh.Elements {
+			pts := el.Points
+			if pts == nil {
+				pts = []float64{}
+			}
+			els = append(els, model.ShapeElement{
+				Kind: el.Kind, Filled: el.Filled, Marked: el.Marked,
+				R: int(el.R), G: int(el.G), B: int(el.B),
+				Points: pts, X: el.X, Y: el.Y, W: el.W, H: el.H,
+			})
+		}
+		out = append(out, model.TurtleShape{
+			Name: sh.Name, Rotatable: sh.Rotatable, Elements: els,
+		})
+	}
+	return out
+}
+
 func worldLocked(w *nl.World) model.World {
 	out := model.World{
 		MinPxcor:    w.MinPxcor,
@@ -1281,6 +1320,8 @@ func worldLocked(w *nl.World) model.World {
 		PatchSize:   w.PatchSize,
 		WrapX:       w.WrapX,
 		WrapY:       w.WrapY,
+		LabelFont:   labelFontOf(w),
+		Shapes:      shapeViews(w),
 		PatchColors: patchColors(w),
 		Turtles:     []model.Turtle{},
 		Links:       []model.Link{},

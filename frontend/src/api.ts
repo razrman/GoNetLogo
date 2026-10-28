@@ -250,6 +250,12 @@ export const Frames = `
         patchSize
         wrapX
         wrapY
+        labelFont
+        shapes {
+          name
+          rotatable
+          elements { kind filled marked r g b points x y w h }
+        }
         patchColors
         drawing { pen erase x y x2 y2 heading size shape r g b }
         labels { who px py lx ly text r g b }

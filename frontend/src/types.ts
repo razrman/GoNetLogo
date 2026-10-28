@@ -82,9 +82,31 @@ export type WorldView = {
   wrapY: boolean
 }
 
+export type ShapeElement = {
+  kind: string
+  filled: boolean
+  marked: boolean
+  r: number
+  g: number
+  b: number
+  points: number[]
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export type TurtleShape = {
+  name: string
+  rotatable: boolean
+  elements: ShapeElement[]
+}
+
 export type World = WorldView & {
   width: number
   height: number
+  labelFont: number
+  shapes: TurtleShape[]
   patchColors: string
   drawing: DrawingMark[]
   labels: AgentLabel[]
