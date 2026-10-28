@@ -8,15 +8,84 @@ import {
 } from 'urql'
 import { createClient as createWS } from 'graphql-ws'
 
+type ConnectionListener = (online: boolean) => void
+
+let online = true
+const connectionListeners = new Set<ConnectionListener>()
+
+export function onConnection(listener: ConnectionListener) {
+  connectionListeners.add(listener)
+  listener(online)
+  return () => {
+    connectionListeners.delete(listener)
+  }
+}
+
+export function reportConnection(next: boolean) {
+  if (online === next) return
+  online = next
+  for (const listener of connectionListeners) listener(online)
+}
+
+const disconnectRe =
+  /unexpected end of json input|failed to fetch|networkerror|network error|\[network\]|websocket|server disconnected|empty body|econnreset|econnrefused|load failed|fetch failed|\b50[234]\b/i
+
+export function isDisconnectError(message: string | null | undefined) {
+  return !!message && disconnectRe.test(message)
+}
+
+// reportDisconnect marks the UI offline when message is a dropped connection.
+// Other errors stay with the caller.
+export function reportDisconnect(message: string | null | undefined) {
+  if (!isDisconnectError(message)) return false
+  reportConnection(false)
+  return true
+}
+
+function errorText(err: unknown) {
+  if (err instanceof Error) return err.message
+  if (typeof CloseEvent !== 'undefined' && err instanceof CloseEvent) {
+    return err.reason || 'websocket closed'
+  }
+  return String(err)
+}
+
 const ws = createWS({
   url: () => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${window.location.host}/graphql`
   },
+  retryAttempts: Infinity,
+  shouldRetry: () => true,
+  on: {
+    connected: () => reportConnection(true),
+    closed: () => reportConnection(false),
+  },
 })
+
+export async function graphqlFetch(input: RequestInfo | URL, init?: RequestInit) {
+  let res: Response
+  try {
+    res = await fetch(input, init)
+  } catch {
+    reportConnection(false)
+    throw new Error('Server disconnected')
+  }
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    reportConnection(false)
+    throw new Error('Server disconnected')
+  }
+  if (res.ok && res.headers.get('content-length') === '0') {
+    reportConnection(false)
+    throw new Error('Server disconnected')
+  }
+  reportConnection(true)
+  return res
+}
 
 export const client = new Client({
   url: '/graphql',
+  fetch: graphqlFetch,
   exchanges: [
     cacheExchange,
     subscriptionExchange({
@@ -33,7 +102,14 @@ export const client = new Client({
                   // graphql-ws types extensions as unknown; urql wants its own ExecutionResult.
                   sink.next(value as never)
                 },
-                error: (err) => sink.error(err as Error),
+                error: (err) => {
+                  const message = errorText(err)
+                  if (isDisconnectError(message) || (typeof CloseEvent !== 'undefined' && err instanceof CloseEvent)) {
+                    reportConnection(false)
+                    return
+                  }
+                  sink.error(err instanceof Error ? err : new Error(message))
+                },
                 complete: () => sink.complete(),
               },
             )

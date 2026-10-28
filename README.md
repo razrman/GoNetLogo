@@ -47,6 +47,40 @@ PORT=9090 ./startup.sh
 HOST=0.0.0.0 PORT=8080 ./startup.sh
 ```
 
+### Logging
+
+`gonetlogo-server` and the desktop `gonetlogo` binary share `-log-level`, `-log-format`, and `-log-file`.
+
+| Flag | Values | Default |
+| --- | --- | --- |
+| `-log-level` | `debug`, `info`, `warn`, `error` | `info` |
+| `-log-format` | `text`, `json` | `text` |
+| `-log-file` | a path, or `-` for stderr | `-` (stderr) |
+
+`GONETLOGO_LOG_LEVEL` sets the level when `-log-level` is omitted. `GONETLOGO_LOG_FILE` sets the file when `-log-file` is omitted. An explicit flag wins, including an invalid level or a path that cannot be opened. `warning` is accepted as an alias of `warn`. An unknown level or format, or a log file that cannot be opened, prints the error on stderr and exits 2. `-` and a blank value mean stderr. A real path is created if needed (mode `0644`) and opened for append. On a normal exit, and on SIGINT or SIGTERM, the file is flushed and closed. `startup.sh` does not forward extra arguments; it does pass the environment through, so `GONETLOGO_LOG_LEVEL=debug ./startup.sh` and `GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./startup.sh` work.
+
+Lines from the standard `log` package go through the same logger. `log.Fatal` and a panic are also written to stderr, so the reason the process died stays on the terminal when the log file is somewhere else.
+
+```bash
+./bin/gonetlogo-server -log-level debug -log-format text -addr 127.0.0.1:8080
+./bin/gonetlogo-server -log-file /var/log/gonetlogo.log -log-level info
+GONETLOGO_LOG_LEVEL=warn ./bin/gonetlogo-server
+GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./bin/gonetlogo-server
+./bin/gonetlogo -log-level debug -log-file /tmp/gonetlogo.log
+./bin/gonetlogo-server -pprof
+```
+
+`-pprof` is off unless set. It listens on `127.0.0.1:6060` only and is not mounted on the public server. Profiles are at `http://127.0.0.1:6060/debug/pprof/`.
+
+What each level records:
+
+- **info** — startup: model directory, web UI, playground, GraphQL URL, and the pprof URL when `-pprof` is set.
+- **debug** — HTTP requests other than `/graphql` (method, path, status, duration); GraphQL queries and mutations (method, path, operation name, type, duration); websocket connect and disconnect; the frames subscription connect and disconnect; session create and close; model load and compile (byte length, not source); step-loop start, stop, and halt; dropped frames, summarized about once a second.
+- **warn** — model load or compile failure, a button that did not compile, a command or button that failed, a websocket error, and a request ignored because a run is already active. Ignored presses are limited to about one line per second per session.
+- **error** — the process cannot serve the UI, bind the pprof port, or listen on `-addr`. The process then exits 1.
+
+Logs do not include model source, GraphQL variables, or frame payloads. A short session id is included when the client sent one.
+
 Foreground is the default; Ctrl-C stops the process. Background mode writes `run/gonetlogo-server.pid` and `run/gonetlogo-server.log`:
 
 ```bash

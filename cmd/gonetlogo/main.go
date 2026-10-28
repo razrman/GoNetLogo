@@ -5,17 +5,20 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime/pprof"
 	"strings"
 	"time"
 
 	"gonetlogo/internal/gui"
+	"gonetlogo/internal/logcfg"
 	"gonetlogo/models"
 	"gonetlogo/pkg/nl"
 )
 
 func main() {
+	logs := logcfg.Register(flag.CommandLine)
 	snapshot := flag.String("snapshot", "", "write a PNG of the interface after running and exit")
 	model := flag.String("model", "fire.nlogo", "built-in model name or path to a .nlogo/.nlogox file")
 	steps := flag.Int("steps", 30, "forever-button steps to run before -snapshot")
@@ -25,6 +28,13 @@ func main() {
 	sampleEvery := flag.Int("sample", 100, "record a benchmark sample every N ticks")
 	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile while -bench runs")
 	flag.Parse()
+	if _, err := logs.Apply(os.Getenv); err != nil {
+		fmt.Fprintf(os.Stderr, "gonetlogo: %v\n", err)
+		os.Exit(2)
+	}
+	defer logcfg.Close()
+	defer logcfg.Recover()
+	logcfg.CloseOnSignal()
 
 	if *bench {
 		name := *model
@@ -32,20 +42,28 @@ func main() {
 			name = "wolfsheep.nlogo"
 		}
 		if err := runBench(name, *ticks, *seed, *sampleEvery, *cpuprofile); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			commandErr(err)
 		}
 		return
 	}
 
 	if *snapshot != "" {
 		if err := writeSnapshot(*model, *snapshot, *steps, *seed); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			commandErr(err)
 		}
 		return
 	}
 	gui.Run(models.FS)
+}
+
+// commandErr prints a command failure on stderr and records it in the log file.
+func commandErr(err error) {
+	if logcfg.ToFile() {
+		slog.Error("exit", "err", err)
+	}
+	fmt.Fprintln(os.Stderr, err)
+	logcfg.Close()
+	os.Exit(1)
 }
 
 func runBench(model string, ticks int, seed int64, sampleEvery int, cpuprofile string) error {

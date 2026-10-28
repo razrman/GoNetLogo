@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"image/color"
 	"io/fs"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,10 +61,12 @@ func (st *Store) Models() ([]string, error) {
 func (st *Store) Create(modelName string) (*Session, error) {
 	name, content, err := readModel(modelName)
 	if err != nil {
+		slog.Warn("session create failed", "model", modelName, "err", err)
 		return nil, err
 	}
 	s := newSession()
 	if err := s.useModel(name, content); err != nil {
+		slog.Warn("session create failed", "session", s.id, "model", name, "err", err)
 		s.Close()
 		return nil, err
 	}
@@ -71,6 +74,9 @@ func (st *Store) Create(modelName string) (*Session, error) {
 	st.mu.Lock()
 	st.sessions[s.id] = s
 	st.mu.Unlock()
+	if debugEnabled() {
+		slog.Debug("session created", "session", s.id, "model", name)
+	}
 	return s, nil
 }
 
@@ -127,6 +133,14 @@ type Session struct {
 	rateNote     chan struct{}
 	stop         chan struct{}
 	closed       bool
+	// drop* summarizes cap skips and slow subscribers. The step loop
+	// logs at most one line per second.
+	dropWindow time.Time
+	dropCap    int
+	dropSlow   int
+	// ignored* rate-limits the "run active" warning.
+	ignored   int
+	ignoredAt time.Time
 }
 
 func newSession() *Session {
@@ -153,12 +167,15 @@ func (s *Session) Close() {
 	}
 	s.closed = true
 	s.cancelRun = true
-	s.running = -1
+	s.flushDropsLocked()
+	s.setRunningLocked(-1, "close")
 	vm := s.vm
+	id := s.id
 	close(s.stop)
 	s.mu.Unlock()
-	if vm != nil {
-		vm.RequestHalt()
+	s.haltVM(vm, "close")
+	if debugEnabled() {
+		slog.Debug("session closed", "session", id)
 	}
 }
 
@@ -286,23 +303,27 @@ func (s *Session) frameTickLocked() {
 // publishDueLocked sends the latest snapshot when the cap interval fires.
 // Caller holds s.mu. Intermediate steps are counted, not queued.
 func (s *Session) publishDueLocked(now time.Time) {
+	before := s.pub.Dropped()
 	if !s.pub.Publish(now, nl.FrameInterval(s.frameRate)) {
 		return
 	}
+	s.noteDropsLocked(s.pub.Dropped()-before, 0)
 	s.broadcastLocked()
 }
 
 // refreshDueLocked publishes the in-progress world without counting a step.
 // A long button calls it from the yield callback so the view keeps moving.
 func (s *Session) refreshDueLocked(now time.Time) {
+	before := s.pub.Dropped()
 	if !s.pub.Refresh(now, nl.FrameInterval(s.frameRate)) {
 		return
 	}
+	s.noteDropsLocked(s.pub.Dropped()-before, 0)
 	s.broadcastLocked()
 }
 
 // errModelBusy is returned when a second command arrives while a button is
-// inside the interpreter. Callers that can wait use waitIdleLocked instead.
+// inside the interpreter. User-facing entry points reject that request.
 var errModelBusy = errors.New("the model is running a command")
 
 // armYield lets a long button publish frames and observe stop without
@@ -330,37 +351,6 @@ func (s *Session) armYield(vm *nl.VM) {
 	}, nl.DefaultYieldInterval)
 }
 
-// waitIdleLocked blocks until a button running with the lock released has
-// finished. The caller holds s.mu on entry and on return. A busy run is
-// asked to stop so setup or step is not stuck behind a generation.
-func (s *Session) waitIdleLocked() error {
-	if !s.busy {
-		return nil
-	}
-	vm := s.vm
-	s.running = -1
-	s.mu.Unlock()
-	if vm != nil {
-		vm.RequestHalt()
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if !time.Now().Before(deadline) {
-			s.mu.Lock()
-			if !s.busy {
-				return nil
-			}
-			return fmt.Errorf("timed out waiting for the model to stop")
-		}
-		s.mu.Lock()
-		if !s.busy {
-			return nil
-		}
-		s.mu.Unlock()
-		time.Sleep(2 * time.Millisecond)
-	}
-}
-
 // Subscribe registers a wake-up channel. The first value is not sent
 // here; the caller snapshots once, then waits. The channel is removed
 // when ctx ends. A slow subscriber misses intermediate frames and
@@ -380,17 +370,20 @@ func (s *Session) Subscribe() (wake <-chan struct{}, cancel func()) {
 }
 
 func (s *Session) useModel(name, content string) error {
+	n := len(content)
 	m, err := nl.ParseModel(name, content)
 	if err != nil {
+		logModel("model compile failed", s.id, name, n, err)
 		return err
 	}
 	vm, err := m.NewVM(0)
 	if err != nil {
+		logModel("model compile failed", s.id, name, n, err)
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.waitIdleLocked(); err != nil {
+	if err := s.rejectIfActiveLocked("load model"); err != nil {
 		return err
 	}
 	s.logMu.Lock()
@@ -405,7 +398,7 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	s.modelName = name
 	s.model = m
 	s.vm = vm
-	s.running = -1
+	s.setRunningLocked(-1, "load")
 	s.frame = 0
 	s.clock = nl.RunClock{}
 	s.pub.Reset()
@@ -423,6 +416,7 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 		s.logMu.Unlock()
 	}
 	s.compileButtonsLocked()
+	logModel("model loaded", s.id, name, len(m.Code), nil)
 }
 
 func (s *Session) compileButtonsLocked() {
@@ -437,9 +431,13 @@ func (s *Session) compileButtonsLocked() {
 		stmts, err := nl.CompileButton(s.vm.Prog, w.Source, w.Agent)
 		if err != nil {
 			s.appendLogLocked(w.Display + ": " + err.Error())
+			slog.Warn("button compile failed", "session", s.id, "model", s.modelName, "button", w.Display, "err", err)
 			continue
 		}
 		s.buttons[i] = stmts
+	}
+	if debugEnabled() {
+		slog.Debug("model compiled", "session", s.id, "model", s.modelName, "buttons", len(s.buttons))
 	}
 }
 
@@ -447,6 +445,7 @@ func (s *Session) compileButtonsLocked() {
 func (s *Session) LoadModel(modelName string) error {
 	name, content, err := readModel(modelName)
 	if err != nil {
+		slog.Warn("model load failed", "session", s.id, "model", modelName, "err", err)
 		return err
 	}
 	return s.useModel(name, content)
@@ -457,10 +456,14 @@ func (s *Session) LoadModel(modelName string) error {
 // A compile error leaves the current model in place.
 func (s *Session) LoadModelSource(filename, source string) error {
 	if len(source) > maxModelBytes {
-		return fmt.Errorf("model file is too large")
+		err := fmt.Errorf("model file is too large")
+		slog.Warn("model load failed", "session", s.id, "model", filename, "bytes", len(source), "err", err)
+		return err
 	}
 	if strings.TrimSpace(source) == "" {
-		return fmt.Errorf("model file is empty")
+		err := fmt.Errorf("model file is empty")
+		slog.Warn("model load failed", "session", s.id, "model", filename, "bytes", len(source), "err", err)
+		return err
 	}
 	return s.useModel(modelDisplayName(filename), source)
 }
@@ -470,6 +473,7 @@ func (s *Session) LoadModelSource(filename, source string) error {
 func (s *Session) LoadModelFile(path string) error {
 	name, content, err := readModelFile(path)
 	if err != nil {
+		slog.Warn("model load failed", "session", s.id, "model", path, "err", err)
 		return err
 	}
 	return s.useModel(name, content)
@@ -481,7 +485,7 @@ func (s *Session) LoadModelFile(path string) error {
 func (s *Session) SetCode(code string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.waitIdleLocked(); err != nil {
+	if err := s.rejectIfActiveLocked("set code"); err != nil {
 		return err
 	}
 	if s.model == nil {
@@ -490,6 +494,7 @@ func (s *Session) SetCode(code string) error {
 	s.model.Code = code
 	vm, err := s.model.NewVM(0)
 	if err != nil {
+		slog.Warn("model compile failed", "session", s.id, "model", s.modelName, "bytes", len(code), "err", err)
 		s.broadcastLocked()
 		return err
 	}
@@ -502,7 +507,7 @@ func (s *Session) SetCode(code string) error {
 func (s *Session) RunCommand(text string) (output string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.waitIdleLocked(); err != nil {
+	if err := s.rejectIfActiveLocked("command"); err != nil {
 		return "", err
 	}
 	if s.vm == nil {
@@ -511,6 +516,7 @@ func (s *Session) RunCommand(text string) (output string, err error) {
 	output, err = s.vm.ExecuteLine(text)
 	if err != nil {
 		s.appendLogLocked(err.Error())
+		slog.Warn("command failed", "session", s.id, "err", err)
 		s.broadcastLocked()
 		return "", err
 	}
@@ -534,11 +540,18 @@ func (s *Session) Go() error {
 	if i < 0 {
 		return fmt.Errorf("this model has no go button")
 	}
+	if s.running == i {
+		return nil
+	}
+	if err := s.rejectIfActiveLocked("go"); err != nil {
+		return err
+	}
 	if err := s.ensureRunnableLocked(i); err != nil {
+		slog.Warn("go rejected", "session", s.id, "err", err)
 		return err
 	}
 	s.cancelRun = false
-	s.running = i
+	s.setRunningLocked(i, "")
 	s.syncClockLocked(time.Now())
 	s.broadcastLocked()
 	return nil
@@ -548,21 +561,19 @@ func (s *Session) Go() error {
 func (s *Session) Stop() {
 	s.mu.Lock()
 	s.cancelRun = true
-	s.running = -1
+	s.setRunningLocked(-1, "stop")
 	vm := s.vm
 	s.syncClockLocked(time.Now())
 	s.broadcastLocked()
 	s.mu.Unlock()
-	if vm != nil {
-		vm.RequestHalt()
-	}
+	s.haltVM(vm, "stop")
 }
 
 // Step runs the go button a single time.
 func (s *Session) Step() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.waitIdleLocked(); err != nil {
+	if err := s.rejectIfActiveLocked("step"); err != nil {
 		return err
 	}
 	i := s.foreverButtonLocked()
@@ -599,22 +610,29 @@ func (s *Session) PressButton(index int) error {
 	if w.Forever {
 		if s.running == index {
 			s.cancelRun = true
-			s.running = -1
-			if s.vm != nil {
-				s.vm.RequestHalt()
-			}
-		} else {
-			if err := s.ensureRunnableLocked(index); err != nil {
-				return err
-			}
-			s.cancelRun = false
-			s.running = index
+			s.setRunningLocked(-1, "stop")
+			vm := s.vm
+			s.syncClockLocked(time.Now())
+			s.broadcastLocked()
+			s.mu.Unlock()
+			s.haltVM(vm, "button")
+			s.mu.Lock()
+			return nil
 		}
+		if err := s.rejectIfActiveLocked(w.Display); err != nil {
+			return err
+		}
+		if err := s.ensureRunnableLocked(index); err != nil {
+			slog.Warn("button rejected", "session", s.id, "button", w.Display, "err", err)
+			return err
+		}
+		s.cancelRun = false
+		s.setRunningLocked(index, "")
 		s.syncClockLocked(time.Now())
 		s.broadcastLocked()
 		return nil
 	}
-	if err := s.waitIdleLocked(); err != nil {
+	if err := s.rejectIfActiveLocked(w.Display); err != nil {
 		return err
 	}
 	s.cancelRun = false
@@ -634,7 +652,7 @@ func (s *Session) PressButton(index int) error {
 func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.waitIdleLocked(); err != nil {
+	if err := s.rejectIfActiveLocked("set world"); err != nil {
 		return err
 	}
 	if s.vm == nil || s.vm.World == nil {
@@ -791,6 +809,11 @@ func (s *Session) editWidget(index int, kind string, fn func(*nl.Widget) error) 
 func (s *Session) runNamed(name string, forever bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !forever {
+		if err := s.rejectIfActiveLocked(name); err != nil {
+			return err
+		}
+	}
 	i := s.findButtonLocked(name)
 	if i < 0 {
 		if s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc(name) != nil {
@@ -807,13 +830,16 @@ func (s *Session) runNamed(name string, forever bool) error {
 		return fmt.Errorf("nothing named %s", name)
 	}
 	if forever {
+		if s.running == i {
+			return nil
+		}
+		if err := s.rejectIfActiveLocked(name); err != nil {
+			return err
+		}
 		s.cancelRun = false
-		s.running = i
+		s.setRunningLocked(i, "")
 		s.broadcastLocked()
 		return nil
-	}
-	if err := s.waitIdleLocked(); err != nil {
-		return err
 	}
 	s.cancelRun = false
 	if _, err := s.runIndexLocked(i); err != nil {
@@ -829,7 +855,8 @@ func (s *Session) runNamed(name string, forever bool) error {
 
 func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	if err = s.ensureRunnableLocked(i); err != nil {
-		s.running = -1
+		s.setRunningLocked(-1, "not runnable")
+		slog.Warn("button failed", "session", s.id, "button", s.buttonNameLocked(i), "err", err)
 		return false, err
 	}
 	if s.busy {
@@ -841,22 +868,29 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	s.busy = true
 	s.armYield(vm)
 	s.mu.Unlock()
+	var halted bool
 	defer func() {
 		s.mu.Lock()
 		if vm != nil {
 			vm.ClearYield()
 			if vm.Halted() {
+				halted = true
 				stopped = true
 				vm.ClearHalt()
 			}
 		}
 		if err != nil {
 			s.appendLogLocked(w.Display + ": " + err.Error())
-			s.running = -1
+			slog.Warn("button failed", "session", s.id, "button", w.Display, "err", err)
+			s.setRunningLocked(-1, "error")
 			s.cancelRun = false
 			stopped = false
 		} else if stopped {
-			s.running = -1
+			reason := "stop"
+			if halted {
+				reason = "halt"
+			}
+			s.setRunningLocked(-1, reason)
 			s.cancelRun = false
 		}
 		if vm != nil {
@@ -947,6 +981,7 @@ func (s *Session) broadcastLocked() {
 		}
 	}
 	s.pub.NoteSlow(dropped)
+	s.noteDropsLocked(0, dropped)
 }
 
 // Session builds the GraphQL session object, including monitor readings.

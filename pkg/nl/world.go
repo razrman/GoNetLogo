@@ -59,12 +59,11 @@ type World struct {
 	rng  *rand.Rand
 	seed int64
 
-	// marks is the drawing layer: pen strokes and stamps, oldest first.
-	// clear-drawing and clear-all drop it. Nil until something is drawn.
-	// Turtle, Patch, and Link labels keep their value type. The view
-	// formats them with DisplayLabel when it paints. label-color and
-	// plabel-color stay in Vars.
-	marks []Mark
+	// drawing is the pen and stamp layer, oldest first, capped so a long
+	// pen-down run cannot retain every stroke. Turtle, Patch, and Link
+	// labels keep their value type. The view formats them with
+	// DisplayLabel when it paints. label-color and plabel-color stay in Vars.
+	drawing drawingLog
 
 	// mu guards mutation of the world against a concurrent render.
 	// The desktop draw thread never holds it: it paints the last view
@@ -220,7 +219,7 @@ func (w *World) recreatePatches() {
 			w.patchOrder = append(w.patchOrder, p)
 		}
 	}
-	w.marks = nil
+	w.drawing = drawingLog{}
 }
 
 func (w *World) patchIndex(px, py int) int {
@@ -694,7 +693,9 @@ func (w *World) untrackBreed(t *Turtle) {
 	s := w.breedLive[t.Breed]
 	for i, o := range s {
 		if o == t {
-			w.breedLive[t.Breed] = append(s[:i], s[i+1:]...)
+			copy(s[i:], s[i+1:])
+			s[len(s)-1] = nil
+			w.breedLive[t.Breed] = s[:len(s)-1]
 			return
 		}
 	}
@@ -801,6 +802,7 @@ func (w *World) detach(t *Turtle) {
 	for i, o := range ts {
 		if o == t {
 			copy(ts[i:], ts[i+1:])
+			ts[len(ts)-1] = nil
 			p.turtles = ts[:len(ts)-1]
 			break
 		}
@@ -1369,6 +1371,57 @@ func (w *World) patchOwns(name string) bool {
 
 // --- pen drawing and stamps ---
 
+// MaxDrawingMarks is the most pen strokes and stamps a world keeps.
+// Robby's fitness loop calls fd once per action. With visuals on, that is
+// tens of thousands of strokes per generation, and every published frame
+// copies the layer. Older strokes drop off the front. A clear-drawing
+// or clear-all still drops the whole layer.
+const MaxDrawingMarks = 8192
+
+// drawingLog is a ring of marks in chronological order.
+type drawingLog struct {
+	buf   []Mark
+	start int
+	n     int
+}
+
+func (d *drawingLog) add(m Mark) {
+	if d.n < MaxDrawingMarks {
+		d.buf = append(d.buf, m)
+		d.n++
+		return
+	}
+	if len(d.buf) != MaxDrawingMarks {
+		next := make([]Mark, MaxDrawingMarks)
+		copy(next, d.buf)
+		d.buf = next
+	}
+	d.buf[d.start] = m
+	d.start = (d.start + 1) % MaxDrawingMarks
+}
+
+func (d *drawingLog) at(i int) *Mark {
+	idx := i
+	if d.n == MaxDrawingMarks {
+		idx = (d.start + i) % MaxDrawingMarks
+	}
+	return &d.buf[idx]
+}
+
+func (d *drawingLog) snapshot() []Mark {
+	if d == nil || d.n == 0 {
+		return nil
+	}
+	out := make([]Mark, d.n)
+	if d.n < MaxDrawingMarks || d.start == 0 {
+		copy(out, d.buf[:d.n])
+		return out
+	}
+	n := copy(out, d.buf[d.start:])
+	copy(out[n:], d.buf[:d.start])
+	return out
+}
+
 // Mark is one operation on the drawing layer. Pen is a stroke from
 // (X, Y) to (X2, Y2). A stamp leaves the turtle's shape at (X, Y).
 type Mark struct {
@@ -1389,7 +1442,7 @@ func (w *World) Stamp(t *Turtle, erase bool) {
 	if shape == "" {
 		shape = "default"
 	}
-	w.marks = append(w.marks, Mark{
+	w.drawing.add(Mark{
 		Erase:   erase,
 		X:       t.X,
 		Y:       t.Y,
@@ -1404,25 +1457,20 @@ func (w *World) Stamp(t *Turtle, erase bool) {
 
 // Marks returns a copy of the drawing layer, oldest first.
 func (w *World) Marks() []Mark {
-	if len(w.marks) == 0 {
-		return nil
-	}
-	out := make([]Mark, len(w.marks))
-	copy(out, w.marks)
-	return out
+	return w.drawing.snapshot()
 }
 
 // ClearDrawing drops pen trails and stamps. Turtles, labels, and patch
 // colors stay. clear-all clears the drawing too.
 func (w *World) ClearDrawing() {
-	w.marks = nil
+	w.drawing = drawingLog{}
 }
 
 func (w *World) drawLine(x1, y1, x2, y2, col, size float64) {
 	if size <= 0 {
 		size = 1
 	}
-	w.marks = append(w.marks, Mark{
+	w.drawing.add(Mark{
 		Pen:   true,
 		X:     x1,
 		Y:     y1,
@@ -1441,8 +1489,8 @@ func (w *World) DrawingAt(px, py int) (colorRGBA, bool) {
 	}
 	var cur colorRGBA
 	hit := false
-	for i := range w.marks {
-		m := &w.marks[i]
+	for i := 0; i < w.drawing.n; i++ {
+		m := w.drawing.at(i)
 		if m.Pen {
 			if !w.segmentHitsPatch(m, px, py) {
 				continue
