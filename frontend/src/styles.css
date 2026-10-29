@@ -249,13 +249,145 @@ button.act:disabled {
 }
 
 .stage {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 12px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+
+.v-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.v-split-lead,
+.h-split-lead,
+.h-split-trail,
+.v-split-trail {
+  min-width: 0;
+  min-height: 0;
+}
+
+.v-split-lead {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.v-split-trail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.v-split-trail > .command {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.h-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.h-split-lead,
+.h-split-trail {
+  display: flex;
+  flex-direction: column;
+}
+
+.h-split-lead { flex: 1 1 auto; }
+.h-split-trail { flex: 0 0 auto; }
+
+.h-split-lead > .view,
+.h-split-trail > .side {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.splitter {
+  flex: 0 0 14px;
+  position: relative;
+  touch-action: none;
+  background: transparent;
+  z-index: 2;
+}
+
+.splitter.vertical { cursor: col-resize; }
+.splitter.horizontal { cursor: row-resize; }
+
+.splitter::before,
+.splitter::after {
+  content: "";
+  position: absolute;
+  border-radius: 99px;
+}
+
+.splitter.vertical::after {
+  top: 10px;
+  bottom: 10px;
+  left: 5px;
+  width: 4px;
+  background: #e7c27a;
+}
+
+.splitter.horizontal::after {
+  left: 10px;
+  right: 10px;
+  top: 5px;
+  height: 4px;
+  background: #e7c27a;
+}
+
+.splitter.vertical::before {
+  top: 50%;
+  left: 1px;
+  width: 12px;
+  height: 72px;
+  transform: translateY(-50%);
+  background: #f3ecdf;
+  box-shadow: 0 0 0 1px rgba(28, 25, 20, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.splitter.horizontal::before {
+  left: 50%;
+  top: 1px;
+  height: 12px;
+  width: 72px;
+  transform: translateX(-50%);
+  background: #f3ecdf;
+  box-shadow: 0 0 0 1px rgba(28, 25, 20, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter.dragging::after {
+  background: #e7c27a;
+}
+
+.splitter:hover::before,
+.splitter:focus-visible::before,
+.splitter.dragging::before {
+  background: #e7c27a;
+}
+
+.splitter:focus-visible { outline: none; }
+
+body.pane-dragging { user-select: none; }
+body.pane-col, body.pane-col * { cursor: col-resize !important; }
+body.pane-row, body.pane-row * { cursor: row-resize !important; }
 
 .view, .side, .code-panel, .world-panel, .command {
   background: var(--ivory);
@@ -531,22 +663,25 @@ canvas.world {
 }
 
 .code-panel {
-  grid-column: 1 / -1;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 420px;
+  min-height: 0;
+  height: 100%;
   padding: 12px;
   gap: 8px;
 }
 
 .world-panel {
-  grid-column: 1 / -1;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  min-height: 420px;
+  min-height: 0;
+  height: 100%;
   padding: 12px;
   gap: 12px;
+  overflow: auto;
 }
 
 .modal-back {
@@ -599,9 +734,10 @@ canvas.world {
 }
 
 .code-panel textarea {
-  flex: 1;
-  min-height: 360px;
-  resize: vertical;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  resize: none;
   font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
   font-size: 0.86rem;
   line-height: 1.45;
@@ -612,16 +748,20 @@ canvas.world {
 
 .command {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
   min-height: 0;
-  flex-shrink: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .command pre {
   margin: 0;
-  max-height: 160px;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
   overflow: auto;
   font-family: ui-monospace, "Cascadia Code", monospace;
   font-size: 0.82rem;
@@ -650,8 +790,6 @@ canvas.world {
   }
   .topbar-left { flex: 1 1 100%; flex-wrap: wrap; }
   .topbar-right { flex: 0 0 auto; }
-  .stage { grid-template-columns: 1fr; }
-  .side { max-height: none; }
-  .command { grid-template-columns: 1fr; }
-  .canvas-wrap { min-height: 280px; height: 70vw; }
+  .command { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .canvas-wrap { min-height: 180px; }
 }

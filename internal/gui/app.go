@@ -26,11 +26,15 @@ import (
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
+	"gonetlogo/internal/locale"
 	"gonetlogo/pkg/nl"
 )
 
 // Run opens the desktop app. modelsFS provides the built-in .nlogo demos.
 func Run(modelsFS fs.FS) {
+	// lang.init already ran. Normalize again in case the environment
+	// changed, and so a reader sees the locale fix next to app.New.
+	locale.Normalize()
 	a := app.New()
 	w := a.NewWindow("GoNetLogo")
 	s := newSession(modelsFS, w)
@@ -86,6 +90,7 @@ type session struct {
 	side      *fyne.Container
 	scroll    *container.Scroll
 	split     *container.Split
+	vsplit    *container.Split
 	tabs      *container.AppTabs
 	layout    fyne.CanvasObject
 	minPx     *widget.Entry
@@ -176,7 +181,7 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		s.speedBits.Store(math.Float64bits(v))
 	}
 	s.raster = canvas.NewRaster(s.drawWorld)
-	s.raster.SetMinSize(fyne.NewSize(520, 520))
+	s.raster.SetMinSize(fyne.NewSize(240, 240))
 	s.side = container.NewVBox()
 	s.scroll = container.NewVScroll(s.side)
 	s.scroll.SetMinSize(fyne.NewSize(240, 160))
@@ -219,14 +224,21 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks, s.tps, s.dropped),
 		container.NewCenter(s.timer),
 	)
-	// Center keeps the raster at its min size so a new world resizes the view
-	// instead of stretching into the whole split pane. drawWorld still
-	// letterboxes when the pane is smaller than that size.
-	worldCard := container.NewPadded(container.NewCenter(s.raster))
+	// The raster fills the split pane. drawWorld letterboxes square patches
+	// into that size, so dragging the divider rescales the world instead of
+	// leaving a fixed picture in a growing margin.
+	worldCard := container.NewPadded(s.raster)
+	// HSplit between the world and the widget column. VSplit between that
+	// tab area and the command center. Both dividers are dragged by the user.
 	s.split = container.NewHSplit(worldCard, s.scroll)
 	s.split.Offset = 0.72
 	iface := s.split
-	codePage := container.NewBorder(nil, apply, nil, nil, s.code)
+	// A bare multiline entry reports the whole source as its minimum height.
+	// AppTabs takes the max of every tab, which pinned the vertical split.
+	// The scroll reports a small minimum and still scrolls the source.
+	codeScroll := container.NewScroll(s.code)
+	codeScroll.SetMinSize(fyne.NewSize(280, 120))
+	codePage := container.NewBorder(nil, apply, nil, nil, codeScroll)
 	// HBox keeps the form at its own width; the spacer takes the rest of the tab.
 	worldPage := container.NewPadded(container.NewHBox(worldForm, layout.NewSpacer()))
 	s.tabs = container.NewAppTabs(
@@ -234,10 +246,18 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		container.NewTabItem("World", worldPage),
 		container.NewTabItem("Code", codePage),
 	)
-	bottom := container.NewBorder(nil, nil, widget.NewLabel("Command center"), nil,
-		container.NewVBox(cmd, container.NewGridWrap(fyne.NewSize(800, 72), s.output)),
-	)
-	s.layout = container.NewBorder(toolbar, bottom, nil, nil, container.NewBorder(s.notes, nil, nil, nil, s.tabs))
+	// Same for the log: its minimum must not grow with the text, or the
+	// split cannot shrink the command center again.
+	outScroll := container.NewScroll(s.output)
+	outScroll.SetMinSize(fyne.NewSize(200, 48))
+	// The label stays at the top of its column. The entry stays put and the
+	// log fills whatever height the split gives this pane.
+	cmdBody := container.NewBorder(cmd, nil, nil, nil, outScroll)
+	command := container.NewBorder(nil, nil, container.NewVBox(widget.NewLabel("Command center")), nil, cmdBody)
+	mainArea := container.NewBorder(s.notes, nil, nil, nil, s.tabs)
+	s.vsplit = container.NewVSplit(mainArea, command)
+	s.vsplit.Offset = 0.78
+	s.layout = container.NewBorder(toolbar, nil, nil, nil, s.vsplit)
 
 	s.anim = fyne.NewAnimation(30*time.Millisecond, func(float32) {
 		if s.async {
@@ -479,8 +499,10 @@ func (s *session) noteWorld() {
 		s.wrapY.SetChecked(w.WrapY)
 	}
 	if s.raster != nil {
-		pw, ph := viewPixels(w.Width(), w.Height(), w.PatchSize)
-		s.raster.SetMinSize(fyne.NewSize(pw, ph))
+		// A fixed floor, not the world's pixel size. The raster fills the
+		// split pane and drawWorld letterboxes, so the divider can move
+		// and the grid stays square.
+		s.raster.SetMinSize(fyne.NewSize(200, 200))
 		s.raster.Refresh()
 	}
 	if s.split != nil {

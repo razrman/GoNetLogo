@@ -29,6 +29,7 @@ import {
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
 import { WorldCanvas } from './WorldCanvas'
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
+import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
@@ -62,6 +63,8 @@ export function App() {
   const [notes, setNotes] = useState<string[]>([])
   const [frame, setFrame] = useState<Frame | null>(null)
   const [tab, setTab] = useState<MainTab>('interface')
+  const [sidebarW, setSidebarW] = useStoredSize(sidebarStorageKey, 300)
+  const [commandH, setCommandH] = useStoredSize(commandStorageKey, 156)
   const [worldDirty, setWorldDirty] = useState(false)
   const [leaveTo, setLeaveTo] = useState<MainTab | null>(null)
   const [leaving, setLeaving] = useState(false)
@@ -449,6 +452,13 @@ export function App() {
         </div>
       )}
 
+      <VSplit
+        trailingSize={commandH}
+        onTrailingSize={setCommandH}
+        minLeading={240}
+        minTrailing={120}
+        label="Resize command center"
+        leading={
       <main className="stage">
         {tab === 'code' ? (
           <section className="code-panel">
@@ -484,7 +494,13 @@ export function App() {
             />
           </section>
         ) : (
-          <>
+          <HSplit
+            trailingSize={sidebarW}
+            onTrailingSize={setSidebarW}
+            minLeading={320}
+            minTrailing={220}
+            label="Resize widgets panel"
+            leading={
             <section
               className={dropping ? 'view drop' : 'view'}
               onDragEnter={(e) => {
@@ -524,6 +540,8 @@ export function App() {
                   : modelName}
               </div>
             </section>
+            }
+            trailing={
             <aside className="side" aria-label="Interface widgets">
               {widgets.length === 0 && (
                 <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
@@ -547,9 +565,31 @@ export function App() {
                 <p className="note" key={note}>{note}</p>
               ))}
             </aside>
-          </>
+            }
+          />
         )}
       </main>
+        }
+        trailing={
+      <section className="command" aria-label="Command center">
+        <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'Command center. A reporter prints its result here.'}</pre>
+        <form onSubmit={(e) => void onCommand(e)}>
+          <input
+            aria-label="Command"
+            placeholder="show count turtles"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            disabled={!sessionId}
+          />
+          <button className="act" type="submit" disabled={!sessionId || !command.trim()}>
+            Run
+          </button>
+          <div className="hint">Observer commands and reporters, one line at a time.</div>
+          {commandError && <div className="err">{commandError}</div>}
+        </form>
+      </section>
+        }
+      />
 
       {leaveTo && (
         <div className="modal-back" onMouseDown={() => { if (!leaving) setLeaveTo(null) }}>
@@ -573,24 +613,6 @@ export function App() {
           </div>
         </div>
       )}
-
-      <section className="command" aria-label="Command center">
-        <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'Command center. A reporter prints its result here.'}</pre>
-        <form onSubmit={(e) => void onCommand(e)}>
-          <input
-            aria-label="Command"
-            placeholder="show count turtles"
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            disabled={!sessionId}
-          />
-          <button className="act" type="submit" disabled={!sessionId || !command.trim()}>
-            Run
-          </button>
-          <div className="hint">Observer commands and reporters, one line at a time.</div>
-          {commandError && <div className="err">{commandError}</div>}
-        </form>
-      </section>
     </div>
   )
 }
