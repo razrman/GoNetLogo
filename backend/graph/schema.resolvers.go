@@ -6,22 +6,11 @@ package graph
 
 import (
 	"context"
-	"log/slog"
-	"time"
-
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
-	"gonetlogo/pkg/nl"
+	"log/slog"
+	"time"
 )
-
-// subCursor is the last frame a subscriber has been handed. Plot samples
-// use the same rule as output lines: a replaced unread frame is rebuilt
-// from this cursor, so the skipped payload's points are not lost.
-type subCursor struct {
-	epoch int
-	seq   int
-	plots map[string]nl.PlotCursor
-}
 
 // CreateSession is the resolver for the createSession field.
 func (r *mutationResolver) CreateSession(ctx context.Context, model string) (*model.Session, error) {

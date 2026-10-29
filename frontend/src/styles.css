@@ -93,6 +93,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
   flex: 0 0 auto;
 }
 
+.model-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: #d9d0c2;
+  font-size: 0.85rem;
+}
+
+.model-pick span {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
 .model {
   background: #262b20;
   color: #f3ecdf;
@@ -100,8 +114,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border-radius: 8px;
   padding: 7px 8px;
   width: 7.4rem;
-  min-width: 0;
-  flex: 0 1 7.4rem;
+  min-width: 7.4rem;
+  flex: 0 0 auto;
 }
 
 .open-model {

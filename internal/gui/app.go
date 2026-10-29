@@ -105,15 +105,25 @@ type session struct {
 	plotViews []*plotView
 	plotSnap  atomic.Pointer[plotSnapshot]
 	running   int
-	frame     int
-	anim      *fyne.Animation
-	busy      bool
+	// runIdx mirrors running so Stop can see which button is active
+	// without taking mu. -1 means nothing is running.
+	runIdx atomic.Int32
+	// pendingStop is the forever-button index a click has already halted.
+	// The worker may clear running before that click takes mu; without
+	// this the click would start the button again.
+	pendingStop atomic.Int32
+	runMeta     atomic.Pointer[runMeta]
+	// vmP is the VM Stop halts. It does not wait on mu or the world lock.
+	vmP     atomic.Pointer[nl.VM]
+	haltReq atomic.Bool
+	frame   int
+	anim    *fyne.Animation
+	busy    bool
 	// async is set only by Run. Tests call tick on the caller goroutine.
 	async        bool
 	once         int
 	inRun        bool
 	paused       bool
-	cancelRun    bool
 	modelStop    chan struct{}
 	dirty        atomic.Bool
 	speedBits    atomic.Uint64
@@ -136,6 +146,8 @@ type session struct {
 
 func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	s := &session{win: win, modelsFS: modelsFS, running: -1, once: -1, frameRate: nl.DefaultFrameRate}
+	s.runIdx.Store(-1)
+	s.pendingStop.Store(-1)
 	s.speedBits.Store(math.Float64bits(40))
 	s.names = demoNames(modelsFS)
 	s.ticks = widget.NewLabel("ticks")
@@ -199,8 +211,10 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	// the speed slider; tps stays with that cluster. The web header centers
 	// the timer on the full bar; Fyne's border layout centers it in the
 	// slot between the left controls and this cluster.
+	s.picker.PlaceHolder = "Models"
+	// "Models" matches the "speed" label: a short caption beside the control.
 	toolbar := container.NewBorder(nil, nil,
-		container.NewHBox(s.picker, open, s.setupBtn, s.goBtn),
+		container.NewHBox(widget.NewLabel("Models"), s.picker, open, s.setupBtn, s.goBtn),
 		container.NewHBox(widget.NewLabel("speed"), s.speedWrap(), s.ticks, s.tps, s.dropped),
 		container.NewCenter(s.timer),
 	)
@@ -379,7 +393,7 @@ func (s *session) applyWorld() {
 	s.waitIdleUI()
 	s.mu.Lock()
 	s.paused = false
-	s.cancelRun = false
+	s.clearHaltLocked()
 	err := s.applyWorldLocked()
 	s.mu.Unlock()
 	if err != nil {
@@ -516,12 +530,13 @@ func (s *session) load(name, content string) {
 	s.waitIdleUI()
 	s.mu.Lock()
 	s.paused = false
-	s.cancelRun = false
-	s.running = -1
+	s.clearHaltLocked()
+	s.pendingStop.Store(-1)
+	s.setRunning(-1)
 	s.clock = nl.RunClock{}
 	s.pub.Reset()
 	s.model = m
-	s.vm = vm
+	s.setVM(vm)
 	s.hookVM()
 	s.code.SetText(m.Code)
 	s.rebuildSide()
@@ -684,7 +699,68 @@ func (s *session) rebuildSide() {
 	s.side.Refresh()
 }
 
+// runMeta is the forever button currently running. Stop reads it
+// without mu so a click is not stuck behind the generation.
+type runMeta struct {
+	index   int
+	display string
+	source  string
+}
+
+func (s *session) setVM(vm *nl.VM) {
+	s.vm = vm
+	s.vmP.Store(vm)
+}
+
+// setRunning records the forever button. Caller holds s.mu.
+func (s *session) setRunning(i int) {
+	s.running = i
+	s.runIdx.Store(int32(i))
+	if i < 0 || i >= len(s.ctls) {
+		s.runMeta.Store(nil)
+		return
+	}
+	w := s.ctls[i].widget
+	s.runMeta.Store(&runMeta{index: i, display: w.Display, source: w.Source})
+}
+
+func nameMatchesRun(meta *runMeta, name string) bool {
+	if meta == nil {
+		return false
+	}
+	return strings.EqualFold(meta.display, name) || strings.EqualFold(strings.TrimSpace(meta.source), name)
+}
+
+// requestHalt asks the interpreter to stop. It does not take s.mu, so a
+// click is not queued behind a generation that still holds the session lock.
+func (s *session) requestHalt() {
+	s.haltReq.Store(true)
+	if vm := s.vmP.Load(); vm != nil {
+		vm.RequestHalt()
+	}
+}
+
+// clearHaltLocked forgets a stop so the next button can run. Caller holds s.mu.
+func (s *session) clearHaltLocked() {
+	s.haltReq.Store(false)
+	if s.vm != nil {
+		s.vm.ClearHalt()
+	}
+}
+
+// preemptStop halts a running forever button before taking s.mu.
+func (s *session) preemptStop(i int) {
+	if i < 0 || int(s.runIdx.Load()) != i {
+		return
+	}
+	s.pendingStop.Store(int32(i))
+	s.requestHalt()
+}
+
 func (s *session) pressNamed(name string) {
+	if meta := s.runMeta.Load(); nameMatchesRun(meta, name) {
+		s.preemptStop(meta.index)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, c := range s.ctls {
@@ -704,7 +780,7 @@ func (s *session) pressNamed(name string) {
 			return
 		}
 		if name == "go" && stopped {
-			s.running = -1
+			s.setRunning(-1)
 		}
 		if strings.EqualFold(name, "setup") {
 			s.pub.Reset()
@@ -717,6 +793,7 @@ func (s *session) pressNamed(name string) {
 }
 
 func (s *session) press(i int) {
+	s.preemptStop(i)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pressLocked(i)
@@ -731,9 +808,12 @@ func (s *session) pressLocked(i int) {
 		return
 	}
 	if c.widget.Forever {
-		if s.running == i {
-			s.cancelRun = true
-			s.running = -1
+		// pendingStop covers the race where the worker already cleared
+		// running after seeing the halt this click sent.
+		if s.running == i || int(s.pendingStop.Load()) == i {
+			s.pendingStop.Store(-1)
+			s.haltReq.Store(true)
+			s.setRunning(-1)
 			s.once = -1
 			if s.vm != nil {
 				s.vm.RequestHalt()
@@ -752,8 +832,9 @@ func (s *session) pressLocked(i int) {
 				return
 			}
 		}
-		s.cancelRun = false
-		s.running = i
+		s.pendingStop.Store(-1)
+		s.clearHaltLocked()
+		s.setRunning(i)
 		if c.button != nil {
 			c.button.SetText("stop")
 		}
@@ -764,10 +845,7 @@ func (s *session) pressLocked(i int) {
 	}
 	if s.async {
 		s.once = i
-		s.cancelRun = true
-		if s.vm != nil {
-			s.vm.RequestHalt()
-		}
+		s.requestHalt()
 		return
 	}
 	s.stepLocked(c)
@@ -788,12 +866,12 @@ func (s *session) stepLocked(c *control) bool {
 	stopped, err := s.vm.RunCompiled(c.stmts)
 	if err != nil {
 		s.logf("%s: %v", c.widget.Display, err)
-		s.running = -1
+		s.setRunning(-1)
 		s.goBtn.SetText("go")
 		return false
 	}
 	if stopped {
-		s.running = -1
+		s.setRunning(-1)
 		s.goBtn.SetText("go")
 		for i := range s.ctls {
 			if s.ctls[i].button != nil && s.ctls[i].widget.Forever {
@@ -854,16 +932,15 @@ func (s *session) waitIdleUI() {
 	if !s.async {
 		return
 	}
+	// Halt before taking mu. A generation must not finish before Stop
+	// is allowed to ask.
+	s.requestHalt()
 	s.mu.Lock()
 	s.paused = true
-	s.cancelRun = true
-	s.running = -1
+	s.haltReq.Store(true)
+	s.setRunning(-1)
 	s.once = -1
-	vm := s.vm
 	s.mu.Unlock()
-	if vm != nil {
-		vm.RequestHalt()
-	}
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		s.mu.Lock()
@@ -945,7 +1022,22 @@ func (s *session) modelSlot() {
 func (s *session) runButton(c control, oneshot bool) bool {
 	s.mu.Lock()
 	vm := s.vm
-	if vm == nil || s.paused {
+	if oneshot {
+		// A one-shot such as setup is what asked for the halt. Clear it
+		// so this button is allowed to run.
+		s.haltReq.Store(false)
+		if vm != nil {
+			vm.ClearHalt()
+		}
+	}
+	if vm == nil || s.paused || (!oneshot && s.haltReq.Load()) {
+		if !oneshot && s.haltReq.Load() {
+			s.setRunning(-1)
+			s.haltReq.Store(false)
+			if vm != nil {
+				vm.ClearHalt()
+			}
+		}
 		s.mu.Unlock()
 		return false
 	}
@@ -958,9 +1050,6 @@ func (s *session) runButton(c control, oneshot bool) bool {
 	display := c.widget.Display
 	source := c.widget.Source
 	s.inRun = true
-	if oneshot {
-		s.cancelRun = false
-	}
 	s.armDesktopYield(vm)
 	s.mu.Unlock()
 
@@ -968,17 +1057,16 @@ func (s *session) runButton(c control, oneshot bool) bool {
 
 	s.mu.Lock()
 	vm.ClearYield()
-	if vm.Halted() {
+	if vm.Halted() || s.haltReq.Load() {
 		stopped = true
 		vm.ClearHalt()
+		s.haltReq.Store(false)
 	}
 	if err != nil {
 		s.noteLog(fmt.Sprintf("%s: %v", display, err))
-		s.running = -1
-		s.cancelRun = false
+		s.setRunning(-1)
 	} else if stopped && !oneshot {
-		s.running = -1
-		s.cancelRun = false
+		s.setRunning(-1)
 	}
 	if err == nil && !oneshot {
 		s.pub.Produce(1)
@@ -986,10 +1074,10 @@ func (s *session) runButton(c control, oneshot bool) bool {
 	if oneshot && (strings.EqualFold(display, "setup") || strings.EqualFold(strings.TrimSpace(source), "setup")) {
 		s.pub.Reset()
 	}
-	s.publishViewLocked()
-	s.captureHUDLocked()
-	s.dirty.Store(true)
 	s.mu.Unlock()
+	// Publish after releasing mu. Stop only needs the VM halt flag, and
+	// the snapshot takes the world lock.
+	s.publishFrame(vm)
 	return err == nil && !stopped
 }
 
@@ -998,39 +1086,43 @@ func (s *session) armDesktopYield(vm *nl.VM) {
 		return
 	}
 	vm.ClearHalt()
-	if s.cancelRun {
+	if s.haltReq.Load() {
 		vm.RequestHalt()
 	}
 	vm.SetYield(func() {
-		s.mu.Lock()
-		if s.cancelRun {
+		if s.haltReq.Load() {
 			vm.RequestHalt()
 		}
-		s.publishViewLocked()
-		s.captureHUDLocked()
-		s.dirty.Store(true)
-		s.mu.Unlock()
+		s.publishFrame(vm)
 	}, nl.DefaultYieldInterval)
 }
 
-func (s *session) noteLog(line string) {
-	s.outMu.Lock()
-	s.pendingLog = append(s.pendingLog, line)
-	s.outMu.Unlock()
-	s.dirty.Store(true)
-}
-
-func (s *session) captureHUDLocked() {
-	if s.vm == nil || s.vm.World == nil {
+// publishFrame copies the world and the toolbar readings. It does not hold
+// s.mu while it holds the world lock, and it does not touch Fyne widgets.
+// presentUI paints the stored strings on the animation goroutine.
+func (s *session) publishFrame(vm *nl.VM) {
+	if vm == nil || vm.World == nil {
 		return
 	}
+	s.mu.Lock()
+	sources := make([]string, len(s.ctls))
+	for i := range s.ctls {
+		if s.ctls[i].widget.Kind == "monitor" {
+			sources[i] = s.ctls[i].widget.Source
+		}
+	}
+	running := s.running >= 0
+	s.mu.Unlock()
+
+	view := vm.World.CurrentView()
 	var ticks float64
 	var started bool
 	var epoch uint64
 	var output string
-	readings := make([]string, len(s.ctls))
-	s.vm.DoLocked(func() {
-		w := s.vm.World
+	readings := make([]string, len(sources))
+	var plots []nl.PlotSnap
+	vm.DoLocked(func() {
+		w := vm.World
 		epoch = w.RunEpoch()
 		started = w.TicksStarted()
 		if started {
@@ -1038,12 +1130,13 @@ func (s *session) captureHUDLocked() {
 				ticks = n
 			}
 		}
-		output = s.vm.OutputText()
-		for i := range s.ctls {
-			if s.ctls[i].widget.Kind != "monitor" {
+		output = vm.OutputText()
+		plots = vm.PlotSnapshot()
+		for i, src := range sources {
+			if src == "" {
 				continue
 			}
-			got, err := s.vm.LineUnlocked(s.ctls[i].widget.Source)
+			got, err := vm.LineUnlocked(src)
 			if err != nil || got == "" {
 				readings[i] = "—"
 				if err != nil {
@@ -1054,18 +1147,33 @@ func (s *session) captureHUDLocked() {
 			}
 		}
 	})
+
+	s.mu.Lock()
+	if s.haltReq.Load() {
+		vm.RequestHalt()
+	}
+	s.view.Store(view)
+	s.plotSnap.Store(&plotSnapshot{Plots: plots})
 	if started {
 		s.hudTicks = "ticks: " + trimNum(ticks)
 	} else {
 		s.hudTicks = "ticks"
 	}
-	running := s.running >= 0
 	tps, timer := s.clock.Sync(time.Now(), running, epoch, ticks)
 	s.hudTPS = "tps " + nl.FormatTPS(tps, running)
 	s.hudDrop = "drop " + strconv.Itoa(s.pub.Dropped())
 	s.hudTimer = timer
 	s.hudOutput = output
 	s.hudRead = readings
+	s.dirty.Store(true)
+	s.mu.Unlock()
+}
+
+func (s *session) noteLog(line string) {
+	s.outMu.Lock()
+	s.pendingLog = append(s.pendingLog, line)
+	s.outMu.Unlock()
+	s.dirty.Store(true)
 }
 
 func (s *session) presentUI() {
@@ -1112,41 +1220,56 @@ func (s *session) presentUI() {
 	}
 	if running < 0 {
 		s.mu.Lock()
+		var reset []*widget.Button
 		if s.goBtn != nil && s.goBtn.Text != "go" {
-			s.goBtn.SetText("go")
+			reset = append(reset, s.goBtn)
 		}
+		labels := map[*widget.Button]string{}
 		for i := range s.ctls {
 			c := &s.ctls[i]
-			if c.button == nil || !c.widget.Forever {
+			if c.button == nil || !c.widget.Forever || s.running == i {
 				continue
 			}
 			want := c.widget.Display + " ∞"
-			if c.button.Text != want && s.running != i {
-				c.button.SetText(want)
+			if c.button.Text != want {
+				labels[c.button] = want
 			}
 		}
 		s.mu.Unlock()
+		for _, b := range reset {
+			b.SetText("go")
+		}
+		for b, text := range labels {
+			b.SetText(text)
+		}
 	}
 }
 
 func (s *session) applyReadings(readings []string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	type reading struct {
+		label *widget.Label
+		text  string
+	}
+	var updates []reading
 	for i := range s.ctls {
-		if i >= len(readings) || readings[i] == "" {
+		if i >= len(readings) || readings[i] == "" || s.ctls[i].readout == nil {
 			continue
 		}
-		if s.ctls[i].readout != nil {
-			s.ctls[i].readout.SetText(readings[i])
-		}
+		updates = append(updates, reading{s.ctls[i].readout, readings[i]})
+	}
+	s.mu.Unlock()
+	for _, u := range updates {
+		u.label.SetText(u.text)
 	}
 }
 
 func (s *session) applyOutput(body string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, area := range s.areas {
-		if area.text.Text == body {
+	areas := append([]*outputView(nil), s.areas...)
+	s.mu.Unlock()
+	for _, area := range areas {
+		if area == nil || area.text == nil || area.text.Text == body {
 			continue
 		}
 		area.text.Text = body
@@ -1165,11 +1288,43 @@ func (s *session) tick() {
 	if s.running >= 0 && s.running < len(s.ctls) {
 		n := stepsFor(s.speed.Value, s.frame)
 		interval := nl.FrameInterval(s.frameRate)
+		vm := s.vm
+		if n > 0 {
+			// Drop mu across RunCompiled. Stop calls RequestHalt without
+			// this lock; the yield keeps the toolbar clock moving.
+			s.armDesktopYield(vm)
+		}
 		for i := 0; i < n; i++ {
-			if s.vm == nil || s.running < 0 || s.running >= len(s.ctls) {
+			if vm == nil || s.running < 0 || s.running >= len(s.ctls) || s.haltReq.Load() {
 				break
 			}
-			if !s.stepLocked(&s.ctls[s.running]) {
+			c := s.ctls[s.running]
+			stmts := c.stmts
+			display := c.widget.Display
+			s.inRun = true
+			s.mu.Unlock()
+			stopped, err := vm.RunCompiled(stmts)
+			s.mu.Lock()
+			s.inRun = false
+			if vm.Halted() || s.haltReq.Load() {
+				stopped = true
+				vm.ClearHalt()
+				s.haltReq.Store(false)
+			}
+			if err != nil {
+				s.logf("%s: %v", display, err)
+				s.setRunning(-1)
+				s.goBtn.SetText("go")
+				break
+			}
+			if stopped {
+				s.setRunning(-1)
+				s.goBtn.SetText("go")
+				for j := range s.ctls {
+					if s.ctls[j].button != nil && s.ctls[j].widget.Forever {
+						s.ctls[j].button.SetText(s.ctls[j].widget.Display + " ∞")
+					}
+				}
 				break
 			}
 			// Count the step, then publish only when the cap interval has
@@ -1180,7 +1335,7 @@ func (s *session) tick() {
 				s.publishViewLocked()
 				s.refreshRunLabels()
 				s.refreshMonitorsLocked()
-				displayOn := s.vm.DisplayOn
+				displayOn := s.vm != nil && s.vm.DisplayOn
 				plots := append([]*plotView(nil), s.plotViews...)
 				s.mu.Unlock()
 				if displayOn && s.raster != nil {
@@ -1196,6 +1351,9 @@ func (s *session) tick() {
 			if s.running < 0 {
 				break
 			}
+		}
+		if n > 0 {
+			vm.ClearYield()
 		}
 	}
 	s.refreshRunLabels()
@@ -1337,7 +1495,7 @@ func (s *session) runLine(text string) {
 	s.mu.Lock()
 	defer func() {
 		s.paused = false
-		s.cancelRun = false
+		s.clearHaltLocked()
 		s.mu.Unlock()
 	}()
 	if s.vm == nil {
@@ -1361,7 +1519,7 @@ func (s *session) applyCode() {
 	s.waitIdleUI()
 	s.mu.Lock()
 	s.paused = false
-	s.cancelRun = false
+	s.clearHaltLocked()
 	err := s.applyCodeLocked()
 	s.mu.Unlock()
 	if err != nil {
@@ -1379,10 +1537,10 @@ func (s *session) applyCodeLocked() error {
 		s.logf("apply: %v", err)
 		return err
 	}
-	s.running = -1
+	s.setRunning(-1)
 	s.goBtn.SetText("go")
 	s.clock = nl.RunClock{}
-	s.vm = vm
+	s.setVM(vm)
 	s.hookVM()
 	s.rebuildSide()
 	s.publishViewLocked()
