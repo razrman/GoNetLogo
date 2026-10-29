@@ -254,7 +254,7 @@ button.act:disabled {
   gap: 12px;
 }
 
-.view, .side, .code-panel, .command {
+.view, .side, .code-panel, .world-panel, .command {
   background: var(--ivory);
   border-radius: 14px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
@@ -338,8 +338,6 @@ button.act:disabled {
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
 }
 
 .world-settings h2 {
@@ -536,6 +534,16 @@ canvas.world {
   min-height: 420px;
   padding: 12px;
   gap: 8px;
+}
+
+.world-panel {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 420px;
+  padding: 12px;
+  gap: 12px;
 }
 
 .code-panel textarea {

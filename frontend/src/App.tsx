@@ -61,7 +61,7 @@ export function App() {
   const [code, setCode] = useState('')
   const [notes, setNotes] = useState<string[]>([])
   const [frame, setFrame] = useState<Frame | null>(null)
-  const [tab, setTab] = useState<'world' | 'code'>('world')
+  const [tab, setTab] = useState<MainTab>('interface')
   const [banner, setBanner] = useState<string | null>(null)
   const [online, setOnline] = useState(true)
   const [compileError, setCompileError] = useState<string | null>(null)
@@ -409,10 +409,7 @@ export function App() {
       <main className="stage">
         {tab === 'code' ? (
           <section className="code-panel">
-            <div className="tabs">
-              <button type="button" onClick={() => setTab('world')}>Interface</button>
-              <button type="button" className="on">Code</button>
-            </div>
+            <MainTabs tab={tab} onChange={setTab} />
             <textarea
               aria-label="Model code"
               spellCheck={false}
@@ -424,6 +421,22 @@ export function App() {
                 Apply code
               </button>
             </div>
+          </section>
+        ) : tab === 'world' ? (
+          <section className="world-panel" aria-label="World settings">
+            <MainTabs tab={tab} onChange={setTab} />
+            <FrameCapControl
+              fps={frame?.frameRateCap ?? 24}
+              disabled={!sessionId}
+              onChange={(fps) => {
+                if (sessionId) void frameRateMut({ id: sessionId, fps })
+              }}
+            />
+            <WorldSettingsForm
+              world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
+              disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
+              onApply={onWorld}
+            />
           </section>
         ) : (
           <>
@@ -451,10 +464,7 @@ export function App() {
                 void onPickFile(e.dataTransfer.files?.[0])
               }}
             >
-              <div className="tabs">
-                <button type="button" className="on">Interface</button>
-                <button type="button" onClick={() => setTab('code')}>Code</button>
-              </div>
+              <MainTabs tab={tab} onChange={setTab} />
               <div className="canvas-wrap">
                 {booting && !frame ? (
                   <div className="loading">Opening the forest fire…</div>
@@ -470,18 +480,6 @@ export function App() {
               </div>
             </section>
             <aside className="side" aria-label="Interface widgets">
-              <FrameCapControl
-                fps={frame?.frameRateCap ?? 24}
-                disabled={!sessionId}
-                onChange={(fps) => {
-                  if (sessionId) void frameRateMut({ id: sessionId, fps })
-                }}
-              />
-              <WorldSettingsForm
-                world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
-                disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
-                onApply={onWorld}
-              />
               {widgets.length === 0 && (
                 <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
               )}
@@ -525,6 +523,24 @@ export function App() {
           {commandError && <div className="err">{commandError}</div>}
         </form>
       </section>
+    </div>
+  )
+}
+
+type MainTab = 'interface' | 'world' | 'code'
+
+function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) => void }) {
+  return (
+    <div className="tabs">
+      <button type="button" className={tab === 'interface' ? 'on' : undefined} onClick={() => onChange('interface')}>
+        Interface
+      </button>
+      <button type="button" className={tab === 'world' ? 'on' : undefined} onClick={() => onChange('world')}>
+        World
+      </button>
+      <button type="button" className={tab === 'code' ? 'on' : undefined} onClick={() => onChange('code')}>
+        Code
+      </button>
     </div>
   )
 }

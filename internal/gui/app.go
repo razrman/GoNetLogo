@@ -1,5 +1,5 @@
-// Package gui is the desktop shell: a world view, an interface tab,
-// a code tab, and a command center.
+// Package gui is the desktop shell: a world view, interface, world, and
+// code tabs, and a command center.
 package gui
 
 import (
@@ -86,6 +86,7 @@ type session struct {
 	side      *fyne.Container
 	scroll    *container.Scroll
 	split     *container.Split
+	tabs      *container.AppTabs
 	layout    fyne.CanvasObject
 	minPx     *widget.Entry
 	maxPx     *widget.Entry
@@ -222,18 +223,21 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	// instead of stretching into the whole split pane. drawWorld still
 	// letterboxes when the pane is smaller than that size.
 	worldCard := container.NewPadded(container.NewCenter(s.raster))
-	s.split = container.NewHSplit(worldCard, container.NewBorder(worldForm, nil, nil, nil, s.scroll))
+	s.split = container.NewHSplit(worldCard, s.scroll)
 	s.split.Offset = 0.72
 	iface := s.split
 	codePage := container.NewBorder(nil, apply, nil, nil, s.code)
-	tabs := container.NewAppTabs(
+	// HBox keeps the form at its own width; the spacer takes the rest of the tab.
+	worldPage := container.NewPadded(container.NewHBox(worldForm, layout.NewSpacer()))
+	s.tabs = container.NewAppTabs(
 		container.NewTabItem("Interface", iface),
+		container.NewTabItem("World", worldPage),
 		container.NewTabItem("Code", codePage),
 	)
 	bottom := container.NewBorder(nil, nil, widget.NewLabel("Command center"), nil,
 		container.NewVBox(cmd, container.NewGridWrap(fyne.NewSize(800, 72), s.output)),
 	)
-	s.layout = container.NewBorder(toolbar, bottom, nil, nil, container.NewBorder(s.notes, nil, nil, nil, tabs))
+	s.layout = container.NewBorder(toolbar, bottom, nil, nil, container.NewBorder(s.notes, nil, nil, nil, s.tabs))
 
 	s.anim = fyne.NewAnimation(30*time.Millisecond, func(float32) {
 		if s.async {
@@ -253,9 +257,8 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 	return s
 }
 
-// buildWorldForm is the compact World panel: a 2×2 coordinate grid, patch
-// size, wrap toggles, and Apply. It is pinned above the widget scroll so the
-// controls stay on screen.
+// buildWorldForm is the World tab: max fps, a 2×2 coordinate grid, patch
+// size, wrap toggles, and Apply.
 func (s *session) buildWorldForm() fyne.CanvasObject {
 	s.minPx = widget.NewEntry()
 	s.maxPx = widget.NewEntry()
