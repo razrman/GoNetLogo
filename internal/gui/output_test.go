@@ -30,8 +30,8 @@ func TestDesktopOutputPanel(t *testing.T) {
 		t.Fatalf("font size %v", area.fontSize)
 	}
 	s.pressNamed("setup")
-	if !strings.Contains(area.text.Text, "Output area ready.") || !strings.Contains(area.text.Text, `"widget"`) {
-		t.Fatalf("output panel %q", area.text.Text)
+	if !strings.Contains(area.body, "Output area ready.") || !strings.Contains(area.body, `"widget"`) {
+		t.Fatalf("output panel %q", area.body)
 	}
 	if strings.Contains(s.output.Text, "Output area ready.") {
 		t.Fatalf("command center %q", s.output.Text)
@@ -50,7 +50,7 @@ func TestDesktopOutputPanel(t *testing.T) {
 	if !stepped {
 		t.Fatal("go did not run")
 	}
-	if !strings.Contains(area.text.Text, "Output area ready.") || !strings.HasSuffix(strings.TrimRight(area.text.Text, "\n"), "0") {
-		t.Fatalf("after go %q", area.text.Text)
+	if !strings.Contains(area.body, "Output area ready.") || !strings.HasSuffix(strings.TrimRight(area.body, "\n"), "0") {
+		t.Fatalf("after go %q", area.body)
 	}
 }

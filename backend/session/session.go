@@ -141,6 +141,14 @@ type Session struct {
 	// ignored* rate-limits the "run active" warning.
 	ignored   int
 	ignoredAt time.Time
+	// progress* and run* feed the debug progress line and the stop log.
+	progressAt time.Time
+	rngMark    uint64
+	rngMarkAt  time.Time
+	runStart   time.Time
+	runRNG     uint64
+	capDrawing bool
+	capPlot    bool
 }
 
 func newSession() *Session {
@@ -337,7 +345,9 @@ func (s *Session) armYield(vm *nl.VM) {
 		vm.RequestHalt()
 	}
 	vm.SetYield(func() {
+		lockAt := time.Now()
 		s.mu.Lock()
+		waited := time.Since(lockAt)
 		now := time.Now()
 		s.sampleTicksLocked()
 		if s.closed || s.cancelRun {
@@ -348,6 +358,10 @@ func (s *Session) armYield(vm *nl.VM) {
 			s.refreshDueLocked(now)
 		}
 		s.mu.Unlock()
+		if waited > 250*time.Millisecond {
+			slog.Warn("lock wait", "session", s.id, "where", "yield", "wait", waited)
+		}
+		s.noteProgress(vm)
 	}, nl.DefaultYieldInterval)
 }
 
@@ -417,6 +431,15 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	}
 	s.compileButtonsLocked()
 	logModel("model loaded", s.id, name, len(m.Code), nil)
+	widgets, plots := 0, 0
+	for _, w := range m.Widgets {
+		widgets++
+		if w.Kind == "plot" {
+			plots++
+		}
+	}
+	slog.Info("model loaded", "session", s.id, "model", name, "widgets", widgets, "plots", plots,
+		"min_px", m.View.MinPxcor, "max_px", m.View.MaxPxcor, "min_py", m.View.MinPycor, "max_py", m.View.MaxPycor)
 }
 
 func (s *Session) compileButtonsLocked() {
@@ -817,6 +840,9 @@ func (s *Session) runNamed(name string, forever bool) error {
 	i := s.findButtonLocked(name)
 	if i < 0 {
 		if s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc(name) != nil {
+			if strings.EqualFold(name, "setup") && s.vm.World != nil {
+				s.vm.World.ResetRNGDraws()
+			}
 			_, err := s.vm.Call(name)
 			if err != nil {
 				s.appendLogLocked(name + ": " + err.Error())
@@ -856,7 +882,7 @@ func (s *Session) runNamed(name string, forever bool) error {
 func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	if err = s.ensureRunnableLocked(i); err != nil {
 		s.setRunningLocked(-1, "not runnable")
-		slog.Warn("button failed", "session", s.id, "button", s.buttonNameLocked(i), "err", err)
+		warnNetLogo("button failed", err, "session", s.id, "button", s.buttonNameLocked(i))
 		return false, err
 	}
 	if s.busy {
@@ -865,6 +891,9 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	w := s.model.Widgets[i]
 	stmts := s.buttons[i]
 	vm := s.vm
+	if isSetupName(w.Display, w.Source) && vm != nil && vm.World != nil {
+		vm.World.ResetRNGDraws()
+	}
 	s.busy = true
 	s.armYield(vm)
 	s.mu.Unlock()
@@ -881,7 +910,7 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 		}
 		if err != nil {
 			s.appendLogLocked(w.Display + ": " + err.Error())
-			slog.Warn("button failed", "session", s.id, "button", w.Display, "err", err)
+			warnNetLogo("button failed", err, "session", s.id, "button", w.Display)
 			s.setRunningLocked(-1, "error")
 			s.cancelRun = false
 			stopped = false
@@ -953,6 +982,13 @@ func (s *Session) appendLogLocked(line string) {
 }
 
 func (s *Session) appendLogBody(line string) {
+	if debugEnabled() {
+		msg := line
+		if len(msg) > 200 {
+			msg = msg[:200] + "…"
+		}
+		slog.Debug("command center", "session", s.id, "line", msg)
+	}
 	s.log = append(s.log, line)
 	if len(s.log) > 80 {
 		s.log = append([]string(nil), s.log[len(s.log)-80:]...)

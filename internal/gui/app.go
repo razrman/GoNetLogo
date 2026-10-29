@@ -9,6 +9,7 @@ import (
 	"image/draw"
 	"io"
 	"io/fs"
+	"log/slog"
 	"math"
 	"sort"
 	"strconv"
@@ -46,7 +47,9 @@ func Run(modelsFS fs.FS) {
 	w.SetContent(s.layout)
 	w.Resize(fyne.NewSize(1120, 760))
 	s.anim.Start()
+	slog.Info("window", "width", 1120, "height", 760)
 	w.ShowAndRun()
+	slog.Info("shutdown")
 	close(s.modelStop)
 }
 
@@ -62,11 +65,17 @@ type control struct {
 }
 
 // outputView is the model's output area: a scrolling monospace log.
+// Each row is its own canvas.Text. One canvas.Text for the whole log is a
+// single line to Fyne (newlines do not break), so the GL texture grows by
+// the full strategy string every generation and the draw thread stalls.
 type outputView struct {
-	text     *canvas.Text
+	body     string
+	rows     []*canvas.Text
+	col      *fyne.Container
 	scroll   *container.Scroll
 	box      fyne.CanvasObject
 	fontSize float32
+	color    color.Color
 }
 
 type session struct {
@@ -141,6 +150,18 @@ type session struct {
 	hudRead      []string
 	pendingLog   []string
 	pendingClear bool
+
+	progressAt time.Time
+	lastDrop   int
+	dropWarnAt time.Time
+	rngMark    uint64
+	rngMarkAt  time.Time
+	runStart   time.Time
+	runRNG     uint64
+	splitOff   float64
+	vsplitOff  float64
+	capDrawing bool
+	capPlot    bool
 
 	// mu keeps the go loop, command center, monitors, world Apply, and
 	// model loads off the same world. The draw thread does not take it;
@@ -246,6 +267,12 @@ func newSession(modelsFS fs.FS, win fyne.Window) *session {
 		container.NewTabItem("World", worldPage),
 		container.NewTabItem("Code", codePage),
 	)
+	s.tabs.OnSelected = func(tab *container.TabItem) {
+		if tab == nil {
+			return
+		}
+		slog.Info("tab", "name", tab.Text)
+	}
 	// Same for the log: its minimum must not grow with the text, or the
 	// split cannot shrink the command center again.
 	outScroll := container.NewScroll(s.output)
@@ -458,6 +485,7 @@ func (s *session) applyWorldLocked() error {
 	s.noteWorld()
 	s.publishViewLocked()
 	s.logf("world %d..%d × %d..%d · patch size %s", minPx, maxPx, minPy, maxPy, trimNum(ps))
+	slog.Info("world", "min_px", minPx, "max_px", maxPx, "min_py", minPy, "max_py", maxPy, "patch", ps, "wrap_x", wrapX, "wrap_y", wrapY)
 	return nil
 }
 
@@ -557,7 +585,7 @@ func (s *session) load(name, content string) {
 	s.paused = false
 	s.clearHaltLocked()
 	s.pendingStop.Store(-1)
-	s.setRunning(-1)
+	s.setRunning(-1, "load")
 	s.clock = nl.RunClock{}
 	s.pub.Reset()
 	s.model = m
@@ -579,6 +607,15 @@ func (s *session) load(name, content string) {
 		s.notes.SetText("")
 	}
 	s.logf("loaded %s", name)
+	widgets, plots := 0, 0
+	for _, w := range m.Widgets {
+		widgets++
+		if w.Kind == "plot" {
+			plots++
+		}
+	}
+	slog.Info("model loaded", "name", name, "widgets", widgets, "plots", plots,
+		"min_px", m.View.MinPxcor, "max_px", m.View.MaxPxcor, "min_py", m.View.MinPycor, "max_py", m.View.MaxPycor)
 }
 
 func (s *session) rebuildSide() {
@@ -738,15 +775,32 @@ func (s *session) setVM(vm *nl.VM) {
 }
 
 // setRunning records the forever button. Caller holds s.mu.
-func (s *session) setRunning(i int) {
+// reason is why a running button stopped: halt, stop, error, finished, load.
+func (s *session) setRunning(i int, reason string) {
+	prev := s.running
 	s.running = i
 	s.runIdx.Store(int32(i))
+	if prev == i {
+		return
+	}
+	if prev >= 0 && (i < 0 || i >= len(s.ctls)) {
+		name := ""
+		forever := false
+		if prev < len(s.ctls) {
+			name = s.ctls[prev].widget.Display
+			forever = s.ctls[prev].widget.Forever
+		}
+		s.logRunStop(name, forever, reason, s.vm)
+		s.runMeta.Store(nil)
+		return
+	}
 	if i < 0 || i >= len(s.ctls) {
 		s.runMeta.Store(nil)
 		return
 	}
 	w := s.ctls[i].widget
 	s.runMeta.Store(&runMeta{index: i, display: w.Display, source: w.Source})
+	s.logRunStart(w.Display, w.Forever, s.vm)
 }
 
 func nameMatchesRun(meta *runMeta, name string) bool {
@@ -805,7 +859,7 @@ func (s *session) pressNamed(name string) {
 			return
 		}
 		if name == "go" && stopped {
-			s.setRunning(-1)
+			s.setRunning(-1, "finished")
 		}
 		if strings.EqualFold(name, "setup") {
 			s.pub.Reset()
@@ -832,13 +886,14 @@ func (s *session) pressLocked(i int) {
 	if c.widget.Kind != "button" {
 		return
 	}
+	slog.Info("button", "action", "pressed", "name", c.widget.Display, "forever", c.widget.Forever)
 	if c.widget.Forever {
 		// pendingStop covers the race where the worker already cleared
 		// running after seeing the halt this click sent.
 		if s.running == i || int(s.pendingStop.Load()) == i {
 			s.pendingStop.Store(-1)
 			s.haltReq.Store(true)
-			s.setRunning(-1)
+			s.setRunning(-1, "stop")
 			s.once = -1
 			if s.vm != nil {
 				s.vm.RequestHalt()
@@ -859,7 +914,7 @@ func (s *session) pressLocked(i int) {
 		}
 		s.pendingStop.Store(-1)
 		s.clearHaltLocked()
-		s.setRunning(i)
+		s.setRunning(i, "")
 		if c.button != nil {
 			c.button.SetText("stop")
 		}
@@ -888,15 +943,17 @@ func (s *session) stepLocked(c *control) bool {
 		s.logf("%s is disabled until ticks start", c.widget.Display)
 		return false
 	}
+	s.resetSetupRNG(c.widget.Display, c.widget.Source, s.vm)
 	stopped, err := s.vm.RunCompiled(c.stmts)
 	if err != nil {
 		s.logf("%s: %v", c.widget.Display, err)
-		s.setRunning(-1)
+		logNetLogo(err, "button", c.widget.Display)
+		s.setRunning(-1, "error")
 		s.goBtn.SetText("go")
 		return false
 	}
 	if stopped {
-		s.setRunning(-1)
+		s.setRunning(-1, "finished")
 		s.goBtn.SetText("go")
 		for i := range s.ctls {
 			if s.ctls[i].button != nil && s.ctls[i].widget.Forever {
@@ -963,7 +1020,7 @@ func (s *session) waitIdleUI() {
 	s.mu.Lock()
 	s.paused = true
 	s.haltReq.Store(true)
-	s.setRunning(-1)
+	s.setRunning(-1, "pause")
 	s.once = -1
 	s.mu.Unlock()
 	deadline := time.Now().Add(2 * time.Second)
@@ -1057,7 +1114,7 @@ func (s *session) runButton(c control, oneshot bool) bool {
 	}
 	if vm == nil || s.paused || (!oneshot && s.haltReq.Load()) {
 		if !oneshot && s.haltReq.Load() {
-			s.setRunning(-1)
+			s.setRunning(-1, "halt")
 			s.haltReq.Store(false)
 			if vm != nil {
 				vm.ClearHalt()
@@ -1074,6 +1131,10 @@ func (s *session) runButton(c control, oneshot bool) bool {
 	stmts := c.stmts
 	display := c.widget.Display
 	source := c.widget.Source
+	s.resetSetupRNG(display, source, vm)
+	if oneshot {
+		s.logRunStart(display, false, vm)
+	}
 	s.inRun = true
 	s.armDesktopYield(vm)
 	s.mu.Unlock()
@@ -1082,22 +1143,37 @@ func (s *session) runButton(c control, oneshot bool) bool {
 
 	s.mu.Lock()
 	vm.ClearYield()
-	if vm.Halted() || s.haltReq.Load() {
+	halted := vm.Halted() || s.haltReq.Load()
+	if halted {
 		stopped = true
 		vm.ClearHalt()
 		s.haltReq.Store(false)
 	}
 	if err != nil {
 		s.noteLog(fmt.Sprintf("%s: %v", display, err))
-		s.setRunning(-1)
+		logNetLogo(err, "button", display)
+		s.setRunning(-1, "error")
 	} else if stopped && !oneshot {
-		s.setRunning(-1)
+		reason := "finished"
+		if halted {
+			reason = "halt"
+		}
+		s.setRunning(-1, reason)
 	}
 	if err == nil && !oneshot {
 		s.pub.Produce(1)
 	}
-	if oneshot && (strings.EqualFold(display, "setup") || strings.EqualFold(strings.TrimSpace(source), "setup")) {
+	if oneshot && isSetupButton(display, source) {
 		s.pub.Reset()
+	}
+	if oneshot {
+		reason := "finished"
+		if err != nil {
+			reason = "error"
+		} else if halted {
+			reason = "halt"
+		}
+		s.logRunStop(display, false, reason, vm)
 	}
 	s.mu.Unlock()
 	// Publish after releasing mu. Stop only needs the VM halt flag, and
@@ -1129,7 +1205,10 @@ func (s *session) publishFrame(vm *nl.VM) {
 	if vm == nil || vm.World == nil {
 		return
 	}
+	frameAt := time.Now()
+	lockAt := time.Now()
 	s.mu.Lock()
+	warnLockWait("publish", time.Since(lockAt))
 	sources := make([]string, len(s.ctls))
 	for i := range s.ctls {
 		if s.ctls[i].widget.Kind == "monitor" {
@@ -1186,12 +1265,23 @@ func (s *session) publishFrame(vm *nl.VM) {
 	}
 	tps, timer := s.clock.Sync(time.Now(), running, epoch, ticks)
 	s.hudTPS = "tps " + nl.FormatTPS(tps, running)
-	s.hudDrop = "drop " + strconv.Itoa(s.pub.Dropped())
+	dropped := s.pub.Dropped()
+	s.hudDrop = "drop " + strconv.Itoa(dropped)
+	if dropped > s.lastDrop {
+		now := time.Now()
+		if s.dropWarnAt.IsZero() || now.Sub(s.dropWarnAt) >= time.Second {
+			slog.Warn("dropped frames", "dropped", dropped-s.lastDrop, "total", dropped)
+			s.dropWarnAt = now
+			s.lastDrop = dropped
+		}
+	}
 	s.hudTimer = timer
 	s.hudOutput = output
 	s.hudRead = readings
 	s.dirty.Store(true)
+	tpsLabel := s.hudTPS
 	s.mu.Unlock()
+	s.noteProgress(vm, tpsLabel, time.Since(frameAt))
 }
 
 func (s *session) noteLog(line string) {
@@ -1202,7 +1292,10 @@ func (s *session) noteLog(line string) {
 }
 
 func (s *session) presentUI() {
+	started := time.Now()
+	lockAt := time.Now()
 	s.mu.Lock()
+	warnLockWait("ui", time.Since(lockAt))
 	inRun := s.inRun
 	ticks, tps, drop, timer := s.hudTicks, s.hudTPS, s.hudDrop, s.hudTimer
 	output := s.hudOutput
@@ -1268,6 +1361,10 @@ func (s *session) presentUI() {
 			b.SetText(text)
 		}
 	}
+	s.noteSplit()
+	if d := time.Since(started); d > 250*time.Millisecond {
+		slog.Warn("ui refresh", "took", d)
+	}
 }
 
 func (s *session) applyReadings(readings []string) {
@@ -1294,12 +1391,7 @@ func (s *session) applyOutput(body string) {
 	areas := append([]*outputView(nil), s.areas...)
 	s.mu.Unlock()
 	for _, area := range areas {
-		if area == nil || area.text == nil || area.text.Text == body {
-			continue
-		}
-		area.text.Text = body
-		area.text.Refresh()
-		area.scroll.ScrollToBottom()
+		area.setBody(body)
 	}
 }
 
@@ -1331,19 +1423,25 @@ func (s *session) tick() {
 			stopped, err := vm.RunCompiled(stmts)
 			s.mu.Lock()
 			s.inRun = false
-			if vm.Halted() || s.haltReq.Load() {
+			halted := vm.Halted() || s.haltReq.Load()
+			if halted {
 				stopped = true
 				vm.ClearHalt()
 				s.haltReq.Store(false)
 			}
 			if err != nil {
 				s.logf("%s: %v", display, err)
-				s.setRunning(-1)
+				logNetLogo(err, "button", display)
+				s.setRunning(-1, "error")
 				s.goBtn.SetText("go")
 				break
 			}
 			if stopped {
-				s.setRunning(-1)
+				reason := "finished"
+				if halted {
+					reason = "halt"
+				}
+				s.setRunning(-1, reason)
 				s.goBtn.SetText("go")
 				for j := range s.ctls {
 					if s.ctls[j].button != nil && s.ctls[j].widget.Forever {
@@ -1424,12 +1522,7 @@ func (s *session) refreshOutputLocked() {
 	}
 	body := s.vm.OutputText()
 	for _, area := range s.areas {
-		if area.text.Text == body {
-			continue
-		}
-		area.text.Text = body
-		area.text.Refresh()
-		area.scroll.ScrollToBottom()
+		area.setBody(body)
 	}
 }
 
@@ -1451,16 +1544,77 @@ func newOutputView(w nl.Widget) *outputView {
 	if h > 200 {
 		h = 200
 	}
-	text := canvas.NewText("", color.NRGBA{R: 0xf4, G: 0xef, B: 0xe4, A: 0xff})
-	text.TextStyle = fyne.TextStyle{Monospace: true}
-	text.TextSize = float32(fs)
-	text.Alignment = fyne.TextAlignLeading
+	ink := color.NRGBA{R: 0xf4, G: 0xef, B: 0xe4, A: 0xff}
+	col := container.NewVBox()
 	bg := canvas.NewRectangle(color.NRGBA{R: 0x24, G: 0x1f, B: 0x18, A: 0xff})
-	scroll := container.NewScroll(container.NewPadded(text))
+	scroll := container.NewScroll(container.NewPadded(col))
 	// GridWrap gives the log a compact fixed box. The rectangle fills that
 	// box behind the scroll so a short log still looks like a panel.
+	// The scroll's own minimum stays the cell size, so a long strategy
+	// line scrolls inside the panel instead of widening the split.
 	box := container.NewGridWrap(fyne.NewSize(220, float32(h)), container.NewStack(bg, scroll))
-	return &outputView{text: text, scroll: scroll, box: box, fontSize: text.TextSize}
+	return &outputView{col: col, scroll: scroll, box: box, fontSize: float32(fs), color: ink}
+}
+
+// outputRowRunes is how many runes one canvas.Text row may hold. Fyne
+// uploads one GL texture per text object, sized to the whole string, and
+// newlines are not line breaks. A row past a couple of thousand pixels
+// wide stalls the draw thread. 240 runes stays well under that even at
+// the largest output font.
+const outputRowRunes = 240
+
+func (v *outputView) setBody(body string) {
+	if v == nil || v.body == body {
+		return
+	}
+	v.body = body
+	lines := wrapOutputRows(body)
+	for len(v.rows) < len(lines) {
+		row := canvas.NewText("", v.color)
+		row.TextStyle = fyne.TextStyle{Monospace: true}
+		row.TextSize = v.fontSize
+		row.Alignment = fyne.TextAlignLeading
+		v.rows = append(v.rows, row)
+		v.col.Add(row)
+	}
+	if len(v.rows) > len(lines) {
+		for _, row := range v.rows[len(lines):] {
+			v.col.Remove(row)
+		}
+		v.rows = v.rows[:len(lines)]
+	}
+	for i, line := range lines {
+		if v.rows[i].Text == line {
+			continue
+		}
+		v.rows[i].Text = line
+		v.rows[i].Refresh()
+	}
+	if v.scroll != nil {
+		v.scroll.ScrollToBottom()
+	}
+}
+
+func wrapOutputRows(body string) []string {
+	if body == "" {
+		return nil
+	}
+	var rows []string
+	for _, line := range strings.Split(body, "\n") {
+		if line == "" {
+			rows = append(rows, " ")
+			continue
+		}
+		r := []rune(line)
+		for len(r) > outputRowRunes {
+			rows = append(rows, string(r[:outputRowRunes]))
+			r = r[outputRowRunes:]
+		}
+		if len(r) > 0 {
+			rows = append(rows, string(r))
+		}
+	}
+	return rows
 }
 
 // refreshRunLabels updates the toolbar clock and drop count. Caller holds s.mu.
@@ -1562,7 +1716,7 @@ func (s *session) applyCodeLocked() error {
 		s.logf("apply: %v", err)
 		return err
 	}
-	s.setRunning(-1)
+	s.setRunning(-1, "reload")
 	s.goBtn.SetText("go")
 	s.clock = nl.RunClock{}
 	s.setVM(vm)
@@ -1607,6 +1761,7 @@ func (s *session) openFile() {
 }
 
 func (s *session) log(line string) {
+	slog.Debug("command center", "line", trimLogLine(line))
 	s.outMu.Lock()
 	defer s.outMu.Unlock()
 	if s.output.Text == "" {

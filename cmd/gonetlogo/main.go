@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"time"
 
 	"gonetlogo/internal/gui"
+	"gonetlogo/internal/locale"
 	"gonetlogo/internal/logcfg"
 	"gonetlogo/models"
 	"gonetlogo/pkg/nl"
@@ -53,7 +55,38 @@ func main() {
 		}
 		return
 	}
+	logDesktopStart(logs)
 	gui.Run(models.FS)
+}
+
+func logDesktopStart(logs *logcfg.Flags) {
+	cfg, err := logs.Resolve(os.Getenv)
+	version, commit := "devel", ""
+	if info, ok := debug.ReadBuildInfo(); ok && info != nil {
+		if info.Main.Version != "" {
+			version = info.Main.Version
+		}
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" && s.Value != "" {
+				commit = s.Value
+			}
+		}
+	}
+	from, to, changed := locale.Override()
+	if err != nil {
+		slog.Info("desktop", "version", version, "commit", commit, "locale_from", from, "locale_to", to, "locale_override", changed)
+		return
+	}
+	slog.Info("desktop",
+		"version", version,
+		"commit", commit,
+		"level", cfg.Level.String(),
+		"format", cfg.Format,
+		"file", cfg.File,
+		"locale_from", from,
+		"locale_to", to,
+		"locale_override", changed,
+	)
 }
 
 // commandErr prints a command failure on stderr and records it in the log file.
