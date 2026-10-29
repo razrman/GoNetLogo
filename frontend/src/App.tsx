@@ -61,7 +61,15 @@ export function App() {
   const [code, setCode] = useState('')
   const [notes, setNotes] = useState<string[]>([])
   const [frame, setFrame] = useState<Frame | null>(null)
-  const [tab, setTab] = useState<'world' | 'code'>('world')
+  const [tab, setTab] = useState<MainTab>('interface')
+  const [worldDirty, setWorldDirty] = useState(false)
+  const [leaveTo, setLeaveTo] = useState<MainTab | null>(null)
+  const [leaving, setLeaving] = useState(false)
+  const applyWorldRef = useRef<(() => Promise<boolean>) | null>(null)
+  const onWorldDirty = useCallback((dirty: boolean) => setWorldDirty(dirty), [])
+  const registerWorldApply = useCallback((apply: (() => Promise<boolean>) | null) => {
+    applyWorldRef.current = apply
+  }, [])
   const [banner, setBanner] = useState<string | null>(null)
   const [online, setOnline] = useState(true)
   const [compileError, setCompileError] = useState<string | null>(null)
@@ -257,9 +265,44 @@ export function App() {
 
   async function onWorld(next: WorldView) {
     if (!sessionId) return 'No session'
-    const res = await setWorldMut({ id: sessionId, ...next })
-    if (reportDisconnect(res.error?.message)) return 'Server disconnected. Reconnecting…'
-    return res.error?.message ?? null
+    if (frame?.running) {
+      const stopped = await stopMut({ id: sessionId })
+      if (reportDisconnect(stopped.error?.message)) return 'Server disconnected. Reconnecting…'
+      if (stopped.error) return stopped.error.message
+      setActive(null)
+    }
+    let message = await sendWorld(sessionId, next, setWorldMut)
+    if (message) return message
+    const setup = await setupMut({ id: sessionId })
+    if (reportDisconnect(setup.error?.message)) return 'Server disconnected. Reconnecting…'
+    if (setup.error) {
+      setBanner(setup.error.message)
+      return setup.error.message
+    }
+    return null
+  }
+
+  function requestTab(next: MainTab) {
+    if (next === tab) return
+    if (tab === 'world' && worldDirty) {
+      setLeaveTo(next)
+      return
+    }
+    setTab(next)
+  }
+
+  async function applyAndLeave() {
+    if (!leaveTo || leaving) return
+    setLeaving(true)
+    const ok = (await applyWorldRef.current?.()) ?? false
+    setLeaving(false)
+    if (!ok) {
+      setLeaveTo(null)
+      return
+    }
+    const next = leaveTo
+    setLeaveTo(null)
+    setTab(next)
   }
 
   const onFrame = useCallback((next: Frame) => {
@@ -409,10 +452,7 @@ export function App() {
       <main className="stage">
         {tab === 'code' ? (
           <section className="code-panel">
-            <div className="tabs">
-              <button type="button" onClick={() => setTab('world')}>Interface</button>
-              <button type="button" className="on">Code</button>
-            </div>
+            <MainTabs tab={tab} onChange={requestTab} />
             <textarea
               aria-label="Model code"
               spellCheck={false}
@@ -424,6 +464,24 @@ export function App() {
                 Apply code
               </button>
             </div>
+          </section>
+        ) : tab === 'world' ? (
+          <section className="world-panel" aria-label="World settings">
+            <MainTabs tab={tab} onChange={requestTab} />
+            <FrameCapControl
+              fps={frame?.frameRateCap ?? 24}
+              disabled={!sessionId}
+              onChange={(fps) => {
+                if (sessionId) void frameRateMut({ id: sessionId, fps })
+              }}
+            />
+            <WorldSettingsForm
+              world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
+              disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
+              onApply={onWorld}
+              onDirtyChange={onWorldDirty}
+              registerApply={registerWorldApply}
+            />
           </section>
         ) : (
           <>
@@ -451,10 +509,7 @@ export function App() {
                 void onPickFile(e.dataTransfer.files?.[0])
               }}
             >
-              <div className="tabs">
-                <button type="button" className="on">Interface</button>
-                <button type="button" onClick={() => setTab('code')}>Code</button>
-              </div>
+              <MainTabs tab={tab} onChange={requestTab} />
               <div className="canvas-wrap">
                 {booting && !frame ? (
                   <div className="loading">Opening the forest fire…</div>
@@ -470,18 +525,6 @@ export function App() {
               </div>
             </section>
             <aside className="side" aria-label="Interface widgets">
-              <FrameCapControl
-                fps={frame?.frameRateCap ?? 24}
-                disabled={!sessionId}
-                onChange={(fps) => {
-                  if (sessionId) void frameRateMut({ id: sessionId, fps })
-                }}
-              />
-              <WorldSettingsForm
-                world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
-                disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
-                onApply={onWorld}
-              />
               {widgets.length === 0 && (
                 <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
               )}
@@ -508,6 +551,29 @@ export function App() {
         )}
       </main>
 
+      {leaveTo && (
+        <div className="modal-back" onMouseDown={() => { if (!leaving) setLeaveTo(null) }}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="apply-changes-title"
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && !leaving) setLeaveTo(null)
+            }}
+          >
+            <p id="apply-changes-title">Apply changes?</p>
+            <div className="modal-actions">
+              <button type="button" disabled={leaving} onClick={() => setLeaveTo(null)}>Cancel</button>
+              <button type="button" className="apply" autoFocus disabled={leaving} onClick={() => void applyAndLeave()}>
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <section className="command" aria-label="Command center">
         <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'Command center. A reporter prints its result here.'}</pre>
         <form onSubmit={(e) => void onCommand(e)}>
@@ -525,6 +591,24 @@ export function App() {
           {commandError && <div className="err">{commandError}</div>}
         </form>
       </section>
+    </div>
+  )
+}
+
+type MainTab = 'interface' | 'world' | 'code'
+
+function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) => void }) {
+  return (
+    <div className="tabs">
+      <button type="button" className={tab === 'interface' ? 'on' : undefined} onClick={() => onChange('interface')}>
+        Interface
+      </button>
+      <button type="button" className={tab === 'world' ? 'on' : undefined} onClick={() => onChange('world')}>
+        World
+      </button>
+      <button type="button" className={tab === 'code' ? 'on' : undefined} onClick={() => onChange('code')}>
+        Code
+      </button>
     </div>
   )
 }
@@ -582,10 +666,14 @@ function WorldSettingsForm({
   world,
   disabled,
   onApply,
+  onDirtyChange,
+  registerApply,
 }: {
   world: WorldView | null
   disabled: boolean
   onApply: (next: WorldView) => Promise<string | null>
+  onDirtyChange: (dirty: boolean) => void
+  registerApply: (apply: (() => Promise<boolean>) | null) => void
 }) {
   const [draft, setDraft] = useState({
     minPxcor: '0',
@@ -597,6 +685,7 @@ function WorldSettingsForm({
     wrapY: true,
   })
   const [error, setError] = useState<string | null>(null)
+  const [synced, setSynced] = useState(false)
   const signature = world
     ? `${world.minPxcor},${world.maxPxcor},${world.minPycor},${world.maxPycor},${world.patchSize},${world.wrapX},${world.wrapY}`
     : ''
@@ -613,30 +702,35 @@ function WorldSettingsForm({
       wrapY: world.wrapY,
     })
     setError(null)
+    setSynced(true)
   }, [signature]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dirty = synced && world != null && worldDraftDirty(draft, world)
+  useEffect(() => {
+    onDirtyChange(dirty)
+  }, [dirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
+
+  async function submitDraft() {
+    const parsed = parseWorldDraft(draft)
+    if (typeof parsed === 'string') {
+      setError(parsed)
+      return false
+    }
+    setError(null)
+    const message = await onApply(parsed)
+    setError(message)
+    return message == null
+  }
+
+  useEffect(() => {
+    registerApply(submitDraft)
+    return () => registerApply(null)
+  }, [registerApply, draft, onApply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function apply(event: FormEvent) {
     event.preventDefault()
-    const minPxcor = Number(draft.minPxcor)
-    const maxPxcor = Number(draft.maxPxcor)
-    const minPycor = Number(draft.minPycor)
-    const maxPycor = Number(draft.maxPycor)
-    const patchSize = Number(draft.patchSize)
-    if (![minPxcor, maxPxcor, minPycor, maxPycor].every((n) => Number.isInteger(n))) {
-      setError('Coordinates must be integers.')
-      return
-    }
-    if (minPxcor > 0 || maxPxcor < 0 || minPycor > 0 || maxPycor < 0) {
-      setError('The world must contain the origin (0, 0).')
-      return
-    }
-    if (!(patchSize > 0) || patchSize > 100) {
-      setError('Patch size must be greater than 0 and at most 100.')
-      return
-    }
-    setError(null)
-    const message = await onApply({ minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY })
-    setError(message)
+    await submitDraft()
   }
 
   return (
@@ -671,6 +765,76 @@ function WorldSettingsForm({
       {error && <p className="err">{error}</p>}
     </form>
   )
+}
+
+type WorldDraft = {
+  minPxcor: string
+  maxPxcor: string
+  minPycor: string
+  maxPycor: string
+  patchSize: string
+  wrapX: boolean
+  wrapY: boolean
+}
+
+function worldDraftDirty(draft: WorldDraft, world: WorldView) {
+  return (
+    !sameNumber(draft.minPxcor, world.minPxcor) ||
+    !sameNumber(draft.maxPxcor, world.maxPxcor) ||
+    !sameNumber(draft.minPycor, world.minPycor) ||
+    !sameNumber(draft.maxPycor, world.maxPycor) ||
+    !sameNumber(draft.patchSize, world.patchSize) ||
+    draft.wrapX !== world.wrapX ||
+    draft.wrapY !== world.wrapY
+  )
+}
+
+function sameNumber(raw: string, live: number) {
+  const text = raw.trim()
+  if (text === '') return false
+  const n = Number(text)
+  return Number.isFinite(n) && n === live
+}
+
+function parseWorldDraft(draft: WorldDraft): WorldView | string {
+  const minPxcor = Number(draft.minPxcor)
+  const maxPxcor = Number(draft.maxPxcor)
+  const minPycor = Number(draft.minPycor)
+  const maxPycor = Number(draft.maxPycor)
+  const patchSize = Number(draft.patchSize)
+  if (![minPxcor, maxPxcor, minPycor, maxPycor].every((n) => Number.isInteger(n))) {
+    return 'Coordinates must be integers.'
+  }
+  if (minPxcor > 0 || maxPxcor < 0 || minPycor > 0 || maxPycor < 0) {
+    return 'The world must contain the origin (0, 0).'
+  }
+  if (!(patchSize > 0) || patchSize > 100) {
+    return 'Patch size must be greater than 0 and at most 100.'
+  }
+  return { minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY }
+}
+
+function sendWorld(
+  sessionId: string,
+  next: WorldView,
+  setWorldMut: (vars: WorldView & { id: string }) => Promise<{ error?: { message: string } }>,
+) {
+  return retryWhileRunning(async () => {
+    const res = await setWorldMut({ id: sessionId, ...next })
+    return res.error?.message
+  })
+}
+
+async function retryWhileRunning(run: () => Promise<string | undefined>) {
+  let message: string | null = null
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const err = await run()
+    if (reportDisconnect(err)) return 'Server disconnected. Reconnecting…'
+    message = err ?? null
+    if (!message || !/model is running|running a command/i.test(message)) return message
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return message
 }
 
 function dragHasFiles(event: DragEvent) {
