@@ -99,7 +99,9 @@ Go 1.22 or newer, and Node 22. From the repo root:
 ./scripts/dev.sh
 ```
 
-The script starts the API on `0.0.0.0:43131` and the UI on `0.0.0.0:43132`. Open [http://127.0.0.1:43132](http://127.0.0.1:43132). The page loads the forest-fire model, runs setup, and starts go. Pick another model from the menu. **setup** runs once. **go** is the forever button; click it again to stop. **step** runs go a single time. The speed slider slows the loop below the midpoint and runs extra steps per frame above it. If the browser loses the server, the page shows the banner "Server disconnected. Reconnecting…" and the websocket keeps trying.
+The script starts the API on `0.0.0.0:43131` and the UI on `0.0.0.0:43132`. Open [http://127.0.0.1:43132](http://127.0.0.1:43132). The page loads the forest-fire model, runs setup, and starts go. The model menu is labeled **Models**. **setup** runs once. **go** is the forever button; click it again to stop. **step** runs go a single time. The speed slider slows the loop below the midpoint and runs extra steps per frame above it. If the browser loses the server, the page shows the banner "Server disconnected. Reconnecting…" and the websocket keeps trying.
+
+The tabs are **Interface**, **World**, and **Code**. Interface is the view and the widget column. World holds max fps, min and max pxcor and pycor, patch size, wrap x, wrap y, and **Apply**. Max fps is sent as you edit it. **Apply** calls `setWorld` and then runs setup; if go is running, it stops first. Leaving World with unapplied coordinate, patch-size, or wrap edits shows "Apply changes?". **Apply** there does the same thing and then switches tabs. **Cancel** stays on World.
 
 ### Tests
 
@@ -113,7 +115,7 @@ npm run build --prefix frontend
 
 ### Desktop window
 
-The Fyne window is still there. It needs cgo and, on Linux, a C compiler plus OpenGL / X11 headers (`build-essential`, `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`).
+The Fyne window is still there. It needs cgo and, on Linux, a C compiler plus OpenGL / X11 headers (`build-essential`, `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`). It has the same three tabs, Interface, World, and Code, and the model menu is labeled Models. World holds max fps, the coordinates, patch size, wrapping, and Apply. Apply resizes the world in the process. Stop sets the halt flag without taking the session lock.
 
 ```bash
 go build -o gonetlogo ./cmd/gonetlogo
@@ -163,7 +165,7 @@ cmd/gonetlogo              desktop window, or -snapshot
 
 The interpreter is a tree walk, not a bytecode compiler. `pkg/nl` does not import the API or either UI, so another Go program can embed it.
 
-Each GraphQL session has its own VM, its own world, and its own widget values. `createSession` does not run setup; the client does. While go is running, a goroutine steps the model about every 30ms, and another publishes a frame on the frame-rate cap (default 24). A long button releases the world lock about every 50ms, so the view and stop keep working through a run such as Robby the Robot. The desktop window yields on that same interval. The speed slider matches the desktop: at 50 and above, several steps run per frame; below 50, frames are skipped. While a run is active, the server ignores another button, setup, step, a command-center line, a code edit, a model load, and a world change. Pressing the running forever button still stops it. Slider, switch, chooser, input, and speed writes still apply.
+Each GraphQL session has its own VM, its own world, and its own widget values. `createSession` does not run setup; the client does. While go is running, a goroutine steps the model about every 30ms, and another publishes a frame on the frame-rate cap (default 24). A long button releases the world lock about every 50ms, so the view and stop keep working through a run such as Robby the Robot. The desktop window yields on that same interval, and its Stop button sets the halt flag without taking the session lock. The speed slider matches the desktop: at 50 and above, several steps run per frame; below 50, frames are skipped. While a run is active, the server ignores another button, setup, step, a command-center line, a code edit, a model load, and a world change. Pressing the running forever button still stops it. Slider, switch, chooser, input, and speed writes still apply.
 
 A frame carries ticks, widget values (including monitor readings), output lines, plots, and the world: patch colors, the drawing layer, turtle shapes, labels, turtles, and links. It does not carry the source, so a running model does not reset the code editor. Mutations that compile, run a command, or edit a widget publish a frame as well.
 
@@ -177,7 +179,7 @@ The schema lives in `schema/schema.graphqls`. Operations:
 | Mutation | `createSession`, `loadModel`, `loadModelSource`, `loadModelFile`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setFrameRate`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
 | Subscription | `frames(sessionId)` over a websocket |
 
-`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World panel calls `worldSettings` and `setWorld`. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second.
+`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World tab reads `worldSettings` and writes with `setWorld`, then runs setup. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second.
 
 The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
 
@@ -187,7 +189,7 @@ Regenerate the Go types from `backend/` with:
 GOTOOLCHAIN=local go run github.com/99designs/gqlgen@v0.17.49 generate
 ```
 
-gqlgen 0.17.49's built-in scalar map points at Go types that package does not declare. `backend/scalar` supplies the marshal functions the generator looks up, and `backend/gqlgen.yml` binds Boolean, Int, ID, Float, and String to them.
+gqlgen 0.17.49's built-in scalar map points at Go types that package does not declare. `backend/scalar` supplies the marshal functions the generator looks up, and `backend/gqlgen.yml` binds Boolean, Int, ID, Float, and String to them. The subscriber cursor lives in `backend/graph/subcursor.go`, outside the generated file, so `gqlgen generate` leaves it alone.
 
 ## Language
 
@@ -252,7 +254,7 @@ This is a first milestone of the language, plus a GraphQL client. The rest of Ne
 3. **The long tail of primitives.** `carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`, `inspect`, output-widget commands, and file primitives (`file-open`, `file-read`). Output-widget commands are in (#9): `output-print`, `output-show`, `output-type`, `output-write`, `clear-output`. Still missing: `carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`, `inspect`, and the file primitives (`file-open`, `file-read`).
 4. **BehaviorSpace.** Parameter sweeps over the existing sliders, writing a table. Depends on the RNG if results are meant to match NetLogo.
 5. **Extensions.** Honor the `extensions` declaration and load a small Go extension API. `nw`, `gis`, `table`, `array`, `matrix`, and `bitmap` are the ones models hit first.
-6. **The rest of the interface.** A real Info tab, an output widget separate from the command center, a plot widget, the command-center history, and an agent inspector. An output widget (#9) and a plot widget (#12) are in. Still missing: a real Info tab, command-center history, and an agent inspector.
+6. **The rest of the interface.** A real Info tab, an output widget separate from the command center, a plot widget, the command-center history, and an agent inspector. An output widget (#9), a plot widget (#12), and a World tab on the web UI and the desktop window (#20) are in. The tabs are Interface, World, and Code. Still missing: a real Info tab, command-center history, and an agent inspector.
 7. **System Dynamics.** The stock-and-flow diagram and its generated code.
 8. **HubNet.** Participatory simulations. A large protocol; not required for single-player models.
 9. **3D.** `turtles3d`, `pzcor`, and a second view. The world type would grow a Z axis; the renderer would need a new backend.
