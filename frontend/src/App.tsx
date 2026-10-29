@@ -289,20 +289,23 @@ export function App() {
             <strong>GoNetLogo</strong>
             <span>GraphQL client</span>
           </div>
-          <select
-            className="model"
-            aria-label="Model"
-            value={modelOptions.includes(modelName) ? modelName : ''}
-            disabled={!sessionId || modelOptions.length === 0}
-            onChange={(e) => void onModel(e.target.value)}
-          >
+          <label className="model-pick">
+            <span>Models</span>
+            <select
+              className="model"
+              aria-label="Models"
+              value={modelOptions.includes(modelName) ? modelName : ''}
+              disabled={!sessionId || modelOptions.length === 0}
+              onChange={(e) => void onModel(e.target.value)}
+            >
             {modelOptions.length === 0 && <option value="">Loading models…</option>}
             {modelOptions.map((name) => (
               <option key={name} value={name}>
                 {name.replace(/\.nlogox?$/i, '')}
               </option>
             ))}
-          </select>
+            </select>
+          </label>
           <button
             className="open-model"
             type="button"
