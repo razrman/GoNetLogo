@@ -46,9 +46,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 8px;
+  row-gap: 8px;
   flex-shrink: 0;
   min-width: 0;
   color: #f3ecdf;
@@ -61,6 +62,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   gap: 8px;
   min-width: 0;
 }
+
+.topbar-left { flex-wrap: wrap; }
 
 .topbar-right { justify-content: flex-end; }
 
@@ -151,7 +154,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ticks b { color: #f0c9a0; font-weight: 650; }
 
 .run-timer {
-  justify-self: center;
+  flex: 0 0 auto;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   background: #262b20;
@@ -647,7 +650,6 @@ canvas.world {
   }
   .topbar-left { flex: 1 1 100%; flex-wrap: wrap; }
   .topbar-right { flex: 0 0 auto; }
-  .run-timer { order: 3; }
   .stage { grid-template-columns: 1fr; }
   .side { max-height: none; }
   .command { grid-template-columns: 1fr; }
