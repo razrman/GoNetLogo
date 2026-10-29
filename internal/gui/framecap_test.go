@@ -33,6 +33,12 @@ func TestMaxFPSEntryClamp(t *testing.T) {
 		t.Fatalf("low text %q rate %d", s.maxFPS.Text, s.frameRate)
 	}
 	s.maxFPS.SetText("24")
+	// The field lives on the World tab, so it is laid out only once that tab is shown.
+	s.tabs.SelectIndex(1)
+	w.Resize(fyne.NewSize(1200, 800))
+	if s.tabs.Selected() == nil || s.tabs.Selected().Text != "World" {
+		t.Fatalf("selected tab %v", s.tabs.Selected())
+	}
 	if s.maxFPS.Size().Width < 70 {
 		t.Fatalf("max fps box width %v, want room for 120", s.maxFPS.Size().Width)
 	}

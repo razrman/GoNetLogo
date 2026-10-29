@@ -18,7 +18,131 @@ func TestDesktopStopDuringLongGo(t *testing.T) {
 	go s.modelLoop()
 	defer close(s.modelStop)
 
-	const src = `to setup
+	s.load("long.nlogo", desktopLongGo)
+	s.pressNamed("setup")
+	waitDesktop(t, s, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.inRun && s.vm != nil && s.vm.World.TicksStarted()
+	})
+	s.pressNamed("go")
+	waitDesktop(t, s, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.inRun
+	})
+	start := time.Now()
+	s.pressNamed("go")
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("stop click took %s", elapsed)
+	}
+	waitDesktop(t, s, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.inRun && s.running < 0
+	})
+	if time.Since(start) > 400*time.Millisecond {
+		t.Fatalf("model still running after %s", time.Since(start))
+	}
+}
+
+// TestSyncTickStopReturnsPromptly drives the model with tick, which used to
+// hold the session lock across the whole generation. Stop has to return
+// while that step is still inside the interpreter.
+func TestSyncTickStopReturnsPromptly(t *testing.T) {
+	a := test.NewApp()
+	w := a.NewWindow("GoNetLogo")
+	s := newSession(models.FS, w)
+	s.load("long.nlogo", desktopLongGo)
+	s.pressNamed("setup")
+	s.mu.Lock()
+	ready := s.vm != nil && s.vm.World.TicksStarted()
+	s.mu.Unlock()
+	if !ready {
+		t.Fatal("setup did not start ticks")
+	}
+	s.pressNamed("go")
+	s.speed.Value = 100
+
+	done := make(chan struct{})
+	go func() {
+		s.tick()
+		close(done)
+	}()
+	waitDesktop(t, s, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.inRun
+	})
+
+	start := time.Now()
+	s.pressNamed("go")
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("stop click took %s", elapsed)
+	}
+	select {
+	case <-done:
+	case <-time.After(400 * time.Millisecond):
+		t.Fatal("tick did not return after stop")
+	}
+	s.mu.Lock()
+	running := s.running
+	s.mu.Unlock()
+	if running >= 0 {
+		t.Fatalf("running index %d after stop", running)
+	}
+}
+
+// TestPresentUIDuringLongGo checks that painting the toolbar does not wait
+// for the generation. The timer moves while go is still inside loop [].
+func TestPresentUIDuringLongGo(t *testing.T) {
+	a := test.NewApp()
+	w := a.NewWindow("GoNetLogo")
+	s := newSession(models.FS, w)
+	s.async = true
+	s.modelStop = make(chan struct{})
+	go s.modelLoop()
+	defer close(s.modelStop)
+
+	s.load("long.nlogo", desktopLongGo)
+	s.pressNamed("setup")
+	waitDesktop(t, s, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.inRun && s.vm != nil && s.vm.World.TicksStarted()
+	})
+	s.pressNamed("go")
+	waitDesktop(t, s, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.inRun
+	})
+
+	var slow time.Duration
+	for i := 0; i < 10; i++ {
+		start := time.Now()
+		s.presentUI()
+		if elapsed := time.Since(start); elapsed > slow {
+			slow = elapsed
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if slow > 100*time.Millisecond {
+		t.Fatalf("presentUI took %s during a long step", slow)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.presentUI()
+		if s.timer.Text != "" && s.timer.Text != "00:00.0" {
+			s.pressNamed("go")
+			return
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	t.Fatalf("timer stayed %q while go was running", s.timer.Text)
+}
+
+const desktopLongGo = `to setup
   clear-all
   reset-ticks
 end
@@ -89,33 +213,6 @@ NIL
 @#$#@#$#@
 @#$#@#$#@
 `
-	s.load("long.nlogo", src)
-	s.pressNamed("setup")
-	waitDesktop(t, s, func() bool {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return !s.inRun && s.vm != nil && s.vm.World.TicksStarted()
-	})
-	s.pressNamed("go")
-	waitDesktop(t, s, func() bool {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.inRun
-	})
-	start := time.Now()
-	s.pressNamed("go")
-	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
-		t.Fatalf("stop click took %s", elapsed)
-	}
-	waitDesktop(t, s, func() bool {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return !s.inRun && s.running < 0
-	})
-	if time.Since(start) > 400*time.Millisecond {
-		t.Fatalf("model still running after %s", time.Since(start))
-	}
-}
 
 func waitDesktop(t *testing.T, s *session, ready func() bool) {
 	t.Helper()
