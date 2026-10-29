@@ -89,7 +89,7 @@ Foreground is the default; Ctrl-C stops the process. Background mode writes `run
 ./startup.sh stop
 ```
 
-`./build.sh --desktop` also builds the Fyne window at `bin/gonetlogo`. Run that binary when you want the local window. The scripts do not use Docker. `docker-compose.yml` is still there as an optional extra.
+`./build.sh --desktop` also builds the Fyne window at `bin/gonetlogo`. Run that binary when you want the local window.
 
 ## Run both
 
@@ -99,15 +99,9 @@ Go 1.22 or newer, and Node 22. From the repo root:
 ./scripts/dev.sh
 ```
 
-The script starts the API on `0.0.0.0:43131` and the UI on `0.0.0.0:43132`. Open [http://127.0.0.1:43132](http://127.0.0.1:43132). The page loads the forest-fire model, runs setup, and starts go. Pick another model from the menu. **setup** runs once. **go** is the forever button; click it again to stop. **step** runs go a single time. The speed slider slows the loop below the midpoint and runs extra steps per frame above it.
+The script starts the API on `0.0.0.0:43131` and the UI on `0.0.0.0:43132`. Open [http://127.0.0.1:43132](http://127.0.0.1:43132). The page loads the forest-fire model, runs setup, and starts go. The model menu is labeled **Models**. **setup** runs once. **go** is the forever button; click it again to stop. **step** runs go a single time. The speed slider slows the loop below the midpoint and runs extra steps per frame above it. If the browser loses the server, the page shows the banner "Server disconnected. Reconnecting…" and the websocket keeps trying.
 
-The same pair of processes is described in `docker-compose.yml`:
-
-```bash
-docker compose up --build
-```
-
-The UI is published on port 43132. Nginx proxies `/graphql`, including the websocket, to the API.
+The tabs are **Interface**, **World**, and **Code**. Interface is the view and the widget column. World holds max fps, min and max pxcor and pycor, patch size, wrap x, wrap y, and **Apply**. Max fps is sent as you edit it. **Apply** calls `setWorld` and then runs setup; if go is running, it stops first. Leaving World with unapplied coordinate, patch-size, or wrap edits shows "Apply changes?". **Apply** there does the same thing and then switches tabs. **Cancel** stays on World.
 
 ### Tests
 
@@ -121,7 +115,7 @@ npm run build --prefix frontend
 
 ### Desktop window
 
-The Fyne window is still there. It needs cgo and, on Linux, a C compiler plus OpenGL / X11 headers (`build-essential`, `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`).
+The Fyne window is still there. It needs cgo and, on Linux, a C compiler plus OpenGL / X11 headers (`build-essential`, `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`). It has the same three tabs, Interface, World, and Code, and the model menu is labeled Models. World holds max fps, the coordinates, patch size, wrapping, and Apply. Apply resizes the world in the process. Stop sets the halt flag without taking the session lock.
 
 ```bash
 go build -o gonetlogo ./cmd/gonetlogo
@@ -134,7 +128,7 @@ Headless still of that window, after `setup` and 30 `go` steps:
 ./gonetlogo -snapshot fire.png -model fire.nlogo -steps 30 -seed 1
 ```
 
-`-model` is a built-in name (`fire`, `life`, `termites`, `wolfsheep`) or a path. `-seed 0` keeps a clock seed.
+`-model` is a built-in name (`fire`, `life`, `termites`, `wolfsheep`, `edge`, `output`, `plot`, `Robby the Robot`) or a path. `-seed 0` keeps a clock seed.
 
 Headless Wolf Sheep benchmark (the model's world, fixed seed, samples every 100 ticks, optional CPU profile):
 
@@ -165,14 +159,15 @@ pkg/nl                     lexer, parser, interpreter, world, file loader
 models                     original demo programs (embedded)
 frontend                   React UI; GraphQL only
 internal/gui               optional Fyne desktop
+internal/logcfg            log level, format, and file for both binaries
 cmd/gonetlogo              desktop window, or -snapshot
 ```
 
 The interpreter is a tree walk, not a bytecode compiler. `pkg/nl` does not import the API or either UI, so another Go program can embed it.
 
-Each GraphQL session has its own VM, its own world, and its own widget values. `createSession` does not run setup; the client does. While go is running, a goroutine steps the model about every 30ms and publishes a frame. The speed slider matches the desktop: at 50 and above, several steps run per frame; below 50, frames are skipped.
+Each GraphQL session has its own VM, its own world, and its own widget values. `createSession` does not run setup; the client does. While go is running, a goroutine steps the model about every 30ms, and another publishes a frame on the frame-rate cap (default 24). A long button releases the world lock about every 50ms, so the view and stop keep working through a run such as Robby the Robot. The desktop window yields on that same interval, and its Stop button sets the halt flag without taking the session lock. The speed slider matches the desktop: at 50 and above, several steps run per frame; below 50, frames are skipped. While a run is active, the server ignores another button, setup, step, a command-center line, a code edit, a model load, and a world change. Pressing the running forever button still stops it. Slider, switch, chooser, input, and speed writes still apply.
 
-A frame carries ticks, widget values (including monitor readings), and the world: patch colors, turtles, and links. It does not carry the source, so a running model does not reset the code editor. Mutations that compile, run a command, or edit a widget publish a frame as well.
+A frame carries ticks, widget values (including monitor readings), output lines, plots, and the world: patch colors, the drawing layer, turtle shapes, labels, turtles, and links. It does not carry the source, so a running model does not reset the code editor. Mutations that compile, run a command, or edit a widget publish a frame as well.
 
 ## Schema
 
@@ -181,12 +176,12 @@ The schema lives in `schema/schema.graphqls`. Operations:
 | Kind | Fields |
 | --- | --- |
 | Query | `models`, `session(id)`, `worldSettings(sessionId)` |
-| Mutation | `createSession`, `loadModel`, `loadModelSource`, `loadModelFile`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
+| Mutation | `createSession`, `loadModel`, `loadModelSource`, `loadModelFile`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setFrameRate`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
 | Subscription | `frames(sessionId)` over a websocket |
 
-`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, and monitors, plus notes and a placeholder for plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World panel calls `worldSettings` and `setWorld`. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side.
+`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World tab reads `worldSettings` and writes with `setWorld`, then runs setup. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second.
 
-The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` and the Docker image serve a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
+The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
 
 Regenerate the Go types from `backend/` with:
 
@@ -194,7 +189,7 @@ Regenerate the Go types from `backend/` with:
 GOTOOLCHAIN=local go run github.com/99designs/gqlgen@v0.17.49 generate
 ```
 
-gqlgen 0.17.49's built-in scalar map points at Go types that package does not declare. `backend/scalar` supplies the marshal functions the generator looks up, and `backend/gqlgen.yml` binds Boolean, Int, ID, Float, and String to them.
+gqlgen 0.17.49's built-in scalar map points at Go types that package does not declare. `backend/scalar` supplies the marshal functions the generator looks up, and `backend/gqlgen.yml` binds Boolean, Int, ID, Float, and String to them. The subscriber cursor lives in `backend/graph/subcursor.go`, outside the generated file, so `gqlgen generate` leaves it alone.
 
 ## Language
 
@@ -215,7 +210,9 @@ Heading `0` is north and headings increase clockwise. `forward` and `back` move 
 
 Turtles carry `who`, `heading`, `xcor`, `ycor`, `color`, `shape`, `size`, `hidden?`, `label`, and breed variables. `who` numbers are never reused. Patches carry `pcolor`, `pxcor`, `pycor`, `plabel`, and `patches-own` variables. A turtle reads and writes the variables of the patch it stands on. Links have endpoints, a direction, color, shape, thickness, and `links-own` variables. `die` on a turtle removes its links.
 
-`clear-all` clears globals, ticks, turtles, links, patches, and the drawing layer. Slider, switch, chooser, and input variables are interface globals and are left alone. `reset-ticks` starts the counter at 0. `tick` and `ticks` fail until then.
+Turtle shapes come from the turtle-shapes section of a `.nlogo` or `.nlogox` file. A file with no shapes keeps the embedded standard library. A name the library does not contain is drawn as that library's default arrow. If the library has no default arrow, the built-in approximations are used. A shape turns with heading only when it is marked rotatable. A label is drawn at the bottom-right of the agent's size box and grows up and to the left. The view's point size (10 when the file does not set one) scales with the patch size.
+
+`clear-all` clears globals, ticks, turtles, links, patches, and the drawing layer. Slider, switch, chooser, and input variables are interface globals and are left alone. `reset-ticks` starts the counter at 0. `tick` and `ticks` fail until then. Pen strokes are line segments in world coordinates and are painted in pixels. Stamps use the turtle's shape. The drawing layer keeps at most 8192 marks; older marks drop off the front. `clear-drawing` and `clear-all` drop the whole layer.
 
 `random` and `random-float` use `math/rand` with an explicit seed. `random-seed` is deterministic inside this program. The generator is not NetLogo's Mersenne Twister, so the same seed does not reproduce a NetLogo run bit for bit. `clear-all` does not reseed.
 
@@ -223,7 +220,7 @@ Colors are NetLogo numbers in `[0, 140)`, with the fourteen base hues and the sa
 
 ## Demo models
 
-`models/` holds the original programs. They implement well-known rules and are not copies of the Models Library. Those library files are published under CC BY-NC-SA and are not included here. `loadModel` still serves only those embedded demos. `loadModelSource` takes the file contents of a `.nlogo` or `.nlogox` model (the web **Open model…** control reads the file in the browser and sends it). `loadModelFile` reads a relative path inside `MODELS_DIR` (default `./models`) and rejects absolute paths and `..`. The desktop **File > Open** command loads a `.nlogo` or `.nlogox` file you already have.
+`models/` holds the original demo programs and one Models Library sample, `Robby the Robot.nlogo` (CC0; the citation is in `models/README.md`). Models Library files under CC BY-NC-SA are not included. `loadModel` still serves only those embedded demos. `loadModelSource` takes the file contents of a `.nlogo` or `.nlogox` model (the web **Open model…** control reads the file in the browser and sends it). `loadModelFile` reads a relative path inside `MODELS_DIR` (default `./models`) and rejects absolute paths and `..`. The desktop **File > Open** command loads a `.nlogo` or `.nlogox` file you already have.
 
 | Model | What it shows |
 | --- | --- |
@@ -232,6 +229,9 @@ Colors are NetLogo numbers in `[0, 140)`, with the fourteen base hues and the sa
 | `termites.nlogo` | Termites pick up yellow chips and drop them on empty patches. The chip count (patches plus carriers) is constant. |
 | `wolfsheep.nlogo` | Sheep eat grass, wolves eat sheep, both spend energy, reproduce by `hatch`, and die at zero. A switch turns grass off. |
 | `edge.nlogo` | A world that does not wrap. Eight turtles walk until `fd` stops them on the last patch inside the edge. |
+| `output.nlogo` | Prints with `output-print`, `output-type`, and `output-write` into an output widget. |
+| `plot.nlogo` | Two plots. One follows turtle counts on tick. The other draws a fixed-range wave with `plotxy`. |
+| `Robby the Robot.nlogo` | Models Library sample of a genetic algorithm. The citation is in `models/README.md`. |
 
 `go test` covers the lexer, parser, arithmetic, lists, tasks, movement and wrapping, breeds and links, diffuse, and these models: the blinker returns to its start after two ticks, a fully planted forest burns out, and termites conserve chips.
 
@@ -239,7 +239,7 @@ Colors are NetLogo numbers in `[0, 140)`, with the fourteen base hues and the sa
 
 Special forms: `to`, `to-report`, `end`, `globals`, `turtles-own`, `patches-own`, `links-own`, `breed`, `directed-link-breed`, `undirected-link-breed`, `<breed>-own`, `let`, `set` (including `set [x y] [1 2]`), `if`, `ifelse`, `while`, `repeat`, `loop`, `ask`, `foreach`, `report`, `stop`.
 
-Commands: `clear-all` (`ca`), `clear-turtles` (`ct`), `clear-patches` (`cp`), `clear-globals`, `clear-links`, `clear-ticks`, `clear-drawing` (`cd`), `clear-output`, `reset-ticks`, `tick`, `tick-advance`, `random-seed`, `die`, `forward` (`fd`), `back` (`bk`), `jump`, `right` (`rt`), `left` (`lt`), `setxy`, `move-to`, `facexy`, `face`, `home`, `pen-down` (`pd`), `pen-up` (`pu`), `hide-turtle` (`ht`), `show-turtle` (`st`), `print`, `show`, `type`, `write`, `output-print`, `output-show`, `user-message`, `resize-world`, `set-default-shape`, `set-patch-size`, `diffuse`, `diffuse4`, `create-turtles` (`crt`), `create-ordered-turtles` (`cro`), `sprout`, `hatch`, the breed-specific forms of those four, `create-link-with` / `to` / `from` and the plural and breed-specific forms, `layout-circle`, `run`, `display`, `no-display`, `reset-timer`, `wait` (capped at 5 seconds), `beep`.
+Commands: `clear-all` (`ca`), `clear-turtles` (`ct`), `clear-patches` (`cp`), `clear-globals`, `clear-links`, `clear-ticks`, `clear-drawing` (`cd`), `clear-output`, `clear-all-plots`, `clear-plot`, `setup-plots`, `update-plots`, `reset-ticks`, `tick`, `tick-advance`, `random-seed`, `die`, `forward` (`fd`), `back` (`bk`), `jump`, `right` (`rt`), `left` (`lt`), `setxy`, `move-to`, `facexy`, `face`, `home`, `pen-down` (`pd`), `pen-up` (`pu`), `stamp`, `stamp-erase`, `hide-turtle` (`ht`), `show-turtle` (`st`), `print`, `show`, `type`, `write`, `output-print`, `output-show`, `output-type`, `output-write`, `user-message`, `resize-world`, `set-default-shape`, `set-patch-size`, `diffuse`, `diffuse4`, `create-turtles` (`crt`), `create-ordered-turtles` (`cro`), `sprout`, `hatch`, the breed-specific forms of those four, `create-link-with` / `to` / `from` and the plural and breed-specific forms, `layout-circle`, `plot`, `plotxy`, `plot-pen-up`, `plot-pen-down`, `set-plot-x-range`, `set-plot-y-range`, `set-current-plot`, `set-current-plot-pen`, `auto-plot-on`, `auto-plot-off`, `create-temporary-plot-pen`, `run`, `display`, `no-display`, `reset-timer`, `wait` (capped at 5 seconds), `beep`.
 
 Reporters: `turtle`, `patch`, `link`, `turtles-on`, `turtles-at`, `patch-here`, `patch-ahead`, `patch-at`, `patch-left-and-ahead`, `patch-right-and-ahead`, `turtles-here`, breed sets, `<breed>-here`, `<breed>-on`, `<breed>-at`, `is-<breed>?`, `one-of`, `n-of`, `any?`, `all?`, `count`, `sum`, `mean`, `max`, `min`, `variance`, `standard-deviation`, `max-one-of`, `min-one-of`, `with`, `with-min`, `with-max`, `in-radius`, `of`, `other`, `neighbors`, `neighbors4`, `distance`, `distancexy`, `towards`, `towardsxy`, `can-move?`, `myself`, `self`, `map`, `filter`, `reduce`, `n-values`, `foreach` tasks, `range`, `list`, `sentence` (`se`), `fput`, `lput`, `but-first` (`bf`), `but-last` (`bl`), `first`, `last`, `item`, `length`, `empty?`, `member?`, `position`, `reverse`, `sort`, `sort-by`, `sort-on`, `remove`, `remove-item`, `replace-item`, `sublist`, `substring`, `word`, `read-from-string`, `random`, `random-float`, `random-xcor`, `random-ycor`, `random-pxcor`, `random-pycor`, `scale-color`, `shade-of?`, color names, `not`, `and`, `or`, `xor`, arithmetic and comparisons, `abs`, `round`, `floor`, `ceiling`, `int`, `precision`, `approximate`, `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `ln`, `log`, `exp`, `mod`, `remainder`, `ifelse-value`, `runresult`, `is-number?`, `is-string?`, `is-list?`, `is-boolean?`, `is-agent?`, `is-turtle?`, `is-patch?`, `is-link?`, `is-nobody?`, `is-agentset?` and the three agentset variants, `turtle-set`, `patch-set`, `link-set`, `link`, `in-link-from`, `out-link-to`, `link-with`, `link-neighbors`, `in-link-neighbors`, `out-link-neighbors`, `my-links`, `both-ends`, `ticks`, `timer`, `min-pxcor`, `max-pxcor`, `min-pycor`, `max-pycor`, `world-width`, `world-height`, `patch-size`.
 
@@ -249,12 +249,12 @@ Arrow tasks (`[x -> x + 1]`, `[[x y] -> ...]`) work. The old `?` task form works
 
 This is a first milestone of the language, plus a GraphQL client. The rest of NetLogo is large; this is the order to take it:
 
-1. **Plots and drawing.** Time-series plots, pen mode at a finer resolution than one sample per patch, and mouse reporters (`mouse-down?`, `mouse-xcor`) so models can draw on the view.
+1. **Plots and drawing.** Time-series plots, pen mode at a finer resolution than one sample per patch, and mouse reporters (`mouse-down?`, `mouse-xcor`) so models can draw on the view. Plots (#12) and pixel-resolution pen strokes are in; the drawing layer keeps at most 8192 marks (#16). Still missing: the mouse reporters (`mouse-down?`, `mouse-xcor`).
 2. **NetLogo's RNG.** The Mersenne Twister NetLogo uses, so a seed matches an upstream run. Needed before any experiment tool is meaningful.
-3. **The long tail of primitives.** `carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`, `inspect`, output-widget commands, and file primitives (`file-open`, `file-read`).
+3. **The long tail of primitives.** `carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`, `inspect`, output-widget commands, and file primitives (`file-open`, `file-read`). Output-widget commands are in (#9): `output-print`, `output-show`, `output-type`, `output-write`, `clear-output`. Still missing: `carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`, `inspect`, and the file primitives (`file-open`, `file-read`).
 4. **BehaviorSpace.** Parameter sweeps over the existing sliders, writing a table. Depends on the RNG if results are meant to match NetLogo.
 5. **Extensions.** Honor the `extensions` declaration and load a small Go extension API. `nw`, `gis`, `table`, `array`, `matrix`, and `bitmap` are the ones models hit first.
-6. **The rest of the interface.** A real Info tab, an output widget separate from the command center, a plot widget, the command-center history, and an agent inspector.
+6. **The rest of the interface.** A real Info tab, an output widget separate from the command center, a plot widget, the command-center history, and an agent inspector. An output widget (#9), a plot widget (#12), and a World tab on the web UI and the desktop window (#20) are in. The tabs are Interface, World, and Code. Still missing: a real Info tab, command-center history, and an agent inspector.
 7. **System Dynamics.** The stock-and-flow diagram and its generated code.
 8. **HubNet.** Participatory simulations. A large protocol; not required for single-player models.
 9. **3D.** `turtles3d`, `pzcor`, and a second view. The world type would grow a Z axis; the renderer would need a new backend.
