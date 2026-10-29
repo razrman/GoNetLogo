@@ -409,8 +409,8 @@ export function App() {
             <span>ticks <b>{ticksLabel}</b></span>
           </div>
         </div>
-        <div className="run-timer" data-timer={timerLabel}><b>{timerLabel}</b></div>
         <div className="topbar-right">
+          <div className="run-timer" data-timer={timerLabel}><b>{timerLabel}</b></div>
           <div
             className="ticks"
             data-tps={tpsLabel}
