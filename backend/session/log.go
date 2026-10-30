@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gonetlogo/pkg/nl"
@@ -31,6 +32,13 @@ func (s *Session) setRunningLocked(i int, reason string) {
 	if prev >= 0 && i < 0 {
 		s.flushDropsLocked()
 	}
+	if prev < 0 && i >= 0 {
+		s.runStart = time.Now()
+		s.runRNG = 0
+		if s.vm != nil && s.vm.World != nil {
+			s.runRNG = s.vm.World.RNGDraws()
+		}
+	}
 	if !debugEnabled() {
 		return
 	}
@@ -39,8 +47,37 @@ func (s *Session) setRunningLocked(i int, reason string) {
 		return
 	}
 	if prev >= 0 && i < 0 {
-		slog.Debug("step loop stopped", "session", s.id, "reason", reason)
+		draws, rate := s.rngRateLocked()
+		slog.Debug("step loop stopped", "session", s.id, "reason", reason, "rng_calls", draws, "rng_per_sec", perSec(rate))
 	}
+}
+
+// rngRateLocked is the draw counter and the draws per second since the
+// forever button started. Caller holds s.mu.
+func (s *Session) rngRateLocked() (uint64, float64) {
+	var draws uint64
+	if s.vm != nil && s.vm.World != nil {
+		draws = s.vm.World.RNGDraws()
+	}
+	if s.runStart.IsZero() {
+		return draws, 0
+	}
+	dt := time.Since(s.runStart).Seconds()
+	if dt <= 0 {
+		return draws, 0
+	}
+	delta := draws
+	if draws >= s.runRNG {
+		delta = draws - s.runRNG
+	}
+	return draws, float64(delta) / dt
+}
+
+func perSec(rate float64) int64 {
+	if rate <= 0 {
+		return 0
+	}
+	return int64(rate + 0.5)
 }
 
 // haltVM asks the interpreter to stop and logs it once per request.
@@ -99,12 +136,86 @@ func (s *Session) flushDropsLocked() {
 	if s.dropCap == 0 && s.dropSlow == 0 {
 		return
 	}
-	if debugEnabled() {
-		slog.Debug("dropped frames", "session", s.id, "dropped", s.dropCap, "slow", s.dropSlow)
-	}
+	slog.Warn("dropped frames", "session", s.id, "dropped", s.dropCap, "slow", s.dropSlow)
 	s.dropCap = 0
 	s.dropSlow = 0
 	s.dropWindow = time.Now()
+}
+
+func isSetupName(display, source string) bool {
+	return strings.EqualFold(display, "setup") || strings.EqualFold(strings.TrimSpace(source), "setup")
+}
+
+func warnNetLogo(msg string, err error, args ...any) {
+	fields := make([]any, 0, len(args)+6)
+	fields = append(fields, args...)
+	if err != nil {
+		fields = append(fields, "err", err)
+		if proc, line, ok := nl.LocateError(err); ok {
+			if proc != "" {
+				fields = append(fields, "proc", proc)
+			}
+			if line > 0 {
+				fields = append(fields, "line", line)
+			}
+		}
+	}
+	slog.Warn(msg, fields...)
+}
+
+// noteProgress writes one debug line about every five seconds during a run.
+func (s *Session) noteProgress(vm *nl.VM) {
+	if vm == nil || !debugEnabled() {
+		return
+	}
+	now := time.Now()
+	s.mu.Lock()
+	if s.running < 0 || (!s.progressAt.IsZero() && now.Sub(s.progressAt) < 5*time.Second) {
+		s.mu.Unlock()
+		return
+	}
+	s.progressAt = now
+	prev, prevAt := s.rngMark, s.rngMarkAt
+	id := s.id
+	s.mu.Unlock()
+
+	p := vm.Progress()
+	rate := 0.0
+	if !prevAt.IsZero() {
+		if dt := now.Sub(prevAt).Seconds(); dt > 0 {
+			delta := p.RNGDraws
+			if p.RNGDraws >= prev {
+				delta = p.RNGDraws - prev
+			}
+			rate = float64(delta) / dt
+		}
+	}
+	ticks := 0.0
+	if p.Started {
+		ticks = p.Ticks
+	}
+	slog.Debug("progress", "session", id, "ticks", ticks, "turtles", p.Turtles, "patches", p.Patches,
+		"drawing", p.Drawing, "plot_points", p.PlotPoints, "output_len", p.OutputLen,
+		"rng_calls", p.RNGDraws, "rng_per_sec", perSec(rate))
+
+	s.mu.Lock()
+	s.rngMark = p.RNGDraws
+	s.rngMarkAt = now
+	if p.Drawing >= nl.MaxDrawingMarks && !s.capDrawing {
+		s.capDrawing = true
+		slog.Warn("drawing cap", "session", id, "marks", p.Drawing, "cap", nl.MaxDrawingMarks)
+	}
+	if p.Drawing < nl.MaxDrawingMarks {
+		s.capDrawing = false
+	}
+	if p.PlotPoints >= nl.PlotPointCap && !s.capPlot {
+		s.capPlot = true
+		slog.Warn("plot cap", "session", id, "points", p.PlotPoints, "cap", nl.PlotPointCap)
+	}
+	if p.PlotPoints < nl.PlotPointCap {
+		s.capPlot = false
+	}
+	s.mu.Unlock()
 }
 
 func logModel(msg string, sessionID, name string, bytes int, err error) {

@@ -123,6 +123,9 @@ type VM struct {
 	// external counts DoLocked callers. Checkpoint does not yield or halt
 	// while a snapshot or a monitor is reading the world.
 	external int
+	// procs is the procedure call stack, innermost last. fail copies the
+	// top name onto the runtime error so logs can name the procedure.
+	procs []string
 	// askBuf collects one breed for ask without allocating a fresh agentset.
 	askBuf []Agent
 	// runCache remembers run strings that are not a bare command name.
@@ -371,8 +374,22 @@ func (vm *VM) recover(errp *error, stopped *bool) {
 	}
 }
 
+func (vm *VM) pushProc(name string) {
+	vm.procs = append(vm.procs, name)
+}
+
+func (vm *VM) popProc() {
+	if n := len(vm.procs); n > 0 {
+		vm.procs = vm.procs[:n-1]
+	}
+}
+
 func (vm *VM) fail(pos Pos, format string, args ...any) {
-	panic(&rtError{msg: fmt.Sprintf(format, args...), pos: pos})
+	proc := ""
+	if n := len(vm.procs); n > 0 {
+		proc = vm.procs[n-1]
+	}
+	panic(&rtError{msg: fmt.Sprintf(format, args...), pos: pos, proc: proc})
 }
 
 func (vm *VM) callCmd(proc *Procedure, args []Value) (stopped bool, err error) {
@@ -380,6 +397,8 @@ func (vm *VM) callCmd(proc *Procedure, args []Value) (stopped bool, err error) {
 		return false, fmt.Errorf("%s expected %d inputs", proc.Name, len(proc.Params))
 	}
 	vm.ensureCompiled()
+	vm.pushProc(proc.Name)
+	defer vm.popProc()
 	defer vm.recover(&err, &stopped)
 	saved := vm.scope
 	var sc *scope
@@ -418,6 +437,8 @@ func (vm *VM) callRep(proc *Procedure, args []Value) (v Value, err error) {
 		return Value{}, fmt.Errorf("%s expected %d inputs", proc.Name, len(proc.Params))
 	}
 	vm.ensureCompiled()
+	vm.pushProc(proc.Name)
+	defer vm.popProc()
 	defer vm.recover(&err, nil)
 	saved := vm.scope
 	var sc *scope

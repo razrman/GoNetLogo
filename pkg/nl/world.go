@@ -56,8 +56,9 @@ type World struct {
 	// The run timer watches it. Tick does not, so a benchmark is unchanged.
 	runEpoch uint64
 
-	rng  *rand.Rand
-	seed int64
+	rng      *rand.Rand
+	rngDraws atomic.Uint64
+	seed     int64
 
 	// drawing is the pen and stamp layer, oldest first, capped so a long
 	// pen-down run cannot retain every stroke. Turtle, Patch, and Link
@@ -293,10 +294,60 @@ func (w *World) Resize(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) {
 
 func (w *World) Seed(seed int64) {
 	w.seed = seed
-	w.rng = rand.New(rand.NewSource(seed))
+	w.ResetRNGDraws()
+	src := rand.NewSource(seed)
+	w.rng = rand.New(&countingSource{src: src, s64: src.(rand.Source64), draws: &w.rngDraws})
 }
 
 func (w *World) RNG() *rand.Rand { return w.rng }
+
+// RNGDraws is how many times the world RNG source has been asked for a
+// number since the last clear-all, setup, or random-seed. Every Int63 or
+// Uint64 on that source counts, including rejection samples inside Intn.
+func (w *World) RNGDraws() uint64 {
+	if w == nil {
+		return 0
+	}
+	return w.rngDraws.Load()
+}
+
+// ResetRNGDraws zeroes the draw counter without changing the sequence.
+func (w *World) ResetRNGDraws() {
+	if w != nil {
+		w.rngDraws.Store(0)
+	}
+}
+
+// countingSource delegates to a math/rand source and counts every draw.
+// It implements Source64 so Rand.Uint64 stays one draw, matching the
+// source rand.NewSource returns. Int63 still calls the inner Int63, so
+// Intn, Float64, and Shuffle keep the unwrapped sequence.
+type countingSource struct {
+	src   rand.Source
+	s64   rand.Source64
+	draws *atomic.Uint64
+}
+
+func (c *countingSource) Int63() int64 {
+	c.draws.Add(1)
+	return c.src.Int63()
+}
+
+func (c *countingSource) Uint64() uint64 {
+	if c.s64 != nil {
+		c.draws.Add(1)
+		return c.s64.Uint64()
+	}
+	// Two Int63 draws, each counted by Int63. This path is unused for
+	// rand.NewSource, which implements Source64.
+	hi := uint64(c.Int63())
+	lo := uint64(c.Int63())
+	return hi>>31 | lo<<32
+}
+
+func (c *countingSource) Seed(seed int64) {
+	c.src.Seed(seed)
+}
 
 // SetProgramVars installs the variable declarations from a compiled program.
 // Existing global values are kept when the name survives.
@@ -513,6 +564,9 @@ func (w *World) GetPatch(px, py int) *Patch {
 // --- clearing ---
 
 func (w *World) ClearAll() {
+	// setup calls clear-all. The draw counter starts over so a run's
+	// rng_calls figure is the draws since this reset, not since process start.
+	w.ResetRNGDraws()
 	w.ClearGlobals()
 	w.ClearTicks()
 	w.ClearTurtles()

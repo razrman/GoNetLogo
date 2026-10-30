@@ -10,6 +10,7 @@ package locale
 import (
 	"os"
 	"strings"
+	"sync"
 
 	"golang.org/x/text/language"
 )
@@ -21,21 +22,53 @@ func init() {
 	Normalize()
 }
 
+type outcome struct {
+	from    string
+	to      string
+	changed bool
+}
+
+var (
+	outcomeMu sync.Mutex
+	last      outcome
+)
+
+// Override reports the most recent Normalize result. from is the tag Fyne
+// would have parsed. changed is true when that tag was replaced.
+func Override() (from, to string, changed bool) {
+	outcomeMu.Lock()
+	defer outcomeMu.Unlock()
+	return last.from, last.to, last.changed
+}
+
+func remember(from, to string, changed bool) {
+	outcomeMu.Lock()
+	last = outcome{from: from, to: to, changed: changed}
+	outcomeMu.Unlock()
+}
+
 // Normalize sets the process locale to en_US.UTF-8 when the tag Fyne would
 // parse is C, POSIX, or not valid BCP 47. A tag Fyne already accepts is
 // left alone, including an empty locale (Fyne falls back to English without
 // logging). It returns whether the environment changed.
 func Normalize() bool {
 	tag, kind := effectiveTag()
+	from := tag
+	if kind == kindEmpty {
+		from = ""
+	}
 	switch kind {
 	case kindEmpty:
+		remember(from, from, false)
 		return false
 	case kindTag:
 		if _, err := language.Parse(tag); err == nil {
+			remember(from, from, false)
 			return false
 		}
 	}
 	applyFallback()
+	remember(from, fallback, true)
 	return true
 }
 
