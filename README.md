@@ -93,6 +93,34 @@ Foreground is the default; Ctrl-C stops the process. Background mode writes `run
 
 `./build.sh --desktop` also builds the Fyne window at `bin/gonetlogo`. Run that binary when you want the local window.
 
+## macOS (Apple Silicon)
+
+These scripts install, build, and run GoNetLogo on a Mac with Apple Silicon (arm64), including a Mac mini M4. GoNetLogo runs as a plain executable. The scripts use the bash and BSD tools that ship with macOS.
+
+`setup-mac.sh` is safe to run more than once. It checks Xcode Command Line Tools with `xcode-select -p` and runs `xcode-select --install` when they are missing. Clang from those tools is what Fyne's cgo build uses. Homebrew supplies Go (at least the version in `go.mod`), Node.js and npm (Vite needs Node.js 20.19+ or 22.12+), and `pkg-config`. If `brew` is not on `PATH`, the script loads `brew shellenv` from `/opt/homebrew` (Apple Silicon) or `/usr/local`. It does not install Homebrew; the hint is the command from https://brew.sh. Frontend dependencies are installed with `npm ci` when they are missing or out of date.
+
+```bash
+./setup-mac.sh
+./build-mac.sh
+./startup-mac.sh
+```
+
+`./build-mac.sh` builds the web UI, then `bin/gonetlogo-server` and `bin/gonetlogo` for `darwin/arm64` with `CGO_ENABLED=1`. `./build-mac.sh --desktop` is accepted; the desktop binary is always built. `./build-mac.sh --app` runs `fyne package -os darwin` when the `fyne` command is on `PATH` and writes `bin/GoNetLogo.app`. That bundle is optional, and `setup-mac.sh` does not install the `fyne` CLI (`go install fyne.io/fyne/v2/cmd/fyne@v2.5.4`). The `.app` is unsigned.
+
+`./startup-mac.sh` follows `./startup.sh`: foreground by default, `PORT` and `HOST`, `--background`, `status`, and `stop`. The listen address defaults to `127.0.0.1:8080`. `GONETLOGO_LOG_LEVEL` and `GONETLOGO_LOG_FILE` pass through to the server and the desktop binary. The script does not add `-log-level` arguments. `--open` opens the web UI with `open`. A busy port is reported with `lsof`. `--desktop` launches `bin/gonetlogo`, so `GONETLOGO_LOG_LEVEL` and `GONETLOGO_LOG_FILE` still apply. If that binary is missing and `bin/GoNetLogo.app` is present, `--desktop` opens the bundle instead. `--desktop` alone leaves the server stopped. `--server`, `--background`, or `--open` starts the server as well.
+
+```bash
+./startup-mac.sh --open
+./startup-mac.sh --background
+./startup-mac.sh status
+./startup-mac.sh stop
+./startup-mac.sh --desktop
+./startup-mac.sh --desktop --server
+PORT=9090 ./startup-mac.sh
+GONETLOGO_LOG_LEVEL=debug ./startup-mac.sh
+open ./bin/GoNetLogo.app
+```
+
 ## Run both
 
 Go 1.22 or newer, and Node 22. From the repo root:
