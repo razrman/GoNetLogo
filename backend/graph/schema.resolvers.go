@@ -190,6 +190,37 @@ func (r *queryResolver) WorldSettings(ctx context.Context, sessionID string) (*m
 	return s.WorldSettings()
 }
 
+// Library is the resolver for the library field.
+func (r *queryResolver) Library(ctx context.Context, path *string) (*model.LibraryListing, error) {
+	rel := ""
+	if path == nil {
+		got, ok := session.OpenPath()
+		if !ok {
+			return &model.LibraryListing{Entries: []model.LibraryEntry{}}, nil
+		}
+		rel = got
+	} else {
+		rel = *path
+	}
+	listing, err := session.ListFolder(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !listing.Available {
+		return &model.LibraryListing{Entries: []model.LibraryEntry{}}, nil
+	}
+	entries := make([]model.LibraryEntry, len(listing.Entries))
+	for i, entry := range listing.Entries {
+		entries[i] = model.LibraryEntry{Name: entry.Name, Path: entry.Path, Directory: entry.Directory}
+	}
+	return &model.LibraryListing{
+		Path:      listing.Path,
+		Parent:    listing.Parent,
+		Entries:   entries,
+		Available: true,
+	}, nil
+}
+
 // Frames is the resolver for the frames field.
 func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-chan *model.Frame, error) {
 	s, err := r.session(sessionID)

@@ -25,6 +25,7 @@ import (
 	"gonetlogo/backend/graph"
 	"gonetlogo/backend/session"
 	"gonetlogo/internal/logcfg"
+	"gonetlogo/models"
 )
 
 func main() {
@@ -59,6 +60,11 @@ func main() {
 		slog.Warn("model files unavailable; embedded demos still load", "err", err)
 	} else {
 		slog.Info("model files confined", "dir", dir)
+	}
+	if dir, ok := models.OpenDir(); ok {
+		slog.Info("model open folder", "dir", dir)
+	} else {
+		slog.Warn("model open folder not found; the web Open button uses a local file chooser")
 	}
 	srv := newHandler(store)
 

@@ -259,3 +259,68 @@ func TestLoadModelStillEmbeddedOnly(t *testing.T) {
 		t.Fatalf("demo replaced by %q", s.modelName)
 	}
 }
+
+func TestListFolderLibraryAndTraversal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MODELS_DIR", dir)
+	t.Setenv("GONETLOGO_MODELS_DIR", "")
+	lib := filepath.Join(dir, "library", "Sample Models")
+	if err := os.MkdirAll(lib, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pace.nlogo"), []byte(nlogoPace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lib, "Fire.nlogox"), []byte(nlogoxPace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lib, "notes.txt"), []byte("nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "linked-dir")); err != nil {
+		t.Fatal(err)
+	}
+
+	open, ok := OpenPath()
+	if !ok || open != "library" {
+		t.Fatalf("OpenPath %q ok %v", open, ok)
+	}
+	root, err := ListFolder("")
+	if err != nil || !root.Available {
+		t.Fatalf("root list %+v %v", root, err)
+	}
+	if root.Parent != nil {
+		t.Fatalf("root parent %#v", root.Parent)
+	}
+	got := map[string]LibraryEntry{}
+	for _, e := range root.Entries {
+		got[e.Name] = e
+	}
+	if dir, ok := got["library"]; !ok || !dir.Directory {
+		t.Fatalf("library dir missing: %+v", root.Entries)
+	}
+	if file, ok := got["pace.nlogo"]; !ok || file.Directory {
+		t.Fatalf("pace.nlogo missing: %+v", root.Entries)
+	}
+	if _, ok := got["linked-dir"]; ok {
+		t.Fatalf("symlink outside the models directory was listed: %+v", root.Entries)
+	}
+
+	sub, err := ListFolder("library/Sample Models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Path != "library/Sample Models" || sub.Parent == nil || *sub.Parent != "library" {
+		t.Fatalf("sub %+v", sub)
+	}
+	if len(sub.Entries) != 1 || sub.Entries[0].Name != "Fire.nlogox" || sub.Entries[0].Directory {
+		t.Fatalf("sample entries %+v", sub.Entries)
+	}
+
+	for _, path := range []string{"../secret", "library/../../etc", "/etc", `C:\models`} {
+		if _, err := ListFolder(path); err == nil {
+			t.Errorf("listed %q", path)
+		}
+	}
+}

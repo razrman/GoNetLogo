@@ -5,9 +5,12 @@ import {
   CreateSession,
   Frames,
   Go,
+  LibraryQuery,
   LoadModel,
+  LoadModelFile,
   LoadModelSource,
   ModelsQuery,
+  client,
   PressButton,
   RunCommand,
   SetChooser,
@@ -25,15 +28,20 @@ import {
   isDisconnectError,
   onConnection,
   reportDisconnect,
+  type LibraryEntry,
+  type LibraryListing,
 } from './api'
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
+import { LibraryBrowser } from './LibraryBrowser'
 import { WorldCanvas } from './WorldCanvas'
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
+type FileResult = { loadModelFile: SessionInfo }
 type SourceResult = { loadModelSource: SessionInfo }
+type LibraryResult = { library: LibraryListing }
 type CodeResult = { setCode: { ok: boolean; error: string | null } }
 type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
 
@@ -41,6 +49,7 @@ export function App() {
   const [models] = useQuery<{ models: string[] }>({ query: ModelsQuery })
   const [, createSession] = useMutation<CreateResult>(CreateSession)
   const [, loadModel] = useMutation<LoadResult>(LoadModel)
+  const [, loadModelFile] = useMutation<FileResult>(LoadModelFile)
   const [, loadModelSource] = useMutation<SourceResult>(LoadModelSource)
   const [, setCodeMut] = useMutation<CodeResult>(SetCode)
   const [, runCommand] = useMutation<CommandResult>(RunCommand)
@@ -91,6 +100,9 @@ export function App() {
     setPlotSeries({})
   }
   const fileRef = useRef<HTMLInputElement>(null)
+  const [library, setLibrary] = useState<LibraryListing | null>(null)
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+  const [libraryLoading, setLibraryLoading] = useState(false)
 
   useEffect(() => onConnection(setOnline), [])
   useEffect(() => {
@@ -240,8 +252,8 @@ export function App() {
       setBanner('The session is still opening')
       return
     }
-    if (!/\.nlogox?$/i.test(file.name)) {
-      setCompileError(`Open a .nlogo or .nlogox file. ${file.name} is neither.`)
+    if (!/\.nlogo(x3d|x)?$/i.test(file.name)) {
+      setCompileError(`Open a .nlogo, .nlogox, or .nlogox3d file. ${file.name} is not one of those.`)
       return
     }
     let text: string
@@ -252,6 +264,70 @@ export function App() {
       return
     }
     await openSource(file.name, text)
+  }
+
+  async function queryLibrary(path: string | null) {
+    const res = await client.query<LibraryResult>(LibraryQuery, { path }, { requestPolicy: 'network-only' }).toPromise()
+    if (res.error || !res.data) {
+      const message = (res.error?.message ?? 'Could not list models').replace(/^\[GraphQL\]\s*/i, '').trim()
+      return { listing: null as LibraryListing | null, message, disconnect: reportDisconnect(message) }
+    }
+    return { listing: res.data.library, message: null as string | null, disconnect: false }
+  }
+
+  async function openLibrary() {
+    if (!sessionId) return
+    setLibraryLoading(true)
+    setLibraryError(null)
+    const result = await queryLibrary(null)
+    setLibraryLoading(false)
+    if (result.disconnect) return
+    if (!result.listing?.available) {
+      fileRef.current?.click()
+      return
+    }
+    setLibrary(result.listing)
+  }
+
+  async function openLibraryPath(path: string) {
+    setLibraryLoading(true)
+    setLibraryError(null)
+    const result = await queryLibrary(path)
+    setLibraryLoading(false)
+    if (result.disconnect) return
+    if (result.message) {
+      setLibraryError(result.message)
+      return
+    }
+    if (result.listing) setLibrary(result.listing)
+  }
+
+  function applyOpenedModel(info: SessionInfo) {
+    setModelName(info.modelName)
+    setCode(info.code)
+    setNotes(info.notes ?? [])
+    setCompileError(null)
+    setActive(null)
+    resetPlots()
+    setLibrary(null)
+    setLibraryError(null)
+  }
+
+  async function openLibraryFile(entry: LibraryEntry) {
+    if (!sessionId) return
+    setLibraryError(null)
+    const res = await loadModelFile({ id: sessionId, path: entry.path })
+    if (res.error || !res.data) {
+      const message = (res.error?.message ?? 'Could not open that model').replace(/^\[GraphQL\]\s*/i, '').trim()
+      if (reportDisconnect(message)) return
+      setLibraryError(message)
+      setCompileError(presentCompileError(message, ''))
+      return
+    }
+    const info = res.data.loadModelFile
+    applyOpenedModel(info)
+    const setup = await setupMut({ id: sessionId })
+    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
   }
 
   async function onCommand(event: FormEvent) {
@@ -356,14 +432,14 @@ export function App() {
             className="open-model"
             type="button"
             disabled={!sessionId}
-            onClick={() => fileRef.current?.click()}
+            onClick={() => void openLibrary()}
           >
             Open model…
           </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".nlogo,.nlogox"
+            accept=".nlogo,.nlogox,.nlogox3d"
             aria-label="Open model file"
             hidden
             onChange={(e) => {
@@ -532,7 +608,7 @@ export function App() {
                 ) : (
                   <WorldCanvas world={frame?.world ?? null} />
                 )}
-                {dropping && <div className="drop-hint">Drop a .nlogo or .nlogox file</div>}
+                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, or .nlogox3d file</div>}
               </div>
               <div className="view-meta">
                 {frame
@@ -591,6 +667,25 @@ export function App() {
         }
       />
 
+      {library && (
+        <LibraryBrowser
+          listing={library}
+          loading={libraryLoading}
+          error={libraryError}
+          onOpen={(path) => void openLibraryPath(path)}
+          onUp={(path) => void openLibraryPath(path)}
+          onFile={(entry) => void openLibraryFile(entry)}
+          onClose={() => {
+            setLibrary(null)
+            setLibraryError(null)
+          }}
+          onLocal={() => {
+            setLibrary(null)
+            setLibraryError(null)
+            fileRef.current?.click()
+          }}
+        />
+      )}
       {leaveTo && (
         <div className="modal-back" onMouseDown={() => { if (!leaving) setLeaveTo(null) }}>
           <div

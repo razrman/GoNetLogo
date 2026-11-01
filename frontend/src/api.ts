@@ -128,6 +128,30 @@ export const ModelsQuery = `
   }
 `
 
+export type LibraryEntry = {
+  name: string
+  path: string
+  directory: boolean
+}
+
+export type LibraryListing = {
+  path: string
+  parent: string | null
+  entries: LibraryEntry[]
+  available: boolean
+}
+
+export const LibraryQuery = `
+  query Library($path: String) {
+    library(path: $path) {
+      path
+      parent
+      available
+      entries { name path directory }
+    }
+  }
+`
+
 export const CreateSession = `
   mutation CreateSession($model: String!) {
     createSession(model: $model) {
@@ -143,6 +167,18 @@ export const CreateSession = `
 export const LoadModel = `
   mutation LoadModel($id: ID!, $model: String!) {
     loadModel(sessionId: $id, model: $model) {
+      id
+      modelName
+      code
+      notes
+      widgets { index kind display forever }
+    }
+  }
+`
+
+export const LoadModelFile = `
+  mutation LoadModelFile($id: ID!, $path: String!) {
+    loadModelFile(sessionId: $id, path: $path) {
       id
       modelName
       code
