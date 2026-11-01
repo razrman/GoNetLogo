@@ -114,6 +114,19 @@ type ComplexityRoot struct {
 		World         func(childComplexity int) int
 	}
 
+	LibraryEntry struct {
+		Directory func(childComplexity int) int
+		Name      func(childComplexity int) int
+		Path      func(childComplexity int) int
+	}
+
+	LibraryListing struct {
+		Available func(childComplexity int) int
+		Entries   func(childComplexity int) int
+		Parent    func(childComplexity int) int
+		Path      func(childComplexity int) int
+	}
+
 	Link struct {
 		B      func(childComplexity int) int
 		G      func(childComplexity int) int
@@ -186,6 +199,7 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
+		Library       func(childComplexity int, path *string) int
 		Models        func(childComplexity int) int
 		Session       func(childComplexity int, id string) int
 		WorldSettings func(childComplexity int, sessionID string) int
@@ -330,6 +344,7 @@ type QueryResolver interface {
 	Models(ctx context.Context) ([]string, error)
 	Session(ctx context.Context, id string) (*model.Session, error)
 	WorldSettings(ctx context.Context, sessionID string) (*model.WorldSettings, error)
+	Library(ctx context.Context, path *string) (*model.LibraryListing, error)
 }
 type SubscriptionResolver interface {
 	Frames(ctx context.Context, sessionID string) (<-chan *model.Frame, error)
@@ -703,6 +718,55 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Frame.World(childComplexity), true
+
+	case "LibraryEntry.directory":
+		if e.complexity.LibraryEntry.Directory == nil {
+			break
+		}
+
+		return e.complexity.LibraryEntry.Directory(childComplexity), true
+
+	case "LibraryEntry.name":
+		if e.complexity.LibraryEntry.Name == nil {
+			break
+		}
+
+		return e.complexity.LibraryEntry.Name(childComplexity), true
+
+	case "LibraryEntry.path":
+		if e.complexity.LibraryEntry.Path == nil {
+			break
+		}
+
+		return e.complexity.LibraryEntry.Path(childComplexity), true
+
+	case "LibraryListing.available":
+		if e.complexity.LibraryListing.Available == nil {
+			break
+		}
+
+		return e.complexity.LibraryListing.Available(childComplexity), true
+
+	case "LibraryListing.entries":
+		if e.complexity.LibraryListing.Entries == nil {
+			break
+		}
+
+		return e.complexity.LibraryListing.Entries(childComplexity), true
+
+	case "LibraryListing.parent":
+		if e.complexity.LibraryListing.Parent == nil {
+			break
+		}
+
+		return e.complexity.LibraryListing.Parent(childComplexity), true
+
+	case "LibraryListing.path":
+		if e.complexity.LibraryListing.Path == nil {
+			break
+		}
+
+		return e.complexity.LibraryListing.Path(childComplexity), true
 
 	case "Link.b":
 		if e.complexity.Link.B == nil {
@@ -1164,6 +1228,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.PlotView.YMin(childComplexity), true
+
+	case "Query.library":
+		if e.complexity.Query.Library == nil {
+			break
+		}
+
+		args, err := ec.field_Query_library_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.Library(childComplexity, args["path"].(*string)), true
 
 	case "Query.models":
 		if e.complexity.Query.Models == nil {
@@ -1961,6 +2037,31 @@ type Query {
   session(id: ID!): Session
   """Dimensions, patch size, and wrapping for one session."""
   worldSettings(sessionId: ID!): WorldSettings!
+  """
+  List one folder of the server models directory for the Open browser.
+  Omit path to start at the models library. That folder is GONETLOGO_MODELS_DIR
+  when it sits inside the models directory, otherwise models/library.
+  Pass an empty string to list the models root.
+  available is false when the folder cannot be listed. entries is then empty,
+  and the client should fall back to choosing a file on this computer.
+  """
+  library(path: String): LibraryListing!
+}
+
+type LibraryEntry {
+  name: String!
+  """Path relative to the models directory. Pass it to loadModelFile."""
+  path: String!
+  directory: Boolean!
+}
+
+type LibraryListing {
+  """Folder that was listed, relative to the models directory. Empty is the root."""
+  path: String!
+  """Parent folder. Null at the models root. An empty string is the root itself."""
+  parent: String
+  entries: [LibraryEntry!]!
+  available: Boolean!
 }
 
 type Mutation {
@@ -1980,8 +2081,10 @@ type Mutation {
   loadModelSource(sessionId: ID!, filename: String!, source: String!): Session!
   """
   Load a model file from the server models directory.
-  That directory is MODELS_DIR, or ./models when the variable is unset.
+  That directory is MODELS_DIR, or the discovered models directory when the
+  variable is unset (the repo, bin/, or a macOS .app next to the repo).
   path is relative to it. Absolute paths and any .. segment are rejected.
+  A .nlogo, .nlogox, or .nlogox3d file is accepted.
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
@@ -2843,6 +2946,21 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		}
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_library_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 *string
+	if tmp, ok := rawArgs["path"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("path"))
+		arg0, err = ec.unmarshalOString2ᚖstring(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["path"] = arg0
 	return args, nil
 }
 
@@ -5299,6 +5417,319 @@ func (ec *executionContext) fieldContext_Frame_plotAppend(_ context.Context, fie
 				return ec.fieldContext_PlotPenDelta_points(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type PlotPenDelta", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LibraryEntry_name(ctx context.Context, field graphql.CollectedField, obj *model.LibraryEntry) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LibraryEntry_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LibraryEntry_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LibraryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LibraryEntry_path(ctx context.Context, field graphql.CollectedField, obj *model.LibraryEntry) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LibraryEntry_path(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Path, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LibraryEntry_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LibraryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LibraryEntry_directory(ctx context.Context, field graphql.CollectedField, obj *model.LibraryEntry) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LibraryEntry_directory(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Directory, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LibraryEntry_directory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LibraryEntry",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LibraryListing_path(ctx context.Context, field graphql.CollectedField, obj *model.LibraryListing) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LibraryListing_path(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Path, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LibraryListing_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LibraryListing",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LibraryListing_parent(ctx context.Context, field graphql.CollectedField, obj *model.LibraryListing) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LibraryListing_parent(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Parent, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LibraryListing_parent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LibraryListing",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LibraryListing_entries(ctx context.Context, field graphql.CollectedField, obj *model.LibraryListing) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LibraryListing_entries(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Entries, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.LibraryEntry)
+	fc.Result = res
+	return ec.marshalNLibraryEntry2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐLibraryEntryᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LibraryListing_entries(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LibraryListing",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_LibraryEntry_name(ctx, field)
+			case "path":
+				return ec.fieldContext_LibraryEntry_path(ctx, field)
+			case "directory":
+				return ec.fieldContext_LibraryEntry_directory(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type LibraryEntry", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LibraryListing_available(ctx context.Context, field graphql.CollectedField, obj *model.LibraryListing) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LibraryListing_available(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Available, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LibraryListing_available(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LibraryListing",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -8751,6 +9182,71 @@ func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_worldSettings_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_library(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_library(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().Library(rctx, fc.Args["path"].(*string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.LibraryListing)
+	fc.Result = res
+	return ec.marshalNLibraryListing2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐLibraryListing(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_library(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "path":
+				return ec.fieldContext_LibraryListing_path(ctx, field)
+			case "parent":
+				return ec.fieldContext_LibraryListing_parent(ctx, field)
+			case "entries":
+				return ec.fieldContext_LibraryListing_entries(ctx, field)
+			case "available":
+				return ec.fieldContext_LibraryListing_available(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type LibraryListing", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_library_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -15251,6 +15747,106 @@ func (ec *executionContext) _Frame(ctx context.Context, sel ast.SelectionSet, ob
 	return out
 }
 
+var libraryEntryImplementors = []string{"LibraryEntry"}
+
+func (ec *executionContext) _LibraryEntry(ctx context.Context, sel ast.SelectionSet, obj *model.LibraryEntry) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, libraryEntryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LibraryEntry")
+		case "name":
+			out.Values[i] = ec._LibraryEntry_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._LibraryEntry_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "directory":
+			out.Values[i] = ec._LibraryEntry_directory(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var libraryListingImplementors = []string{"LibraryListing"}
+
+func (ec *executionContext) _LibraryListing(ctx context.Context, sel ast.SelectionSet, obj *model.LibraryListing) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, libraryListingImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LibraryListing")
+		case "path":
+			out.Values[i] = ec._LibraryListing_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "parent":
+			out.Values[i] = ec._LibraryListing_parent(ctx, field, obj)
+		case "entries":
+			out.Values[i] = ec._LibraryListing_entries(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "available":
+			out.Values[i] = ec._LibraryListing_available(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var linkImplementors = []string{"Link"}
 
 func (ec *executionContext) _Link(ctx context.Context, sel ast.SelectionSet, obj *model.Link) graphql.Marshaler {
@@ -15834,6 +16430,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_worldSettings(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "library":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_library(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -17098,6 +17716,68 @@ func (ec *executionContext) marshalNInt2int(ctx context.Context, sel ast.Selecti
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) marshalNLibraryEntry2gonetlogoᚋbackendᚋgraphᚋmodelᚐLibraryEntry(ctx context.Context, sel ast.SelectionSet, v model.LibraryEntry) graphql.Marshaler {
+	return ec._LibraryEntry(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNLibraryEntry2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐLibraryEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []model.LibraryEntry) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNLibraryEntry2gonetlogoᚋbackendᚋgraphᚋmodelᚐLibraryEntry(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNLibraryListing2gonetlogoᚋbackendᚋgraphᚋmodelᚐLibraryListing(ctx context.Context, sel ast.SelectionSet, v model.LibraryListing) graphql.Marshaler {
+	return ec._LibraryListing(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNLibraryListing2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐLibraryListing(ctx context.Context, sel ast.SelectionSet, v *model.LibraryListing) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._LibraryListing(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNLink2gonetlogoᚋbackendᚋgraphᚋmodelᚐLink(ctx context.Context, sel ast.SelectionSet, v model.Link) graphql.Marshaler {

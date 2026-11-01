@@ -28,6 +28,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"gonetlogo/internal/locale"
+	"gonetlogo/models"
 	"gonetlogo/pkg/nl"
 )
 
@@ -36,6 +37,11 @@ func Run(modelsFS fs.FS) {
 	// lang.init already ran. Normalize again in case the environment
 	// changed, and so a reader sees the locale fix next to app.New.
 	locale.Normalize()
+	if dir, ok := models.OpenDir(); ok {
+		slog.Info("model open folder", "dir", dir)
+	} else {
+		slog.Warn("model open folder not found; Open uses the system file dialog")
+	}
 	a := app.New()
 	w := a.NewWindow("GoNetLogo")
 	s := newSession(modelsFS, w)
@@ -1748,16 +1754,36 @@ func (s *session) openFile() {
 			return
 		}
 		name := r.URI().Name()
-		if !strings.HasSuffix(strings.ToLower(name), ".nlogo") && !strings.HasSuffix(strings.ToLower(name), ".nlogox") {
-			err := fmt.Errorf("open a .nlogo or .nlogox file")
+		if !isOpenModelName(name) {
+			err := fmt.Errorf("open a .nlogo, .nlogox, or .nlogox3d file")
 			s.logf("%v", err)
 			dialog.ShowError(err, s.win)
 			return
 		}
 		s.load(name, string(b))
 	}, s.win)
-	d.SetFilter(storage.NewExtensionFileFilter([]string{".nlogo", ".nlogox"}))
+	d.SetFilter(storage.NewExtensionFileFilter([]string{".nlogo", ".nlogox", ".nlogox3d"}))
+	if uri, ok := modelOpenURI(); ok {
+		d.SetLocation(uri)
+	}
 	d.Show()
+}
+
+func modelOpenURI() (fyne.ListableURI, bool) {
+	dir, ok := models.OpenDir()
+	if !ok {
+		return nil, false
+	}
+	uri, err := storage.ListerForURI(storage.NewFileURI(dir))
+	if err != nil {
+		return nil, false
+	}
+	return uri, true
+}
+
+func isOpenModelName(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasSuffix(n, ".nlogo") || strings.HasSuffix(n, ".nlogox") || strings.HasSuffix(n, ".nlogox3d")
 }
 
 func (s *session) log(line string) {

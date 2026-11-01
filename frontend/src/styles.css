@@ -733,6 +733,60 @@ canvas.world {
   cursor: not-allowed;
 }
 
+.library-modal {
+  width: min(440px, calc(100% - 32px));
+  max-height: min(560px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+}
+
+.library-modal p {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.library-path {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+.library-error {
+  color: var(--danger);
+  font-size: 0.82rem;
+  margin-bottom: 8px;
+}
+
+.library-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  overflow: auto;
+  min-height: 180px;
+  flex: 1 1 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.library-list button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.library-list button:hover { background: var(--ivory-2); }
+
+.library-empty {
+  padding: 16px 10px;
+  color: var(--muted);
+}
+
 .code-panel textarea {
   flex: 1 1 auto;
   min-height: 0;

@@ -7,6 +7,31 @@ type Query {
   session(id: ID!): Session
   """Dimensions, patch size, and wrapping for one session."""
   worldSettings(sessionId: ID!): WorldSettings!
+  """
+  List one folder of the server models directory for the Open browser.
+  Omit path to start at the models library. That folder is GONETLOGO_MODELS_DIR
+  when it sits inside the models directory, otherwise models/library.
+  Pass an empty string to list the models root.
+  available is false when the folder cannot be listed. entries is then empty,
+  and the client should fall back to choosing a file on this computer.
+  """
+  library(path: String): LibraryListing!
+}
+
+type LibraryEntry {
+  name: String!
+  """Path relative to the models directory. Pass it to loadModelFile."""
+  path: String!
+  directory: Boolean!
+}
+
+type LibraryListing {
+  """Folder that was listed, relative to the models directory. Empty is the root."""
+  path: String!
+  """Parent folder. Null at the models root. An empty string is the root itself."""
+  parent: String
+  entries: [LibraryEntry!]!
+  available: Boolean!
 }
 
 type Mutation {
@@ -26,8 +51,10 @@ type Mutation {
   loadModelSource(sessionId: ID!, filename: String!, source: String!): Session!
   """
   Load a model file from the server models directory.
-  That directory is MODELS_DIR, or ./models when the variable is unset.
+  That directory is MODELS_DIR, or the discovered models directory when the
+  variable is unset (the repo, bin/, or a macOS .app next to the repo).
   path is relative to it. Absolute paths and any .. segment are rejected.
+  A .nlogo, .nlogox, or .nlogox3d file is accepted.
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!

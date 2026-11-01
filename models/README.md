@@ -1,6 +1,6 @@
 # Example models
 
-These `.nlogo` files are the programs GoNetLogo embeds. The server also reads model files only from `MODELS_DIR`, which defaults to this directory.
+These `.nlogo` files are the programs GoNetLogo embeds. The server reads model files only from this directory (`MODELS_DIR` overrides it; otherwise the directory is discovered from the working directory or the executable). `library/` is the Models Library snapshot and is not embedded.
 
 | File | Origin |
 | --- | --- |
@@ -12,6 +12,9 @@ These `.nlogo` files are the programs GoNetLogo embeds. The server also reads mo
 | `edge.nlogo` | Original non-wrapping world. Eight turtles walk until `fd` stops them on the last patch inside the edge. |
 | `plot.nlogo` | Original plot demo. One plot follows turtle counts; another draws a fixed-range wave. |
 | `Robby the Robot.nlogo` | Unmodified NetLogo Models Library sample. See the credit and license below. |
+| `library/` | Snapshot of the NetLogo Models Library. See `library/README.md`. Licenses stay with each model. |
+
+`Robby the Robot.nlogo` stays in this directory so anything that opens `models/Robby the Robot.nlogo`, including the embedded demo list, keeps working. The same model in the library snapshot is `library/Sample Models/Computer Science/Robby the Robot.nlogox`.
 
 ## Robby the Robot
 

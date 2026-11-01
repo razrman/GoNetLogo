@@ -3,8 +3,12 @@ package session
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"gonetlogo/models"
 )
 
 // maxModelBytes is the largest model file the server will accept,
@@ -12,32 +16,145 @@ import (
 const maxModelBytes = 8 << 20
 
 // ModelsDir is the only directory the server will read model files from.
-// MODELS_DIR overrides the default ./models. The result is absolute, with
-// symlinks resolved, so a later path check compares real locations.
+// MODELS_DIR overrides discovery. Otherwise the models directory is found
+// from the working directory or the executable, including a macOS .app.
+// The result is absolute, with symlinks resolved, so a later path check
+// compares real locations.
 func ModelsDir() (string, error) {
-	dir := strings.TrimSpace(os.Getenv("MODELS_DIR"))
-	if dir == "" {
-		dir = "models"
-	}
-	if strings.ContainsRune(dir, 0) {
-		return "", fmt.Errorf("MODELS_DIR is invalid")
-	}
-	abs, err := filepath.Abs(dir)
+	return models.ModelsRoot()
+}
+
+// LibraryEntry is one file or folder in the Open browser.
+type LibraryEntry struct {
+	Name      string
+	Path      string
+	Directory bool
+}
+
+// LibraryListing is one folder inside ModelsDir.
+type LibraryListing struct {
+	Path      string
+	Parent    *string
+	Entries   []LibraryEntry
+	Available bool
+}
+
+// OpenPath is the default Open folder relative to ModelsDir.
+// ok is false when that folder is missing or sits outside the models
+// directory. The desktop dialog may still open an outside
+// GONETLOGO_MODELS_DIR; the server will not read it.
+func OpenPath() (string, bool) {
+	root, err := ModelsDir()
 	if err != nil {
-		return "", fmt.Errorf("models directory: %w", err)
+		return "", false
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
+	open, ok := models.OpenDir()
+	if !ok || !pathInside(root, open) {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, open)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	if rel == "." {
+		return "", true
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// ListFolder lists model files and subfolders of one directory inside ModelsDir.
+// rel is relative. An empty rel lists the models root. A missing models
+// directory returns Available false and no error so the client can fall
+// back to a local file chooser.
+func ListFolder(rel string) (LibraryListing, error) {
+	root, err := ModelsDir()
 	if err != nil {
-		return "", fmt.Errorf("models directory %s: %w", abs, err)
+		return LibraryListing{}, nil
+	}
+	rel = strings.TrimSpace(rel)
+	rel = strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/")
+	if rel == "." {
+		rel = ""
+	}
+	if rel != "" {
+		if err := rejectModelPath(rel); err != nil {
+			return LibraryListing{}, err
+		}
+	}
+	full := root
+	if rel != "" {
+		full = filepath.Join(root, filepath.FromSlash(rel))
+	}
+	if !pathInside(root, full) {
+		return LibraryListing{}, fmt.Errorf("model path escapes the models directory")
+	}
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return LibraryListing{}, fmt.Errorf("unknown model folder %q", rel)
+	}
+	resolved = filepath.Clean(resolved)
+	if !pathInside(root, resolved) {
+		return LibraryListing{}, fmt.Errorf("model path escapes the models directory")
 	}
 	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return LibraryListing{}, fmt.Errorf("unknown model folder %q", rel)
+	}
+	dirEntries, err := os.ReadDir(resolved)
 	if err != nil {
-		return "", fmt.Errorf("models directory %s: %w", resolved, err)
+		return LibraryListing{}, fmt.Errorf("unknown model folder %q", rel)
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("models directory %s is not a directory", resolved)
+	var entries []LibraryEntry
+	for _, entry := range dirEntries {
+		name := entry.Name()
+		if name == "" || strings.HasPrefix(name, ".") {
+			continue
+		}
+		target := filepath.Join(resolved, name)
+		linked, err := filepath.EvalSymlinks(target)
+		if err != nil || !pathInside(root, filepath.Clean(linked)) {
+			continue
+		}
+		st, err := os.Stat(linked)
+		if err != nil {
+			continue
+		}
+		itemPath := name
+		if rel != "" {
+			itemPath = rel + "/" + name
+		}
+		if st.IsDir() {
+			entries = append(entries, LibraryEntry{Name: name, Path: itemPath, Directory: true})
+			continue
+		}
+		if st.Mode().IsRegular() && isLibraryModel(name) {
+			entries = append(entries, LibraryEntry{Name: name, Path: itemPath, Directory: false})
+		}
 	}
-	return filepath.Clean(resolved), nil
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Directory != entries[j].Directory {
+			return entries[i].Directory
+		}
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+	})
+	listing := LibraryListing{Path: rel, Entries: entries, Available: true}
+	if rel != "" {
+		parent := path.Dir(rel)
+		if parent == "." {
+			parent = ""
+		}
+		listing.Parent = &parent
+	}
+	return listing, nil
+}
+
+func isLibraryModel(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".nlogo", ".nlogox", ".nlogox3d":
+		return true
+	default:
+		return false
+	}
 }
 
 // readModelFile reads a .nlogo or .nlogox file from ModelsDir.
@@ -74,9 +191,8 @@ func readModelFile(path string) (string, string, error) {
 	if !info.Mode().IsRegular() {
 		return "", "", fmt.Errorf("model path is not a file")
 	}
-	ext := strings.ToLower(filepath.Ext(resolved))
-	if ext != ".nlogo" && ext != ".nlogox" {
-		return "", "", fmt.Errorf("model file must be .nlogo or .nlogox")
+	if !isLibraryModel(filepath.Base(resolved)) {
+		return "", "", fmt.Errorf("model file must be .nlogo, .nlogox, or .nlogox3d")
 	}
 	if info.Size() > maxModelBytes {
 		return "", "", fmt.Errorf("model file is too large")

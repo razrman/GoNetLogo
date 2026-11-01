@@ -49,6 +49,66 @@ func TestModelsIncludeFire(t *testing.T) {
 	}
 }
 
+func TestLibraryStartsInLibraryFolder(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MODELS_DIR", dir)
+	t.Setenv("GONETLOGO_MODELS_DIR", "")
+	sample := filepath.Join(dir, "library", "Sample Models")
+	if err := os.MkdirAll(sample, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sample, "Fire.nlogox"), []byte("<model></model>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := newClient(t)
+	var listed struct {
+		Library struct {
+			Path      string
+			Parent    *string
+			Available bool
+			Entries   []struct {
+				Name      string
+				Path      string
+				Directory bool
+			}
+		}
+	}
+	c.MustPost(`query { library { path parent available entries { name path directory } } }`, &listed)
+	if !listed.Library.Available || listed.Library.Path != "library" {
+		t.Fatalf("library %+v", listed.Library)
+	}
+	if listed.Library.Parent == nil || *listed.Library.Parent != "" {
+		t.Fatalf("parent %#v", listed.Library.Parent)
+	}
+	if len(listed.Library.Entries) != 1 || listed.Library.Entries[0].Name != "Sample Models" || !listed.Library.Entries[0].Directory {
+		t.Fatalf("entries %+v", listed.Library.Entries)
+	}
+	if listed.Library.Entries[0].Path != "library/Sample Models" {
+		t.Fatalf("entry path %q", listed.Library.Entries[0].Path)
+	}
+
+	var rootList struct {
+		Library struct {
+			Path    string
+			Parent  *string
+			Entries []struct{ Name string }
+		}
+	}
+	c.MustPost(`query($path: String) { library(path: $path) { path parent entries { name } } }`, &rootList, client.Var("path", ""))
+	if rootList.Library.Path != "" || rootList.Library.Parent != nil {
+		t.Fatalf("root %+v", rootList.Library)
+	}
+	found := false
+	for _, e := range rootList.Library.Entries {
+		if e.Name == "library" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("root entries %+v", rootList.Library.Entries)
+	}
+}
+
 func TestRobbyIsListedAndLoads(t *testing.T) {
 	c := newClient(t)
 	var resp struct {

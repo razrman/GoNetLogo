@@ -96,6 +96,22 @@ type Frame struct {
 	PlotAppend []PlotPenDelta `json:"plotAppend"`
 }
 
+type LibraryEntry struct {
+	Name string `json:"name"`
+	// Path relative to the models directory. Pass it to loadModelFile.
+	Path      string `json:"path"`
+	Directory bool   `json:"directory"`
+}
+
+type LibraryListing struct {
+	// Folder that was listed, relative to the models directory. Empty is the root.
+	Path string `json:"path"`
+	// Parent folder. Null at the models root. An empty string is the root itself.
+	Parent    *string        `json:"parent,omitempty"`
+	Entries   []LibraryEntry `json:"entries"`
+	Available bool           `json:"available"`
+}
+
 type Link struct {
 	X1     float64 `json:"x1"`
 	Y1     float64 `json:"y1"`
