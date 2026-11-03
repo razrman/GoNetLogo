@@ -797,8 +797,10 @@ func (vm *VM) evalCall(c *callExpr) (Value, error) {
 		return vm.callRep(proc, args)
 	}
 	args := vm.evalAll(c.Args, c.Pos)
-	if v, ok, err := vm.evalBreedCall(c.Name, args, c.Pos); ok || err != nil {
-		return v, err
+	if vm.World != nil && len(vm.World.breedCalls) > 0 {
+		if call, ok := vm.World.breedCalls[c.Name]; ok {
+			return vm.evalBreedCallFast(call, c.Name, args, c.Pos)
+		}
 	}
 	v, err := vm.evalReporter(c.Name, args, c.Pos)
 	if err != nil {
@@ -1003,99 +1005,72 @@ func (vm *VM) withAgent(a Agent, fn func() Value) Value {
 	return fn()
 }
 
-func (vm *VM) evalBreedCall(name string, args []Value, pos Pos) (Value, bool, error) {
-	for pl, b := range vm.World.linkBreeds {
-		sg := b.Singular
-		var dir int
-		var breed string
-		matched := false
-		switch name {
-		case sg + "-neighbor?", pl + "-neighbor?":
-			dir = 0
-			breed = pl
-			matched = true
-		case "in-" + sg + "-neighbor?", "in-" + pl + "-neighbor?":
-			dir = -1
-			breed = pl
-			matched = true
-		case "out-" + sg + "-neighbor?", "out-" + pl + "-neighbor?":
-			dir = 1
-			breed = pl
-			matched = true
+func (vm *VM) evalBreedCallFast(call breedCallDef, name string, args []Value, pos Pos) (Value, error) {
+	switch call.kind {
+	case breedCallLinkNeighbor:
+		if len(args) == 1 {
+			return vm.isLinkNeighbor(name, call.dir, call.breed, args)
 		}
-		if matched && len(args) == 1 {
-			v, err := vm.isLinkNeighbor(name, dir, breed, args)
-			return v, true, err
+	case breedCallIsBreed:
+		if len(args) != 1 || args[0].K != KindAgent {
+			return Bool(false), nil
 		}
-	}
-	if strings.HasPrefix(name, "is-") && strings.HasSuffix(name, "?") {
-		sg := strings.TrimSuffix(strings.TrimPrefix(name, "is-"), "?")
-		if pl, ok := vm.singularBreed(sg); ok {
-			if len(args) != 1 || args[0].K != KindAgent {
-				return Bool(false), true, nil
-			}
-			t, ok := args[0].A.(*Turtle)
-			if !ok || t.dead {
-				return Bool(false), true, nil
-			}
-			return Bool(t.Breed == pl), true, nil
+		t, ok := args[0].A.(*Turtle)
+		if !ok || t.dead {
+			return Bool(false), nil
 		}
-	}
-	if strings.HasSuffix(name, "-on") {
-		br := strings.TrimSuffix(name, "-on")
-		if _, ok := vm.World.breeds[br]; ok {
+		return Bool(t.Breed == call.breed), nil
+	case breedCallOn:
+		if len(args) >= 1 {
 			p, err := vm.agentPatch(args[0])
 			if err != nil {
-				return Value{}, true, err
+				return Value{}, err
 			}
 			var ags []Agent
 			if p != nil {
 				for _, t := range vm.World.TurtlesHere(p) {
-					if t.Breed == br {
+					if t.Breed == call.breed {
 						ags = append(ags, t)
 					}
 				}
 			}
-			return SetVal(&AgentSet{Kind: KindTurtle, Breed: br, Agents: ags}), true, nil
+			return SetVal(&AgentSet{Kind: KindTurtle, Breed: call.breed, Agents: ags}), nil
 		}
-	}
-	if strings.HasSuffix(name, "-at") {
-		br := strings.TrimSuffix(name, "-at")
-		if _, ok := vm.World.breeds[br]; ok {
+	case breedCallAt:
+		if len(args) >= 2 {
 			dx, err := args[0].Num()
 			if err != nil {
-				return Value{}, true, err
+				return Value{}, err
 			}
 			dy, err := args[1].Num()
 			if err != nil {
-				return Value{}, true, err
+				return Value{}, err
 			}
 			p := vm.patchAtOffset(dx, dy)
 			var ags []Agent
 			if p != nil {
 				for _, t := range vm.World.TurtlesHere(p) {
-					if t.Breed == br {
+					if t.Breed == call.breed {
 						ags = append(ags, t)
 					}
 				}
 			}
-			return SetVal(&AgentSet{Kind: KindTurtle, Breed: br, Agents: ags}), true, nil
+			return SetVal(&AgentSet{Kind: KindTurtle, Breed: call.breed, Agents: ags}), nil
 		}
-	}
-	if pl, ok := vm.singularBreed(name); ok {
+	case breedCallSingular:
 		if len(args) == 1 {
 			id, err := asInt(args[0], name)
 			if err != nil {
-				return Value{}, true, err
+				return Value{}, err
 			}
 			t := vm.World.Turtle(id)
-			if t == nil || t.dead || t.Breed != pl {
-				return Nobody(), true, nil
+			if t == nil || t.dead || t.Breed != call.breed {
+				return Nobody(), nil
 			}
-			return AgentVal(t), true, nil
+			return AgentVal(t), nil
 		}
 	}
-	return Value{}, false, nil
+	return vm.evalReporter(name, args, pos)
 }
 
 func (vm *VM) singularBreed(sg string) (string, bool) {

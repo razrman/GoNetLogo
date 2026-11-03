@@ -1692,10 +1692,7 @@ func (vm *VM) isLinkNeighbor(name string, dir int, breed string, args []Value) (
 	if args[0].K != KindAgent || !ok || other == nil || other.dead {
 		return Bool(false), nil
 	}
-	for _, l := range vm.World.links {
-		if l.dead {
-			continue
-		}
+	for _, l := range vm.World.LinksOf(self) {
 		if breed != "" && l.Breed != breed {
 			continue
 		}

@@ -310,6 +310,9 @@ func roundPlaces(n float64, places int) float64 {
 }
 
 func colorDistance(r1, g1, b1, r2, g2, b2 int) int64 {
+	// Matches NetLogo 6 implementation in Color.scala:
+	//   val rmean = r1 + r2 / 2
+	// Precedence matches NetLogo test RGB6: approximate-rgb 83 72 54 => 32.9.
 	rmean := int64(r1 + r2/2)
 	rd := int64(r1 - r2)
 	gd := int64(g1 - g2)
