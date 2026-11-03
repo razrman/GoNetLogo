@@ -47,6 +47,7 @@ type World struct {
 	breedOwn   map[string][]string // plural -> vars
 	breeds     map[string]*breedDef
 	linkBreeds map[string]*linkBreedDef
+	breedCalls map[string]breedCallDef
 
 	defaultShape map[string]string // breed plural or "turtles" -> shape
 
@@ -55,6 +56,9 @@ type World struct {
 	// runEpoch increments on clear-ticks, reset-ticks, and clear-all.
 	// The run timer watches it. Tick does not, so a benchmark is unchanged.
 	runEpoch uint64
+
+	perspectiveAgent Agent
+	perspectiveMode  string // "watch", "follow", "ride", or ""
 
 	rng      *rand.Rand
 	rngDraws atomic.Uint64
@@ -78,6 +82,22 @@ type World struct {
 }
 
 type colorRGBA struct{ R, G, B, A uint8 }
+
+type breedCallKind int
+
+const (
+	breedCallLinkNeighbor breedCallKind = iota
+	breedCallIsBreed
+	breedCallOn
+	breedCallAt
+	breedCallSingular
+)
+
+type breedCallDef struct {
+	kind  breedCallKind
+	breed string
+	dir   int
+}
 
 type breedDef struct {
 	Plural   string
@@ -125,6 +145,7 @@ type Turtle struct {
 	PenDown bool
 	PenSize float64
 	Vars    map[string]Value
+	links   []*Link
 	dead    bool
 	world   *World
 	patch   *Patch
@@ -188,6 +209,7 @@ func NewWorld(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) *World {
 		ifaceGlob:    map[string]bool{},
 		breeds:       map[string]*breedDef{},
 		linkBreeds:   map[string]*linkBreedDef{},
+		breedCalls:   map[string]breedCallDef{},
 		breedOwn:     map[string][]string{},
 		defaultShape: map[string]string{"turtles": "default"},
 	}
@@ -367,6 +389,7 @@ func (w *World) SetProgramVars(p *Program) {
 	for _, b := range p.LinkBreeds {
 		w.linkBreeds[b.Plural] = &linkBreedDef{Plural: b.Plural, Singular: b.Singular, Directed: b.Directed, Own: append([]string(nil), p.LinkBreedOwn[b.Plural]...)}
 	}
+	w.initBreedCalls(p)
 	w.ifaceGlob = map[string]bool{}
 	for name := range p.InterfaceVars {
 		w.ifaceGlob[name] = true
@@ -402,6 +425,34 @@ func (w *World) Global(name string) (Value, bool) {
 	return v, ok
 }
 func (w *World) Globals() map[string]Value { return w.globals }
+
+func (w *World) initBreedCalls(p *Program) {
+	w.breedCalls = make(map[string]breedCallDef)
+	if p == nil {
+		return
+	}
+	for _, b := range p.LinkBreeds {
+		names := []string{b.Plural}
+		if b.Singular != "" && b.Singular != b.Plural {
+			names = append(names, b.Singular)
+		}
+		for _, name := range names {
+			w.breedCalls[name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: 0}
+			w.breedCalls["in-"+name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: -1}
+			w.breedCalls["out-"+name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: 1}
+		}
+	}
+	for _, b := range p.Breeds {
+		if b.Singular != "" {
+			w.breedCalls["is-"+b.Singular+"?"] = breedCallDef{kind: breedCallIsBreed, breed: b.Plural}
+			w.breedCalls[b.Singular] = breedCallDef{kind: breedCallSingular, breed: b.Plural}
+		}
+		if b.Plural != "" {
+			w.breedCalls[b.Plural+"-on"] = breedCallDef{kind: breedCallOn, breed: b.Plural}
+			w.breedCalls[b.Plural+"-at"] = breedCallDef{kind: breedCallAt, breed: b.Plural}
+		}
+	}
+}
 
 func (w *World) Breed(plural string) (*breedDef, bool) {
 	b, ok := w.breeds[plural]
@@ -573,6 +624,7 @@ func (w *World) ClearAll() {
 	w.ClearLinks()
 	w.ClearPatches()
 	w.ClearDrawing()
+	w.ResetPerspective()
 }
 
 func (w *World) ClearGlobals() {
@@ -977,6 +1029,26 @@ func (w *World) Die(a Agent) {
 		}
 		w.links = kept
 	}
+	if w.perspectiveAgent == a {
+		w.ResetPerspective()
+	}
+}
+
+func (w *World) SetPerspective(mode string, a Agent) {
+	w.perspectiveMode = mode
+	w.perspectiveAgent = a
+}
+
+func (w *World) ResetPerspective() {
+	w.perspectiveMode = ""
+	w.perspectiveAgent = nil
+}
+
+func (w *World) Perspective() (string, Agent) {
+	if w.perspectiveAgent != nil && w.perspectiveAgent.IsDead() {
+		w.ResetPerspective()
+	}
+	return w.perspectiveMode, w.perspectiveAgent
 }
 
 // MoveTo sets a turtle's position. A wrapping axis wraps. A coordinate
@@ -1282,6 +1354,8 @@ func (w *World) CreateLink(a, b *Turtle, directed bool, breed string) (*Link, bo
 		}
 	}
 	w.links = append(w.links, l)
+	a.links = append(a.links, l)
+	b.links = append(b.links, l)
 	return l, true, nil
 }
 
@@ -1293,15 +1367,18 @@ func (b *linkBreedDef) ownOrEmpty() []string {
 }
 
 func (w *World) LinksOf(t *Turtle) []*Link {
-	var out []*Link
-	for _, l := range w.links {
-		if l.dead {
-			continue
-		}
-		if l.End1 == t || l.End2 == t {
-			out = append(out, l)
+	if t == nil {
+		return nil
+	}
+	kept := t.links[:0]
+	for _, l := range t.links {
+		if !l.dead && (l.End1 == t || l.End2 == t) {
+			kept = append(kept, l)
 		}
 	}
+	t.links = kept
+	out := make([]*Link, len(kept))
+	copy(out, kept)
 	return out
 }
 
@@ -1309,10 +1386,7 @@ func (w *World) LinkNeighbors(t *Turtle, dir int) []*Turtle {
 	// dir: 0 either, 1 out, -1 in
 	seen := map[*Turtle]bool{}
 	var out []*Turtle
-	for _, l := range w.links {
-		if l.dead {
-			continue
-		}
+	for _, l := range w.LinksOf(t) {
 		var other *Turtle
 		switch dir {
 		case 1:

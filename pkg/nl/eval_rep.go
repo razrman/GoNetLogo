@@ -259,9 +259,9 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 			return Value{}, fmt.Errorf("lput expected a list")
 		}
 		return List(append(append([]Value{}, args[1].L...), args[0])...), nil
-	case "but-first", "bf":
+	case "but-first", "butfirst", "bf":
 		return butEnd(args[0], true)
-	case "but-last", "bl":
+	case "but-last", "butlast", "bl":
 		return butEnd(args[0], false)
 	case "first":
 		return endItem(args[0], true)
@@ -311,6 +311,13 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 			out[i], out[j] = out[j], out[i]
 		}
 		return List(out...), nil
+	case "shuffle":
+		if args[0].K != KindList {
+			return Value{}, fmt.Errorf("shuffle expected a list")
+		}
+		out := append([]Value(nil), args[0].L...)
+		vm.World.rng.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+		return List(out...), nil
 	case "sort":
 		return vm.doSort(args[0])
 	case "sort-by":
@@ -319,6 +326,8 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		return removeVal(args[0], args[1])
 	case "remove-item":
 		return removeItem(args[0], args[1])
+	case "remove-duplicates":
+		return removeDuplicates(args[0])
 	case "replace-item":
 		return replaceItem(args[0], args[1], args[2])
 	case "sublist":
@@ -477,6 +486,22 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 			return Value{}, fmt.Errorf("division by zero")
 		}
 		return Num(math.Mod(a, b)), nil
+	case "subtract-headings":
+		h1, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		h2, err := args[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		diff := math.Mod(h1-h2, 360)
+		if diff <= -180 {
+			diff += 360
+		} else if diff > 180 {
+			diff -= 360
+		}
+		return Num(diff), nil
 	case "other":
 		ags, err := vm.asAgentset(args[0])
 		if err != nil {
@@ -568,12 +593,101 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 			return Value{}, err
 		}
 		return Bool(CentralColor(a) == CentralColor(b)), nil
-	case "runresult":
+	case "runresult", "run-result":
 		return vm.runResult(args, pos)
 	case "turtle-set", "patch-set", "link-set":
 		return vm.buildSet(name, args)
 	case "in-link-from", "out-link-to", "link-with":
 		return vm.findMyLink(name, args)
+	case "link-neighbor?":
+		return vm.isLinkNeighbor(name, 0, "", args)
+	case "in-link-neighbor?":
+		return vm.isLinkNeighbor(name, -1, "", args)
+	case "out-link-neighbor?":
+		return vm.isLinkNeighbor(name, 1, "", args)
+	case "rgb":
+		r, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		g, err := args[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		b, err := args[2].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		return List(Num(float64(clampByte(int(r)))), Num(float64(clampByte(int(g)))), Num(float64(clampByte(int(b))))), nil
+	case "hsb":
+		h, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		s, err := args[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		b, err := args[2].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		cr, cg, cb := HSBtoRGB(h, s, b)
+		return List(Num(float64(cr)), Num(float64(cg)), Num(float64(cb))), nil
+	case "extract-rgb":
+		rgba, _, err := ColorFromValue(args[0])
+		if err != nil {
+			return Value{}, err
+		}
+		return List(Num(float64(rgba.R)), Num(float64(rgba.G)), Num(float64(rgba.B))), nil
+	case "extract-hsb":
+		rgba, _, err := ColorFromValue(args[0])
+		if err != nil {
+			return Value{}, err
+		}
+		h, s, b := RGBtoHSB(int(rgba.R), int(rgba.G), int(rgba.B))
+		return List(Num(h), Num(s), Num(b)), nil
+	case "approximate-rgb":
+		r, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		g, err := args[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		b, err := args[2].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		return Num(ApproximateRGB(int(r), int(g), int(b))), nil
+	case "approximate-hsb":
+		h, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		s, err := args[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		b, err := args[2].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		cr, cg, cb := HSBtoRGB(h, s, b)
+		return Num(ApproximateRGB(int(cr), int(cg), int(cb))), nil
+	case "user-input":
+		return Str(""), nil
+	case "user-yes-or-no?":
+		return Bool(false), nil
+	case "user-one-of":
+		if args[1].K != KindList {
+			return Value{}, fmt.Errorf("user-one-of expected a list")
+		}
+		if len(args[1].L) == 0 {
+			return Nobody(), nil
+		}
+		return args[1].L[0], nil
 	default:
 		if strings.HasPrefix(name, "is-") && strings.HasSuffix(name, "?") {
 			return vm.isType(name, args[0]), nil
@@ -652,6 +766,9 @@ func (vm *VM) evalInfix(e *infixExpr) (Value, error) {
 	}
 	if e.Op == "in-radius" {
 		return vm.inRadius(e)
+	}
+	if e.Op == "at-points" {
+		return vm.atPoints(e)
 	}
 	l, err := vm.eval(e.Left)
 	if err != nil {
@@ -939,6 +1056,57 @@ func (vm *VM) inRadius(e *infixExpr) (Value, error) {
 		}
 		if vm.World.Distance(sx, sy, x, y) <= rad {
 			keep = append(keep, a)
+		}
+	}
+	return SetVal(&AgentSet{Kind: ags.Kind, Breed: ags.Breed, Agents: keep}), nil
+}
+
+func (vm *VM) atPoints(e *infixExpr) (Value, error) {
+	target, err := vm.eval(e.Left)
+	if err != nil {
+		return Value{}, err
+	}
+	ags, err := vm.asAgentset(target)
+	if err != nil {
+		return Value{}, err
+	}
+	r, err := vm.eval(e.Right)
+	if err != nil {
+		return Value{}, err
+	}
+	if r.K != KindList {
+		return Value{}, fmt.Errorf("at-points expected a list of coordinate pairs")
+	}
+	patchMap := map[*Patch]bool{}
+	for _, item := range r.L {
+		if item.K != KindList || len(item.L) != 2 {
+			return Value{}, fmt.Errorf("at-points expected a list of [dx dy] pairs")
+		}
+		dx, err := item.L[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		dy, err := item.L[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		p := vm.patchAtOffset(dx, dy)
+		if p != nil {
+			patchMap[p] = true
+		}
+	}
+	var keep []Agent
+	for _, a := range ags.Alive() {
+		switch agent := a.(type) {
+		case *Patch:
+			if patchMap[agent] {
+				keep = append(keep, agent)
+			}
+		case *Turtle:
+			p := vm.World.PatchHere(agent)
+			if p != nil && patchMap[p] {
+				keep = append(keep, agent)
+			}
 		}
 	}
 	return SetVal(&AgentSet{Kind: ags.Kind, Breed: ags.Breed, Agents: keep}), nil
@@ -1346,6 +1514,29 @@ func removeVal(item, src Value) (Value, error) {
 	return List(out...), nil
 }
 
+func removeDuplicates(src Value) (Value, error) {
+	if src.K != KindList {
+		return Value{}, fmt.Errorf("remove-duplicates expected a list")
+	}
+	var out []Value
+	for _, item := range src.L {
+		found := false
+		for _, existing := range out {
+			if existing.Equals(item) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, item)
+		}
+	}
+	if out == nil {
+		out = []Value{}
+	}
+	return List(out...), nil
+}
+
 func removeItem(index, src Value) (Value, error) {
 	i, err := asInt(index, "remove-item")
 	if err != nil {
@@ -1490,6 +1681,49 @@ func (vm *VM) buildSet(name string, args []Value) (Value, error) {
 		}
 	}
 	return SetVal(&AgentSet{Kind: kind, Agents: ags}), nil
+}
+
+func (vm *VM) isLinkNeighbor(name string, dir int, breed string, args []Value) (Value, error) {
+	self, ok := vm.self.(*Turtle)
+	if !ok {
+		return Value{}, fmt.Errorf("%s can only be used by a turtle", name)
+	}
+	other, ok := args[0].A.(*Turtle)
+	if args[0].K != KindAgent || !ok || other == nil || other.dead {
+		return Bool(false), nil
+	}
+	for _, l := range vm.World.LinksOf(self) {
+		if breed != "" && l.Breed != breed {
+			continue
+		}
+		switch dir {
+		case 1: // out: caller -> other, or undirected
+			if l.Directed {
+				if l.End1 == self && l.End2 == other {
+					return Bool(true), nil
+				}
+			} else {
+				if (l.End1 == self && l.End2 == other) || (l.End1 == other && l.End2 == self) {
+					return Bool(true), nil
+				}
+			}
+		case -1: // in: other -> caller, or undirected
+			if l.Directed {
+				if l.End1 == other && l.End2 == self {
+					return Bool(true), nil
+				}
+			} else {
+				if (l.End1 == self && l.End2 == other) || (l.End1 == other && l.End2 == self) {
+					return Bool(true), nil
+				}
+			}
+		default: // any link connecting self and other
+			if (l.End1 == self && l.End2 == other) || (l.End1 == other && l.End2 == self) {
+				return Bool(true), nil
+			}
+		}
+	}
+	return Bool(false), nil
 }
 
 func (vm *VM) findMyLink(name string, args []Value) (Value, error) {

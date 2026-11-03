@@ -198,6 +198,151 @@ func ScaleColor(base, n, r1, r2 float64) float64 {
 	return colorBase + perc
 }
 
+func HSBtoRGB(h, s, b float64) (uint8, uint8, uint8) {
+	if h < 0 {
+		h = 0
+	} else if h > 360 {
+		h = 360
+	}
+	if s < 0 {
+		s = 0
+	} else if s > 100 {
+		s = 100
+	}
+	if b < 0 {
+		b = 0
+	} else if b > 100 {
+		b = 100
+	}
+	hf := float32(h / 360.0)
+	sf := float32(s / 100.0)
+	bf := float32(b / 100.0)
+	if sf == 0 {
+		v := uint8(int(bf*255.0 + 0.5))
+		return v, v, v
+	}
+	hPos := (hf - float32(math.Floor(float64(hf)))) * 6.0
+	f := hPos - float32(math.Floor(float64(hPos)))
+	p := bf * (1.0 - sf)
+	q := bf * (1.0 - sf*f)
+	t := bf * (1.0 - (sf * (1.0 - f)))
+	var r, g, bb int
+	switch int(hPos) {
+	case 0:
+		r = int(bf*255.0 + 0.5)
+		g = int(t*255.0 + 0.5)
+		bb = int(p*255.0 + 0.5)
+	case 1:
+		r = int(q*255.0 + 0.5)
+		g = int(bf*255.0 + 0.5)
+		bb = int(p*255.0 + 0.5)
+	case 2:
+		r = int(p*255.0 + 0.5)
+		g = int(bf*255.0 + 0.5)
+		bb = int(t*255.0 + 0.5)
+	case 3:
+		r = int(p*255.0 + 0.5)
+		g = int(q*255.0 + 0.5)
+		bb = int(bf*255.0 + 0.5)
+	case 4:
+		r = int(t*255.0 + 0.5)
+		g = int(p*255.0 + 0.5)
+		bb = int(bf*255.0 + 0.5)
+	default:
+		r = int(bf*255.0 + 0.5)
+		g = int(p*255.0 + 0.5)
+		bb = int(q*255.0 + 0.5)
+	}
+	return uint8(clampByte(r)), uint8(clampByte(g)), uint8(clampByte(bb))
+}
+
+func RGBtoHSB(r, g, b int) (float64, float64, float64) {
+	rf := float32(clampByte(r))
+	gf := float32(clampByte(g))
+	bf := float32(clampByte(b))
+
+	cmax := rf
+	if gf > cmax {
+		cmax = gf
+	}
+	if bf > cmax {
+		cmax = bf
+	}
+	cmin := rf
+	if gf < cmin {
+		cmin = gf
+	}
+	if bf < cmin {
+		cmin = bf
+	}
+
+	brightness := cmax / 255.0
+	var saturation float32
+	if cmax != 0 {
+		saturation = (cmax - cmin) / cmax
+	}
+	var hue float32
+	if saturation != 0 {
+		redc := (cmax - rf) / (cmax - cmin)
+		greenc := (cmax - gf) / (cmax - cmin)
+		bluec := (cmax - bf) / (cmax - cmin)
+		if rf == cmax {
+			hue = bluec - greenc
+		} else if gf == cmax {
+			hue = 2.0 + redc - bluec
+		} else {
+			hue = 4.0 + greenc - redc
+		}
+		hue = hue / 6.0
+		if hue < 0 {
+			hue = hue + 1.0
+		}
+	}
+	h := roundPlaces(float64(hue*360.0), 3)
+	s := roundPlaces(float64(saturation*100.0), 3)
+	br := roundPlaces(float64(brightness*100.0), 3)
+	return h, s, br
+}
+
+func roundPlaces(n float64, places int) float64 {
+	p := math.Pow(10, float64(places))
+	return math.Round(n*p) / p
+}
+
+func colorDistance(r1, g1, b1, r2, g2, b2 int) int64 {
+	// Matches NetLogo 6 implementation in Color.scala:
+	//   val rmean = r1 + r2 / 2
+	// Precedence matches NetLogo test RGB6: approximate-rgb 83 72 54 => 32.9.
+	rmean := int64(r1 + r2/2)
+	rd := int64(r1 - r2)
+	gd := int64(g1 - g2)
+	bd := int64(b1 - b2)
+	return (((512 + rmean) * rd * rd) >> 8) + 4*gd*gd + (((767 - rmean) * bd * bd) >> 8)
+}
+
+func ApproximateRGB(r, g, b int) float64 {
+	r = clampByte(r)
+	g = clampByte(g)
+	b = clampByte(b)
+	for i := 0; i < 1400; i++ {
+		c := argbCache[i]
+		if int(c.R) == r && int(c.G) == g && int(c.B) == b {
+			return float64(i) / 10.0
+		}
+	}
+	var smallestDistance int64 = 100000000
+	var closest float64
+	for i := 0; i < 1400; i++ {
+		c := argbCache[i]
+		dist := colorDistance(r, g, b, int(c.R), int(c.G), int(c.B))
+		if dist < smallestDistance {
+			smallestDistance = dist
+			closest = float64(i) / 10.0
+		}
+	}
+	return closest
+}
+
 func errf(f string, args ...any) error {
 	return &rtError{msg: fmt.Sprintf(f, args...)}
 }

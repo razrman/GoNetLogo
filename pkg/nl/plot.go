@@ -422,6 +422,17 @@ func (vm *VM) plotPenDown(down bool) error {
 	return nil
 }
 
+func (vm *VM) plotPenReset() error {
+	_, pen, err := vm.plotTarget()
+	if err != nil {
+		return err
+	}
+	pen.hardReset()
+	pen.down = true
+	pen.x = 0
+	return nil
+}
+
 func (vm *VM) setPlotRange(minV, maxV Value, xAxis bool) error {
 	p, err := vm.currentPlot()
 	if err != nil {
