@@ -22,13 +22,14 @@ type ownSlot struct {
 }
 
 type compiler struct {
-	prog       *Program
-	globals    map[string]int
-	globalName []string
-	turtle     map[string]ownSlot
-	patch      map[string]ownSlot
-	breeds     map[string]bool
-	linkBreeds map[string]bool
+	prog          *Program
+	globals       map[string]int
+	globalName    []string
+	turtle        map[string]ownSlot
+	patch         map[string]ownSlot
+	breeds        map[string]bool
+	breedSingular map[string]string
+	linkBreeds    map[string]bool
 }
 
 func (vm *VM) ensureCompiled() {
@@ -60,8 +61,9 @@ func newCompiler(prog *Program) *compiler {
 		globals:    map[string]int{},
 		turtle:     map[string]ownSlot{},
 		patch:      map[string]ownSlot{},
-		breeds:     map[string]bool{},
-		linkBreeds: map[string]bool{},
+		breeds:        map[string]bool{},
+		breedSingular: map[string]string{},
+		linkBreeds:    map[string]bool{},
 	}
 	addGlobal := func(name string) {
 		if _, ok := c.globals[name]; ok {
@@ -92,6 +94,7 @@ func newCompiler(prog *Program) *compiler {
 	}
 	for _, b := range prog.Breeds {
 		c.breeds[b.Plural] = true
+		c.breedSingular[b.Singular] = b.Plural
 	}
 	for _, b := range prog.LinkBreeds {
 		c.linkBreeds[b.Plural] = true
@@ -700,7 +703,7 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 	switch e.Name {
 	case "ifelse-value":
 		return c.compileIfelseValue(e, locals)
-	case "all?", "max-one-of", "min-one-of", "sort-on":
+	case "all?", "max-one-of", "min-one-of", "max-n-of", "min-n-of", "sort-on":
 		return func(vm *VM) Value {
 			v, err := vm.eval(e)
 			if err != nil {
@@ -834,7 +837,7 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 			return v
 		}
 	}
-	if strings.HasSuffix(e.Name, "-on") || strings.HasSuffix(e.Name, "-at") || strings.HasPrefix(e.Name, "is-") {
+	if strings.HasSuffix(e.Name, "-on") || strings.HasSuffix(e.Name, "-at") || strings.HasPrefix(e.Name, "is-") || strings.HasSuffix(e.Name, "-neighbor?") || c.breedSingular[e.Name] != "" {
 		return func(vm *VM) Value {
 			v, err := vm.eval(e)
 			if err != nil {
@@ -886,7 +889,7 @@ func (c *compiler) compileIfelseValue(e *callExpr, locals map[string]bool) repFn
 }
 
 func (c *compiler) compileInfix(e *infixExpr, locals map[string]bool) repFn {
-	if e.Op == "with-min" || e.Op == "with-max" || e.Op == "in-radius" {
+	if e.Op == "with-min" || e.Op == "with-max" || e.Op == "in-radius" || e.Op == "at-points" {
 		pos := e.Pos
 		return func(vm *VM) Value {
 			v, err := vm.eval(e)
@@ -1021,6 +1024,14 @@ func (c *compiler) compileIdent(name string, pos Pos, locals map[string]bool) re
 }
 
 func (c *compiler) resolveIdent(name string, pos Pos) repFn {
+	if name == "who" {
+		return func(vm *VM) Value {
+			if t, ok := vm.self.(*Turtle); ok && t != nil {
+				return Num(float64(t.Who))
+			}
+			return mustIdent(vm, name, pos)
+		}
+	}
 	if slot, ok := c.turtle[name]; ok && slot.all {
 		key := slot.name
 		return func(vm *VM) Value {

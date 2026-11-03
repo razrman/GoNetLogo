@@ -134,10 +134,12 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		return vm.setCurrentPlot(args[0])
 	case "set-current-plot-pen":
 		return vm.setCurrentPlotPen(args[0])
-	case "auto-plot-on":
+	case "auto-plot-on", "autoplot-on":
 		return vm.setAutoPlot(true)
-	case "auto-plot-off":
+	case "auto-plot-off", "autoplot-off":
 		return vm.setAutoPlot(false)
+	case "plot-pen-reset":
+		return vm.plotPenReset()
 	case "create-temporary-plot-pen":
 		return vm.createTempPen(args[0])
 	case "tick-advance":
@@ -224,9 +226,9 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 			return err
 		}
 		vm.facePoint(t, x, y)
-	case "pen-down", "pd":
+	case "pen-down", "pd", "pendown":
 		vm.requireTurtle(pos).PenDown = true
-	case "pen-up", "pu":
+	case "pen-up", "pu", "penup":
 		vm.requireTurtle(pos).PenDown = false
 	case "stamp":
 		w.Stamp(vm.requireTurtle(pos), false)
@@ -300,6 +302,40 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 			return fmt.Errorf("patch size must be positive")
 		}
 		w.PatchSize = n
+	case "watch":
+		if args[0].K != KindAgent || args[0].A == nil || args[0].A.IsDead() {
+			return fmt.Errorf("watch expected an agent")
+		}
+		w.SetPerspective("watch", args[0].A)
+	case "follow":
+		if args[0].K != KindAgent || args[0].A == nil || args[0].A.IsDead() {
+			return fmt.Errorf("follow expected an agent")
+		}
+		if _, ok := args[0].A.(*Turtle); !ok {
+			return fmt.Errorf("follow can only follow turtles")
+		}
+		w.SetPerspective("follow", args[0].A)
+	case "ride":
+		if args[0].K != KindAgent || args[0].A == nil || args[0].A.IsDead() {
+			return fmt.Errorf("ride expected an agent")
+		}
+		if _, ok := args[0].A.(*Turtle); !ok {
+			return fmt.Errorf("ride can only ride turtles")
+		}
+		w.SetPerspective("ride", args[0].A)
+	case "reset-perspective", "rp":
+		w.ResetPerspective()
+	case "watch-me":
+		if vm.self == nil {
+			return fmt.Errorf("watch-me can only be used by an agent")
+		}
+		w.SetPerspective("watch", vm.self)
+	case "follow-me":
+		t := vm.requireTurtle(pos)
+		w.SetPerspective("follow", t)
+	case "ride-me":
+		t := vm.requireTurtle(pos)
+		w.SetPerspective("ride", t)
 	case "beep":
 		return nil
 	case "reset-timer":
@@ -602,6 +638,20 @@ func (vm *VM) evalZero(name string, pos Pos) (Value, error) {
 			return Nobody(), nil
 		}
 		return AgentVal(p), nil
+	case "dx":
+		t, ok := vm.self.(*Turtle)
+		if !ok {
+			return Value{}, errorAt(pos, "dx can only be used by a turtle")
+		}
+		dx, _ := headingDelta(t.Heading, 1)
+		return Num(dx), nil
+	case "dy":
+		t, ok := vm.self.(*Turtle)
+		if !ok {
+			return Value{}, errorAt(pos, "dy can only be used by a turtle")
+		}
+		_, dy := headingDelta(t.Heading, 1)
+		return Num(dy), nil
 	case "neighbors":
 		p := vm.patchUnderSelf()
 		if p == nil {
@@ -658,6 +708,23 @@ func (vm *VM) evalZero(name string, pos Pos) (Value, error) {
 		return Num(float64(w.RandomPycor())), nil
 	case "netlogo-web?":
 		return Bool(false), nil
+	case "subject":
+		_, a := w.Perspective()
+		if a == nil || a.IsDead() {
+			return Nobody(), nil
+		}
+		return AgentVal(a), nil
+	case "pi":
+		return Num(math.Pi), nil
+	case "base-colors":
+		return List(
+			Num(5), Num(15), Num(25), Num(35), Num(45), Num(55), Num(65),
+			Num(75), Num(85), Num(95), Num(105), Num(115), Num(125), Num(135),
+		), nil
+	case "mouse-down?", "mouse-inside?":
+		return Bool(false), nil
+	case "mouse-xcor", "mouse-ycor":
+		return Num(0), nil
 	case "both-ends":
 		l, ok := vm.self.(*Link)
 		if !ok {
@@ -722,20 +789,17 @@ func (vm *VM) evalCall(c *callExpr) (Value, error) {
 	switch c.Name {
 	case "ifelse-value":
 		return vm.evalIfelseValue(c)
-	case "all?", "max-one-of", "min-one-of", "sort-on":
+	case "all?", "max-one-of", "min-one-of", "max-n-of", "min-n-of", "sort-on":
 		return vm.evalAgentBlockRep(c)
 	}
 	if proc := vm.Prog.Proc(c.Name); proc != nil && proc.IsReporter {
 		args := vm.evalAll(c.Args, c.Pos)
 		return vm.callRep(proc, args)
 	}
-	if strings.HasSuffix(c.Name, "-on") || strings.HasSuffix(c.Name, "-at") || strings.HasPrefix(c.Name, "is-") {
-		args := vm.evalAll(c.Args, c.Pos)
-		if v, ok, err := vm.evalBreedCall(c.Name, args, c.Pos); ok || err != nil {
-			return v, err
-		}
-	}
 	args := vm.evalAll(c.Args, c.Pos)
+	if v, ok, err := vm.evalBreedCall(c.Name, args, c.Pos); ok || err != nil {
+		return v, err
+	}
 	v, err := vm.evalReporter(c.Name, args, c.Pos)
 	if err != nil {
 		return Value{}, err
@@ -770,6 +834,65 @@ func (vm *VM) evalIfelseValue(c *callExpr) (Value, error) {
 }
 
 func (vm *VM) evalAgentBlockRep(c *callExpr) (Value, error) {
+	if c.Name == "min-n-of" || c.Name == "max-n-of" {
+		nV, err := vm.eval(c.Args[0])
+		if err != nil {
+			return Value{}, err
+		}
+		n, err := asInt(nV, c.Name)
+		if err != nil {
+			return Value{}, err
+		}
+		if n < 0 {
+			return Value{}, fmt.Errorf("%s expected a non-negative number", c.Name)
+		}
+		target, err := vm.eval(c.Args[1])
+		if err != nil {
+			return Value{}, err
+		}
+		ags, err := vm.asAgentset(target)
+		if err != nil {
+			return Value{}, err
+		}
+		live := ags.Alive()
+		if n > len(live) {
+			return Value{}, fmt.Errorf("%s asked for more agents than the agentset contains", c.Name)
+		}
+		block := c.Args[2]
+		type scoredAgent struct {
+			a Agent
+			k Value
+			r int // random tie-breaker
+		}
+		items := make([]scoredAgent, len(live))
+		for i, a := range live {
+			items[i] = scoredAgent{a: a, k: vm.score(a, block, c.Pos), r: vm.World.rng.Int()}
+		}
+		var sortErr error
+		sort.Slice(items, func(i, j int) bool {
+			cmp, err := compare(items[i].k, items[j].k)
+			if err != nil {
+				sortErr = err
+				return false
+			}
+			if cmp == 0 {
+				return items[i].r < items[j].r
+			}
+			if c.Name == "max-n-of" {
+				return cmp > 0
+			}
+			return cmp < 0
+		})
+		if sortErr != nil {
+			return Value{}, sortErr
+		}
+		outAgs := make([]Agent, n)
+		for i := 0; i < n; i++ {
+			outAgs[i] = items[i].a
+		}
+		return SetVal(&AgentSet{Kind: ags.Kind, Breed: ags.Breed, Agents: outAgs}), nil
+	}
+
 	target, err := vm.eval(c.Args[0])
 	if err != nil {
 		return Value{}, err
@@ -881,6 +1004,30 @@ func (vm *VM) withAgent(a Agent, fn func() Value) Value {
 }
 
 func (vm *VM) evalBreedCall(name string, args []Value, pos Pos) (Value, bool, error) {
+	for pl, b := range vm.World.linkBreeds {
+		sg := b.Singular
+		var dir int
+		var breed string
+		matched := false
+		switch name {
+		case sg + "-neighbor?", pl + "-neighbor?":
+			dir = 0
+			breed = pl
+			matched = true
+		case "in-" + sg + "-neighbor?", "in-" + pl + "-neighbor?":
+			dir = -1
+			breed = pl
+			matched = true
+		case "out-" + sg + "-neighbor?", "out-" + pl + "-neighbor?":
+			dir = 1
+			breed = pl
+			matched = true
+		}
+		if matched && len(args) == 1 {
+			v, err := vm.isLinkNeighbor(name, dir, breed, args)
+			return v, true, err
+		}
+	}
 	if strings.HasPrefix(name, "is-") && strings.HasSuffix(name, "?") {
 		sg := strings.TrimSuffix(strings.TrimPrefix(name, "is-"), "?")
 		if pl, ok := vm.singularBreed(sg); ok {
@@ -933,6 +1080,19 @@ func (vm *VM) evalBreedCall(name string, args []Value, pos Pos) (Value, bool, er
 				}
 			}
 			return SetVal(&AgentSet{Kind: KindTurtle, Breed: br, Agents: ags}), true, nil
+		}
+	}
+	if pl, ok := vm.singularBreed(name); ok {
+		if len(args) == 1 {
+			id, err := asInt(args[0], name)
+			if err != nil {
+				return Value{}, true, err
+			}
+			t := vm.World.Turtle(id)
+			if t == nil || t.dead || t.Breed != pl {
+				return Nobody(), true, nil
+			}
+			return AgentVal(t), true, nil
 		}
 	}
 	return Value{}, false, nil

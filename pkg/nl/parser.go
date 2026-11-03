@@ -240,6 +240,7 @@ func (p *parser) installDecls() {
 		p.extraRep[pl+"-on"] = primSpec{argc: 1, prec: precNormal}
 		p.extraRep[pl+"-at"] = primSpec{argc: 2, prec: precNormal}
 		p.extraRep["is-"+sg+"?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep[sg] = primSpec{argc: 1, prec: precNormal}
 		p.extraCmd["create-"+pl] = primSpec{argc: 1, optBlock: true}
 		p.extraCmd["create-ordered-"+pl] = primSpec{argc: 1, optBlock: true}
 		p.extraCmd["sprout-"+pl] = primSpec{argc: 1, optBlock: true}
@@ -258,6 +259,12 @@ func (p *parser) installDecls() {
 			p.extraCmd["create-"+pl+"-with"] = primSpec{argc: 1, optBlock: true}
 		}
 		p.extraRep[pl] = primSpec{argc: 0}
+		p.extraRep[sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep[pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep["in-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep["in-"+pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep["out-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep["out-"+pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
 	}
 	for pl := range p.breedPlural {
 		p.extraRep[pl] = primSpec{argc: 0}
@@ -396,7 +403,7 @@ func (p *parser) parseStatement(variadic bool) (Stmt, error) {
 		return p.parseSet()
 	case "if":
 		return p.parseIf()
-	case "ifelse":
+	case "ifelse", "if-else":
 		return p.parseIfelse(variadic)
 	case "while":
 		return p.parseWhile()
@@ -608,7 +615,14 @@ func (p *parser) parseIfelse(variadic bool) (Stmt, error) {
 			return nil, p.errf(p.peek(), "too many arguments")
 		}
 	}
-	return nil, p.errf(p.peek(), "ifelse expected an else block")
+	if len(pairs) == 0 {
+		return nil, p.errf(t, "ifelse expected a condition")
+	}
+	stmt := &ifelseStmt{Cond: pairs[len(pairs)-1].cond, Then: pairs[len(pairs)-1].body, Else: nil, Pos: t.Pos}
+	for i := len(pairs) - 2; i >= 0; i-- {
+		stmt = &ifelseStmt{Cond: pairs[i].cond, Then: pairs[i].body, Else: []Stmt{stmt}, Pos: t.Pos}
+	}
+	return stmt, nil
 }
 
 func (p *parser) parseWhile() (Stmt, error) {
@@ -1304,7 +1318,7 @@ func (p *parser) startsWithCommand() bool {
 	}
 	name := t.Lit
 	switch name {
-	case "let", "set", "if", "ifelse", "while", "repeat", "loop", "ask", "foreach",
+	case "let", "set", "if", "ifelse", "if-else", "while", "repeat", "loop", "ask", "foreach",
 		"report", "stop", "create-turtles", "crt", "create-ordered-turtles", "cro",
 		"sprout", "hatch":
 		return true

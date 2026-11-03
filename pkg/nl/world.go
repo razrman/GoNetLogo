@@ -56,6 +56,9 @@ type World struct {
 	// The run timer watches it. Tick does not, so a benchmark is unchanged.
 	runEpoch uint64
 
+	perspectiveAgent Agent
+	perspectiveMode  string // "watch", "follow", "ride", or ""
+
 	rng      *rand.Rand
 	rngDraws atomic.Uint64
 	seed     int64
@@ -573,6 +576,7 @@ func (w *World) ClearAll() {
 	w.ClearLinks()
 	w.ClearPatches()
 	w.ClearDrawing()
+	w.ResetPerspective()
 }
 
 func (w *World) ClearGlobals() {
@@ -977,6 +981,26 @@ func (w *World) Die(a Agent) {
 		}
 		w.links = kept
 	}
+	if w.perspectiveAgent == a {
+		w.ResetPerspective()
+	}
+}
+
+func (w *World) SetPerspective(mode string, a Agent) {
+	w.perspectiveMode = mode
+	w.perspectiveAgent = a
+}
+
+func (w *World) ResetPerspective() {
+	w.perspectiveMode = ""
+	w.perspectiveAgent = nil
+}
+
+func (w *World) Perspective() (string, Agent) {
+	if w.perspectiveAgent != nil && w.perspectiveAgent.IsDead() {
+		w.ResetPerspective()
+	}
+	return w.perspectiveMode, w.perspectiveAgent
 }
 
 // MoveTo sets a turtle's position. A wrapping axis wraps. A coordinate
