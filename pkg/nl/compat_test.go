@@ -162,21 +162,30 @@ end
 		{
 			name: "link-neighbor? undirected and directed",
 			code: `
-globals [ n1 n2 ]
+globals [ n1 n2 neg-out neg-in neg-breed neg-dead ]
 directed-link-breed [ arrows arrow ]
+undirected-link-breed [ roads road ]
 to test
   clear-all
-  crt 3
+  crt 4
   ask turtle 0 [
     create-link-with turtle 1
     create-arrow-to turtle 2
     set n1 link-neighbor? turtle 1
     set n2 arrow-neighbor? turtle 2
   ]
+  set neg-out [out-link-neighbor? turtle 0] of turtle 2 ; 0 -> 2, so 2's out-link-neighbor? 0 should be false
+  set neg-in [in-link-neighbor? turtle 2] of turtle 0   ; 0 -> 2, so 0's in-link-neighbor? 2 should be false
+  ask turtle 3 [
+    create-road-with turtle 0
+  ]
+  set neg-breed [arrow-neighbor? turtle 3] of turtle 0  ; turtle 0 and 3 only share a road, not an arrow
+  ask links [ die ]
+  set neg-dead [link-neighbor? turtle 1] of turtle 0    ; false after links die
 end
 `,
-			eval: `(word n1 n2)`,
-			want: "truetrue",
+			eval: `(word n1 n2 " " neg-out neg-in neg-breed neg-dead)`,
+			want: "truetrue falsefalsefalsefalse",
 		},
 		{
 			name: "remove-duplicates",
