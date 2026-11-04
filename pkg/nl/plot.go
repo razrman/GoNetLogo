@@ -563,21 +563,37 @@ func (vm *VM) histogram(v Value) error {
 		bins[b]++
 	}
 
-	if len(bins) == 0 {
-		return nil
+	totalBins := 0
+	if barMax > barMin {
+		totalBins = int(math.Ceil((barMax - barMin) / interval))
 	}
-	binKeys := make([]int, 0, len(bins))
-	for b := range bins {
-		binKeys = append(binKeys, b)
-	}
-	sort.Ints(binKeys)
-	for _, b := range binKeys {
-		count := bins[b]
-		x := barMin + float64(b)*interval
-		y := float64(count)
-		pen.add(x, y)
-		if pen.down {
-			p.growY(y)
+	if pen.mode == penBar {
+		if len(bins) == 0 {
+			return nil
+		}
+		binKeys := make([]int, 0, len(bins))
+		for b := range bins {
+			binKeys = append(binKeys, b)
+		}
+		sort.Ints(binKeys)
+		for _, b := range binKeys {
+			count := bins[b]
+			x := barMin + float64(b)*interval
+			y := float64(count)
+			pen.add(x, y)
+			if pen.down {
+				p.growY(y)
+			}
+		}
+	} else {
+		for b := 0; b < totalBins; b++ {
+			count := bins[b]
+			x := barMin + float64(b)*interval
+			y := float64(count)
+			pen.add(x, y)
+			if pen.down {
+				p.growY(y)
+			}
 		}
 	}
 	return nil

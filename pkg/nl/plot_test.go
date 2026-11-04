@@ -536,3 +536,35 @@ func TestPlotHistogramAndPenSettings(t *testing.T) {
 		t.Fatalf("repeated histogram point count = %d, want 2", len(pts2))
 	}
 }
+
+func TestPlotHistogramLineModeZeroPoints(t *testing.T) {
+	// A line-mode pen, histogram [1 1 1 9] on a 0-10 range with interval 1,
+	// expecting 10 points, including zeros at x=0 and x=2..8.
+	vm := plotVM(t, onePlot("lineplot", true, 0, 10, 0, 10, penSpec("linepen", "")))
+	mustRun(t, vm, "set-plot-pen-mode 0")
+	mustRun(t, vm, "set-plot-pen-interval 1")
+	mustRun(t, vm, "histogram [1 1 1 9]")
+
+	pts, ok := vm.PlotPoints("lineplot", "linepen")
+	if !ok || len(pts) != 10 {
+		t.Fatalf("line-mode histogram points len = %d, want 10: %+v", len(pts), pts)
+	}
+	for i, pt := range pts {
+		if pt.X != float64(i) {
+			t.Fatalf("pt[%d].X = %f, want %f", i, pt.X, float64(i))
+		}
+		if i == 1 {
+			if pt.Y != 3 {
+				t.Fatalf("pt[1].Y = %f, want 3", pt.Y)
+			}
+		} else if i == 9 {
+			if pt.Y != 1 {
+				t.Fatalf("pt[9].Y = %f, want 1", pt.Y)
+			}
+		} else {
+			if pt.Y != 0 {
+				t.Fatalf("pt[%d].Y = %f, want 0", i, pt.Y)
+			}
+		}
+	}
+}
