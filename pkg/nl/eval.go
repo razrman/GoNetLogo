@@ -112,6 +112,7 @@ type VM struct {
 	scopePool []*scope
 	tasks     int
 	plots     *plotMgr
+	errMsgs   []string
 
 	// halt is set by the UI. The interpreter polls it between commands.
 	halt atomic.Bool
@@ -511,6 +512,31 @@ func (vm *VM) execStmt(s Stmt) {
 			vm.block(s.Then)
 		} else {
 			vm.block(s.Else)
+		}
+	case *carefullyStmt:
+		var hasError bool
+		var caught string
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					switch e := r.(type) {
+					case *rtError:
+						hasError = true
+						caught = e.msg
+					case rtError:
+						hasError = true
+						caught = e.msg
+					default:
+						panic(r)
+					}
+				}
+			}()
+			vm.block(s.Body)
+		}()
+		if hasError {
+			vm.errMsgs = append(vm.errMsgs, caught)
+			defer func() { vm.errMsgs = vm.errMsgs[:len(vm.errMsgs)-1] }()
+			vm.block(s.Handler)
 		}
 	case *whileStmt:
 		for {
@@ -997,6 +1023,8 @@ func (vm *VM) eval(e Expr) (Value, error) {
 		return vm.evalCall(e)
 	case *infixExpr:
 		return vm.evalInfix(e)
+	case *inConeExpr:
+		return vm.evalInCone(e)
 	case *prefixExpr:
 		r, err := vm.eval(e.Right)
 		if err != nil {

@@ -35,17 +35,15 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		}
 		return AgentVal(p), nil
 	case "link":
-		a, err := asInt(args[0], "link")
+		t1, err := vm.turtleFromArg(args[0], "link")
 		if err != nil {
 			return Value{}, err
 		}
-		b, err := asInt(args[1], "link")
+		t2, err := vm.turtleFromArg(args[1], "link")
 		if err != nil {
 			return Value{}, err
 		}
-		t1 := vm.World.Turtle(a)
-		t2 := vm.World.Turtle(b)
-		if t1 == nil || t2 == nil {
+		if t1 == nil || t2 == nil || t1 == t2 {
 			return Nobody(), nil
 		}
 		if l := vm.World.findLink(t1, t2, false); l != nil {
@@ -401,6 +399,81 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 			return Value{}, fmt.Errorf("sqrt of a negative number")
 		}
 		return Num(math.Sqrt(n)), nil
+	case "random-normal":
+		mean, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		stdev, err := args[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		if stdev < 0 {
+			return Value{}, fmt.Errorf("random-normal expected standard deviation to be non-negative")
+		}
+		val := vm.World.rng.NormFloat64()*stdev + mean
+		vm.World.rngDraws.Add(1)
+		return Num(val), nil
+	case "random-exponential":
+		mean, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		val := vm.World.rng.ExpFloat64() * mean
+		vm.World.rngDraws.Add(1)
+		return Num(val), nil
+	case "modes":
+		xs, err := args[0].List()
+		if err != nil {
+			return Value{}, err
+		}
+		if len(xs) == 0 {
+			return List(), nil
+		}
+		counts := map[string]int{}
+		rep := map[string]Value{}
+		var order []string
+		maxC := 0
+		for _, x := range xs {
+			s := x.Format(true)
+			if counts[s] == 0 {
+				order = append(order, s)
+				rep[s] = x
+			}
+			counts[s]++
+			if counts[s] > maxC {
+				maxC = counts[s]
+			}
+		}
+		var modeVals []Value
+		for _, s := range order {
+			if counts[s] == maxC {
+				modeVals = append(modeVals, rep[s])
+			}
+		}
+		return List(modeVals...), nil
+	case "median":
+		xs, err := args[0].List()
+		if err != nil {
+			return Value{}, err
+		}
+		if len(xs) == 0 {
+			return Value{}, fmt.Errorf("median expected a non-empty list")
+		}
+		nums := make([]float64, len(xs))
+		for i, x := range xs {
+			n, err := x.Num()
+			if err != nil {
+				return Value{}, err
+			}
+			nums[i] = n
+		}
+		sort.Float64s(nums)
+		n := len(nums)
+		if n%2 == 1 {
+			return Num(nums[n/2]), nil
+		}
+		return Num((nums[n/2-1] + nums[n/2]) / 2.0), nil
 	case "sin":
 		n, err := args[0].Num()
 		if err != nil {
@@ -1021,6 +1094,82 @@ func (vm *VM) withExtreme(e *infixExpr) (Value, error) {
 			best = sv
 			keep = []Agent{a}
 		} else if same {
+			keep = append(keep, a)
+		}
+	}
+	return SetVal(&AgentSet{Kind: ags.Kind, Breed: ags.Breed, Agents: keep}), nil
+}
+
+func (vm *VM) evalInCone(e *inConeExpr) (Value, error) {
+	self, ok := vm.self.(*Turtle)
+	if !ok || self == nil || self.dead {
+		return Value{}, errorAt(e.Pos, "in-cone can only be used by a turtle")
+	}
+	target, err := vm.eval(e.Agents)
+	if err != nil {
+		return Value{}, err
+	}
+	ags, err := vm.asAgentset(target)
+	if err != nil {
+		return Value{}, err
+	}
+	distV, err := vm.eval(e.Dist)
+	if err != nil {
+		return Value{}, err
+	}
+	dist, err := distV.Num()
+	if err != nil {
+		return Value{}, err
+	}
+	if dist < 0 {
+		return Value{}, errorAt(e.Pos, "in-cone expected distance to be non-negative")
+	}
+	angleV, err := vm.eval(e.Angle)
+	if err != nil {
+		return Value{}, err
+	}
+	angle, err := angleV.Num()
+	if err != nil {
+		return Value{}, err
+	}
+	if angle < 0 || angle > 360 {
+		return Value{}, errorAt(e.Pos, "in-cone expected angle between 0 and 360")
+	}
+
+	halfAngle := angle / 2.0
+	sx, sy := self.X, self.Y
+	heading := self.Heading
+	var keep []Agent
+
+	for _, a := range ags.Alive() {
+		if a == self {
+			continue
+		}
+		x, y, err := pointOf(a)
+		if err != nil {
+			return Value{}, err
+		}
+		d := vm.World.Distance(sx, sy, x, y)
+		if d > dist {
+			continue
+		}
+		if d == 0 || angle >= 360 {
+			keep = append(keep, a)
+			continue
+		}
+		h, err := vm.World.HeadingTowards(sx, sy, x, y)
+		if err != nil {
+			keep = append(keep, a)
+			continue
+		}
+		diff := math.Mod(h-heading, 360)
+		if diff <= -180 {
+			diff += 360
+		}
+		if diff > 180 {
+			diff -= 360
+		}
+		if math.Abs(diff) <= halfAngle {
 			keep = append(keep, a)
 		}
 	}

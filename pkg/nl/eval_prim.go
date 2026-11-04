@@ -9,6 +9,38 @@ import (
 	"unicode"
 )
 
+func (vm *VM) turtleFromArg(v Value, what string) (*Turtle, error) {
+	switch v.K {
+	case KindNum:
+		id, err := asInt(v, what)
+		if err != nil {
+			return nil, err
+		}
+		return vm.World.Turtle(id), nil
+	case KindAgent:
+		t, ok := v.A.(*Turtle)
+		if !ok || t == nil {
+			return nil, fmt.Errorf("%s expected a turtle or integer, got %s", what, v.TypeName())
+		}
+		if t.dead {
+			return nil, fmt.Errorf("that agent is dead")
+		}
+		return t, nil
+	case KindNobody:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("%s expected a turtle or integer, got %s", what, v.TypeName())
+	}
+}
+
+func (vm *VM) requireLink(pos Pos) *Link {
+	l, ok := vm.self.(*Link)
+	if !ok || l == nil || l.dead {
+		vm.fail(pos, "this command can only be used by links")
+	}
+	return l
+}
+
 func asInt(v Value, what string) (int, error) {
 	n, err := v.Num()
 	if err != nil {
@@ -83,6 +115,31 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "clear-ticks":
 		vm.requireObserver(pos, "clear-ticks")
 		w.ClearTicks()
+	case "error":
+		vm.fail(pos, "%s", args[0].Format(false))
+	case "hide-link":
+		vm.requireLink(pos).Hidden = true
+	case "show-link":
+		vm.requireLink(pos).Hidden = false
+	case "histogram":
+		return vm.histogram(args[0])
+	case "set-histogram-num-bars":
+		return vm.setHistogramNumBars(args[0])
+	case "set-plot-pen-color":
+		return vm.setPlotPenColor(args[0])
+	case "set-plot-pen-mode":
+		return vm.setPlotPenMode(args[0])
+	case "set-plot-pen-interval":
+		return vm.setPlotPenInterval(args[0])
+	case "hubnet-reset", "hubnet-fetch-message", "hubnet-kick-all-clients",
+		"hubnet-clear-overrides", "hubnet-reset-perspective", "hubnet-kick-client",
+		"hubnet-make-plot-narrowcast", "__hubnet-make-plot-narrowcast",
+		"hubnet-clear-plot", "__hubnet-clear-plot", "hubnet-create-client", "__hubnet-create-client",
+		"hubnet-broadcast", "hubnet-broadcast-message", "hubnet-send", "hubnet-send-follow",
+		"hubnet-send-watch", "hubnet-send-override", "hubnet-clear-override",
+		"inspect", "stop-inspecting", "stop-inspecting-dead-agents", "export-interface",
+		"__set-line-thickness":
+		return nil
 	case "clear-drawing", "cd":
 		w.ClearDrawing()
 	case "clear-output":
@@ -721,6 +778,17 @@ func (vm *VM) evalZero(name string, pos Pos) (Value, error) {
 			Num(5), Num(15), Num(25), Num(35), Num(45), Num(55), Num(65),
 			Num(75), Num(85), Num(95), Num(105), Num(115), Num(125), Num(135),
 		), nil
+	case "error-message":
+		if len(vm.errMsgs) > 0 {
+			return Str(vm.errMsgs[len(vm.errMsgs)-1]), nil
+		}
+		return Value{}, errorAt(pos, "error-message is only allowed inside carefully")
+	case "hubnet-message-waiting?", "hubnet-enter-message?", "hubnet-exit-message?":
+		return Bool(false), nil
+	case "hubnet-message", "hubnet-message-source", "hubnet-message-tag":
+		return Str(""), nil
+	case "hubnet-clients-list":
+		return List(), nil
 	case "mouse-down?", "mouse-inside?":
 		return Bool(false), nil
 	case "mouse-xcor", "mouse-ycor":
@@ -1069,6 +1137,102 @@ func (vm *VM) evalBreedCallFast(call breedCallDef, name string, args []Value, po
 			}
 			return AgentVal(t), nil
 		}
+	case breedCallLinkSingular:
+		if len(args) == 2 {
+			t1, err := vm.turtleFromArg(args[0], name)
+			if err != nil {
+				return Value{}, err
+			}
+			t2, err := vm.turtleFromArg(args[1], name)
+			if err != nil {
+				return Value{}, err
+			}
+			if t1 == nil || t2 == nil || t1 == t2 {
+				return Nobody(), nil
+			}
+			l := vm.World.findLinkBreed(t1, t2, call.breed, call.directed)
+			if l == nil {
+				return Nobody(), nil
+			}
+			return AgentVal(l), nil
+		}
+	case breedCallLinkWith:
+		if len(args) == 1 {
+			self, ok := vm.self.(*Turtle)
+			if !ok {
+				return Value{}, errorAt(pos, "%s can only be used by a turtle", name)
+			}
+			other, err := vm.turtleFromArg(args[0], name)
+			if err != nil {
+				return Value{}, err
+			}
+			if other == nil || self == other {
+				return Nobody(), nil
+			}
+			l := vm.World.findLinkBreed(self, other, call.breed, false)
+			if l == nil {
+				return Nobody(), nil
+			}
+			return AgentVal(l), nil
+		}
+	case breedCallInLinkFrom:
+		if len(args) == 1 {
+			self, ok := vm.self.(*Turtle)
+			if !ok {
+				return Value{}, errorAt(pos, "%s can only be used by a turtle", name)
+			}
+			other, err := vm.turtleFromArg(args[0], name)
+			if err != nil {
+				return Value{}, err
+			}
+			if other == nil || self == other {
+				return Nobody(), nil
+			}
+			l := vm.World.findLinkBreed(other, self, call.breed, true)
+			if l == nil {
+				return Nobody(), nil
+			}
+			return AgentVal(l), nil
+		}
+	case breedCallOutLinkTo:
+		if len(args) == 1 {
+			self, ok := vm.self.(*Turtle)
+			if !ok {
+				return Value{}, errorAt(pos, "%s can only be used by a turtle", name)
+			}
+			other, err := vm.turtleFromArg(args[0], name)
+			if err != nil {
+				return Value{}, err
+			}
+			if other == nil || self == other {
+				return Nobody(), nil
+			}
+			l := vm.World.findLinkBreed(self, other, call.breed, true)
+			if l == nil {
+				return Nobody(), nil
+			}
+			return AgentVal(l), nil
+		}
+	case breedCallMyLinks:
+		t, ok := vm.self.(*Turtle)
+		if !ok {
+			return Value{}, errorAt(pos, "%s can only be used by a turtle", name)
+		}
+		ls := vm.World.LinksOf(t)
+		var ags []Agent
+		for _, l := range ls {
+			if l.Breed != call.breed {
+				continue
+			}
+			if call.dir == 1 && (l.End1 != t || !l.Directed) {
+				continue
+			}
+			if call.dir == -1 && (l.End2 != t || !l.Directed) {
+				continue
+			}
+			ags = append(ags, l)
+		}
+		return SetVal(&AgentSet{Kind: KindLink, Breed: call.breed, Agents: ags}), nil
 	}
 	return vm.evalReporter(name, args, pos)
 }

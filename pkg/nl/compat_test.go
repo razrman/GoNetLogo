@@ -330,6 +330,75 @@ end
 			eval: `base-colors`,
 			want: "[5 15 25 35 45 55 65 75 85 95 105 115 125 135]",
 		},
+		{
+			name: "carefully error and error-message",
+			code: `
+globals [ caught ]
+to test
+  carefully [
+    error "custom error occurred"
+  ] [
+    set caught error-message
+  ]
+end
+`,
+			eval: `caught`,
+			want: "custom error occurred",
+		},
+		{
+			name: "word variadic and concise task",
+			code: `
+to test
+end
+`,
+			eval: `(word (word "a" "b") "-" (word) "-" (word "one") "-" (word 1 2 3 4) "-" (reduce word ["x" "y" "z"]))`,
+			want: "ab--one-1234-xyz",
+		},
+		{
+			name: "hide-link and show-link",
+			code: `
+globals [ h1 h2 ]
+to test
+  crt 2
+  ask turtle 0 [ create-link-to turtle 1 ]
+  ask link 0 1 [
+    hide-link
+    set h1 [hidden?] of self
+    show-link
+    set h2 [hidden?] of self
+  ]
+end
+`,
+			eval: `(word h1 "-" h2)`,
+			want: "true-false",
+		},
+		{
+			name: "hubnet and inspect stubs",
+			code: `
+to test
+  hubnet-reset
+  hubnet-fetch-message
+  hubnet-broadcast "tag" 10
+  hubnet-send "client" "tag" 20
+  inspect turtle 0
+  stop-inspecting turtle 0
+  stop-inspecting-dead-agents
+  export-interface "test.png"
+  __set-line-thickness 2
+end
+`,
+			eval: `(word hubnet-message-waiting? "-" hubnet-message "-" hubnet-message-source "-" (length hubnet-clients-list))`,
+			want: "false---0",
+		},
+		{
+			name: "statistical distribution and list reporters",
+			code: `
+to test
+end
+`,
+			eval: `(word (median [3 1 2]) "-" (median [1 2 3 4]) "-" (modes [2 1 2 3 3]) "-" (is-number? (random-normal 10 2)) "-" (is-number? (random-exponential 5)))`,
+			want: "2-2.5-[2 3]-true-true",
+		},
 	}
 
 	for _, tt := range tests {

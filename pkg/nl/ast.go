@@ -127,6 +127,15 @@ type ifelseStmt struct {
 func (*ifelseStmt) stmt()     {}
 func (s *ifelseStmt) at() Pos { return s.Pos }
 
+type carefullyStmt struct {
+	Body    []Stmt
+	Handler []Stmt
+	Pos     Pos
+}
+
+func (*carefullyStmt) stmt()     {}
+func (s *carefullyStmt) at() Pos { return s.Pos }
+
 type whileStmt struct {
 	Cond Expr // reporter, evaluated each time (already the inside of the brackets)
 	Body []Stmt
@@ -280,6 +289,16 @@ type infixExpr struct {
 
 func (*infixExpr) expr()     {}
 func (e *infixExpr) at() Pos { return e.Pos }
+
+type inConeExpr struct {
+	Agents Expr
+	Dist   Expr
+	Angle  Expr
+	Pos    Pos
+}
+
+func (*inConeExpr) expr()     {}
+func (e *inConeExpr) at() Pos { return e.Pos }
 
 type prefixExpr struct {
 	Op    string

@@ -254,16 +254,29 @@ func (p *parser) installDecls() {
 			p.extraCmd["create-"+sg+"-from"] = primSpec{argc: 1, optBlock: true}
 			p.extraCmd["create-"+pl+"-to"] = primSpec{argc: 1, optBlock: true}
 			p.extraCmd["create-"+pl+"-from"] = primSpec{argc: 1, optBlock: true}
+			if sg != "" {
+				p.extraRep["in-"+sg+"-from"] = primSpec{argc: 1, prec: precNormal}
+				p.extraRep["out-"+sg+"-to"] = primSpec{argc: 1, prec: precNormal}
+			}
+			p.extraRep["my-in-"+pl] = primSpec{argc: 0}
+			p.extraRep["my-out-"+pl] = primSpec{argc: 0}
 		} else {
 			p.extraCmd["create-"+sg+"-with"] = primSpec{argc: 1, optBlock: true}
 			p.extraCmd["create-"+pl+"-with"] = primSpec{argc: 1, optBlock: true}
+			if sg != "" {
+				p.extraRep[sg+"-with"] = primSpec{argc: 1, prec: precNormal}
+			}
 		}
 		p.extraRep[pl] = primSpec{argc: 0}
-		p.extraRep[sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep["my-"+pl] = primSpec{argc: 0}
+		if sg != "" {
+			p.extraRep[sg] = primSpec{argc: 2, prec: precNormal}
+			p.extraRep[sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+			p.extraRep["in-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+			p.extraRep["out-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		}
 		p.extraRep[pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
-		p.extraRep["in-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
 		p.extraRep["in-"+pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
-		p.extraRep["out-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
 		p.extraRep["out-"+pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
 	}
 	for pl := range p.breedPlural {
@@ -405,6 +418,8 @@ func (p *parser) parseStatement(variadic bool) (Stmt, error) {
 		return p.parseIf()
 	case "ifelse", "if-else":
 		return p.parseIfelse(variadic)
+	case "carefully":
+		return p.parseCarefully()
 	case "while":
 		return p.parseWhile()
 	case "repeat":
@@ -1162,6 +1177,12 @@ func (p *parser) parseMore(left Expr, minPrec int) (Expr, error) {
 			left = &ofExpr{Block: left, Agents: right, Pos: t.Pos}
 		case "with":
 			left = &withExpr{Agents: left, Block: right, Pos: t.Pos}
+		case "in-cone":
+			angle, err := p.parseExpr(inf.prec, rightGoal, false)
+			if err != nil {
+				return nil, err
+			}
+			left = &inConeExpr{Agents: left, Dist: right, Angle: angle, Pos: t.Pos}
 		default:
 			// with-min, with-max, in-radius, and arithmetic.
 			left = &infixExpr{Op: t.Lit, Left: left, Right: right, Pos: t.Pos}
@@ -1305,6 +1326,19 @@ func (p *parser) parseLambda(pos Pos, params []string, body []Token, arrow Token
 	return &lambdaExpr{Params: params, Rep: e, Pos: pos}, nil
 }
 
+func (p *parser) parseCarefully() (Stmt, error) {
+	t := p.next()
+	body, err := p.expectCmdBlock()
+	if err != nil {
+		return nil, err
+	}
+	handler, err := p.expectCmdBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &carefullyStmt{Body: body, Handler: handler, Pos: t.Pos}, nil
+}
+
 func (p *parser) startsWithCommand() bool {
 	t := p.peek()
 	if t.Kind == TokLParen {
@@ -1318,7 +1352,7 @@ func (p *parser) startsWithCommand() bool {
 	}
 	name := t.Lit
 	switch name {
-	case "let", "set", "if", "ifelse", "if-else", "while", "repeat", "loop", "ask", "foreach",
+	case "let", "set", "if", "ifelse", "if-else", "carefully", "while", "repeat", "loop", "ask", "foreach",
 		"report", "stop", "create-turtles", "crt", "create-ordered-turtles", "cro",
 		"sprout", "hatch":
 		return true

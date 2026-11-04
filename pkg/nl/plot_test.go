@@ -499,3 +499,30 @@ func samePoints(got, want []PlotPoint) bool {
 	}
 	return true
 }
+
+func TestPlotHistogramAndPenSettings(t *testing.T) {
+	vm := plotVM(t, onePlot("dist", true, 0, 10, 0, 10, penSpec("hist", "")))
+	mustRun(t, vm, "set-histogram-num-bars 5")
+	mustRun(t, vm, "set-plot-pen-mode 1")
+	mustRun(t, vm, "set-plot-pen-interval 2")
+	mustRun(t, vm, "set-plot-pen-color 15")
+	mustRun(t, vm, "histogram [1 1 3 5 5 5 7 9]")
+
+	pts, ok := vm.PlotPoints("dist", "hist")
+	if !ok || len(pts) == 0 {
+		t.Fatalf("no points plotted for histogram: %v", ok)
+	}
+	p, pen, err := vm.plotTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pen.mode != 1 {
+		t.Fatalf("pen mode %d, want 1", pen.mode)
+	}
+	if pen.interval != 2 {
+		t.Fatalf("pen interval %f, want 2", pen.interval)
+	}
+	if p.numBars != 5 {
+		t.Fatalf("numBars %d, want 5", p.numBars)
+	}
+}
