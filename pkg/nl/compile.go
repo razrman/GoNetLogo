@@ -1167,7 +1167,7 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 			return func(vm *VM) Value { return SetVal(vm.breedHere(br)) }
 		}
 	}
-	if strings.HasPrefix(name, "my-in-") || strings.HasPrefix(name, "my-out-") || strings.HasPrefix(name, "my-") {
+	if strings.HasPrefix(name, "my-") {
 		return func(vm *VM) Value { return mustIdent(vm, name, pos) }
 	}
 	if zeroArgReporters[name] {

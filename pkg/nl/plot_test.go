@@ -503,31 +503,36 @@ func samePoints(got, want []PlotPoint) bool {
 func TestPlotHistogramAndPenSettings(t *testing.T) {
 	vm := plotVM(t, onePlot("dist", true, 0, 12, 0, 10, penSpec("hist", "")))
 	mustRun(t, vm, "set-histogram-num-bars 4") // interval = 12 / 4 = 3
-	mustRun(t, vm, "set-plot-pen-mode 1")
-	mustRun(t, vm, "set-plot-pen-interval 2")  // set-plot-pen-interval overrides: interval = 2
-	mustRun(t, vm, "set-plot-pen-color 15")
-	// Test skipping non-numeric items and dropping out-of-range items (-5 and 20):
-	mustRun(t, vm, "histogram [\"foo\" -5 1 1 3 5 5 5 7 9 20]")
-
-	pts, ok := vm.PlotPoints("dist", "hist")
-	if !ok || len(pts) == 0 {
-		t.Fatalf("no points plotted for histogram: %v", ok)
-	}
 	_, pen, err := vm.plotTarget()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if pen.interval != 3 {
+		t.Fatalf("pen interval after set-histogram-num-bars = %f, want 3", pen.interval)
+	}
+
+	mustRun(t, vm, "set-plot-pen-mode 1")
+	mustRun(t, vm, "set-plot-pen-interval 2")  // set-plot-pen-interval overrides: interval = 2
+	mustRun(t, vm, "set-plot-pen-color 15")
+	if pen.interval != 2 {
+		t.Fatalf("pen interval after set-plot-pen-interval = %f, want 2", pen.interval)
+	}
+
+	// Test skipping non-numeric items and dropping out-of-range items (-5 and 20):
+	mustRun(t, vm, "histogram [\"foo\" -5 1 1 3 5 5 5 7 9 20]")
+
+	pts, ok := vm.PlotPoints("dist", "hist")
+	if !ok || len(pts) != 5 {
+		t.Fatalf("plotted %d points for histogram, want 5: %+v", len(pts), pts)
+	}
 	if pen.mode != 1 {
 		t.Fatalf("pen mode %d, want 1", pen.mode)
-	}
-	if pen.interval != 2 {
-		t.Fatalf("pen interval %f, want 2", pen.interval)
 	}
 
 	// Repeated histogram call resets pen and does not accumulate points:
 	mustRun(t, vm, "histogram [1 3]")
 	pts2, _ := vm.PlotPoints("dist", "hist")
-	if len(pts2) != len(pts) {
-		t.Fatalf("repeated histogram changed point count: got %d, want %d", len(pts2), len(pts))
+	if len(pts2) != 2 {
+		t.Fatalf("repeated histogram point count = %d, want 2", len(pts2))
 	}
 }

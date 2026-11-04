@@ -408,14 +408,19 @@ to test
   crt 1 [
     setxy max-pxcor 0
     set heading 90
-    ;; In a wrapping world, heading 90 sees min-pxcor across the seam
-    ;; and in-cone includes the caller itself.
+  ]
+  crt 1 [
+    setxy min-pxcor 0
+  ]
+  ;; In a wrapping world, caller at max-pxcor facing 90 sees min-pxcor across the seam.
+  ;; in-cone includes both the other turtle across the seam and the caller itself.
+  ask turtle 0 [
     set res count (turtles in-cone 3 90)
   ]
 end
 `,
 			eval: `res`,
-			want: "1",
+			want: "2",
 		},
 		{
 			name: "link-breed reporters on directed and undirected breeds",

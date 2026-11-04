@@ -3,6 +3,7 @@ package nl
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"sync/atomic"
 )
@@ -520,6 +521,10 @@ func (vm *VM) setPlotPenColor(v Value) error {
 }
 
 func (vm *VM) histogram(v Value) error {
+	xs, err := v.List()
+	if err != nil {
+		return err
+	}
 	p, pen, err := vm.plotTarget()
 	if err != nil {
 		return err
@@ -536,10 +541,6 @@ func (vm *VM) histogram(v Value) error {
 	pen.down = true
 	pen.x = 0
 
-	xs, err := v.List()
-	if err != nil {
-		return err
-	}
 	if len(xs) == 0 {
 		return nil
 	}
@@ -562,11 +563,15 @@ func (vm *VM) histogram(v Value) error {
 		bins[b]++
 	}
 
-	totalBins := 0
-	if barMax > barMin {
-		totalBins = int(math.Ceil((barMax - barMin) / interval))
+	if len(bins) == 0 {
+		return nil
 	}
-	for b := 0; b < totalBins; b++ {
+	binKeys := make([]int, 0, len(bins))
+	for b := range bins {
+		binKeys = append(binKeys, b)
+	}
+	sort.Ints(binKeys)
+	for _, b := range binKeys {
 		count := bins[b]
 		x := barMin + float64(b)*interval
 		y := float64(count)
