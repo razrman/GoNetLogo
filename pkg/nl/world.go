@@ -91,12 +91,18 @@ const (
 	breedCallOn
 	breedCallAt
 	breedCallSingular
+	breedCallLinkSingular
+	breedCallLinkWith
+	breedCallInLinkFrom
+	breedCallOutLinkTo
+	breedCallMyLinks
 )
 
 type breedCallDef struct {
-	kind  breedCallKind
-	breed string
-	dir   int
+	kind     breedCallKind
+	breed    string
+	dir      int
+	directed bool
 }
 
 type breedDef struct {
@@ -274,6 +280,22 @@ func ValidWorld(minPx, maxPx, minPy, maxPy int) error {
 	return nil
 }
 
+func (w *World) findLinkBreed(a, b *Turtle, breed string, directed bool) *Link {
+	for _, l := range w.links {
+		if l.dead || l.Directed != directed || l.Breed != breed {
+			continue
+		}
+		if directed {
+			if l.End1 == a && l.End2 == b {
+				return l
+			}
+		} else if (l.End1 == a && l.End2 == b) || (l.End1 == b && l.End2 == a) {
+			return l
+		}
+	}
+	return nil
+}
+
 // ApplyView resizes the world and sets patch size and wrapping.
 // Turtles and links die and patches are reset, as with resize-world.
 // Patch size must be positive and at most 100.
@@ -440,6 +462,20 @@ func (w *World) initBreedCalls(p *Program) {
 			w.breedCalls[name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: 0}
 			w.breedCalls["in-"+name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: -1}
 			w.breedCalls["out-"+name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: 1}
+		}
+		if b.Singular != "" {
+			w.breedCalls[b.Singular] = breedCallDef{kind: breedCallLinkSingular, breed: b.Plural, directed: b.Directed}
+			if b.Directed {
+				w.breedCalls["in-"+b.Singular+"-from"] = breedCallDef{kind: breedCallInLinkFrom, breed: b.Plural, directed: true}
+				w.breedCalls["out-"+b.Singular+"-to"] = breedCallDef{kind: breedCallOutLinkTo, breed: b.Plural, directed: true}
+			} else {
+				w.breedCalls[b.Singular+"-with"] = breedCallDef{kind: breedCallLinkWith, breed: b.Plural, directed: false}
+			}
+		}
+		w.breedCalls["my-"+b.Plural] = breedCallDef{kind: breedCallMyLinks, breed: b.Plural, dir: 0}
+		if b.Directed {
+			w.breedCalls["my-in-"+b.Plural] = breedCallDef{kind: breedCallMyLinks, breed: b.Plural, dir: -1}
+			w.breedCalls["my-out-"+b.Plural] = breedCallDef{kind: breedCallMyLinks, breed: b.Plural, dir: 1}
 		}
 	}
 	for _, b := range p.Breeds {

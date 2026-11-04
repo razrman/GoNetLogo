@@ -112,6 +112,7 @@ type VM struct {
 	scopePool []*scope
 	tasks     int
 	plots     *plotMgr
+	errMsgs   []string
 
 	// halt is set by the UI. The interpreter polls it between commands.
 	halt atomic.Bool
@@ -511,6 +512,27 @@ func (vm *VM) execStmt(s Stmt) {
 			vm.block(s.Then)
 		} else {
 			vm.block(s.Else)
+		}
+	case *carefullyStmt:
+		var hasError bool
+		var caught string
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					msg, ok := recoverRT(r)
+					if !ok {
+						panic(r)
+					}
+					hasError = true
+					caught = msg
+				}
+			}()
+			vm.block(s.Body)
+		}()
+		if hasError {
+			vm.errMsgs = append(vm.errMsgs, caught)
+			defer func() { vm.errMsgs = vm.errMsgs[:len(vm.errMsgs)-1] }()
+			vm.block(s.Handler)
 		}
 	case *whileStmt:
 		for {
@@ -997,6 +1019,8 @@ func (vm *VM) eval(e Expr) (Value, error) {
 		return vm.evalCall(e)
 	case *infixExpr:
 		return vm.evalInfix(e)
+	case *inConeExpr:
+		return vm.evalInCone(e)
 	case *prefixExpr:
 		r, err := vm.eval(e.Right)
 		if err != nil {
@@ -1079,6 +1103,11 @@ func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 	}
 	if name == "nobody" {
 		return Nobody(), nil
+	}
+	if vm.World != nil && len(vm.World.breedCalls) > 0 {
+		if call, ok := vm.World.breedCalls[name]; ok && call.kind == breedCallMyLinks {
+			return vm.evalBreedCallFast(call, name, nil, pos)
+		}
 	}
 	if zeroArgReporters[name] {
 		return vm.evalZero(name, pos)

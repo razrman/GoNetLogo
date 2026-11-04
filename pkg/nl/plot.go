@@ -3,6 +3,7 @@ package nl
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"sync/atomic"
 )
@@ -354,6 +355,28 @@ func (p *plot) grow(pen *plotPen, x, y float64) {
 	p.growAxis(x, y)
 }
 
+func (p *plot) growY(y float64) {
+	if !p.auto {
+		return
+	}
+	if y > p.yMax {
+		span := (y - p.yMin) * autoYFactor
+		next := niceBound(p.yMin+span, span)
+		if next <= y {
+			next = y
+		}
+		p.yMax = next
+	}
+	if y < p.yMin {
+		span := (p.yMax - y) * autoYFactor
+		next := niceBound(p.yMax-span, span)
+		if next >= y {
+			next = y
+		}
+		p.yMin = next
+	}
+}
+
 func (p *plot) growAxis(x, y float64) {
 	if x > p.xMax {
 		span := (x - p.xMin) * autoXFactor
@@ -430,6 +453,149 @@ func (vm *VM) plotPenReset() error {
 	pen.hardReset()
 	pen.down = true
 	pen.x = 0
+	return nil
+}
+
+func (vm *VM) setHistogramNumBars(v Value) error {
+	p, pen, err := vm.plotTarget()
+	if err != nil {
+		return err
+	}
+	n, err := asInt(v, "set-histogram-num-bars")
+	if err != nil {
+		return err
+	}
+	if n < 1 {
+		return fmt.Errorf("set-histogram-num-bars expected a positive integer")
+	}
+	if p.xMax > p.xMin {
+		pen.interval = (p.xMax - p.xMin) / float64(n)
+	}
+	return nil
+}
+
+func (vm *VM) setPlotPenInterval(v Value) error {
+	_, pen, err := vm.plotTarget()
+	if err != nil {
+		return err
+	}
+	n, err := v.Num()
+	if err != nil {
+		return err
+	}
+	if n <= 0 {
+		return fmt.Errorf("set-plot-pen-interval expected a positive number")
+	}
+	pen.interval = n
+	return nil
+}
+
+func (vm *VM) setPlotPenMode(v Value) error {
+	_, pen, err := vm.plotTarget()
+	if err != nil {
+		return err
+	}
+	m, err := asInt(v, "set-plot-pen-mode")
+	if err != nil {
+		return err
+	}
+	if m < 0 || m > 2 {
+		return fmt.Errorf("set-plot-pen-mode expected 0, 1, or 2")
+	}
+	pen.mode = m
+	return nil
+}
+
+func (vm *VM) setPlotPenColor(v Value) error {
+	_, pen, err := vm.plotTarget()
+	if err != nil {
+		return err
+	}
+	rgba, _, err := ColorFromValue(v)
+	if err != nil {
+		return err
+	}
+	pen.r, pen.g, pen.b = rgba.R, rgba.G, rgba.B
+	pen.color = int32(-16777216) | (int32(rgba.R) << 16) | (int32(rgba.G) << 8) | int32(rgba.B)
+	return nil
+}
+
+func (vm *VM) histogram(v Value) error {
+	xs, err := v.List()
+	if err != nil {
+		return err
+	}
+	p, pen, err := vm.plotTarget()
+	if err != nil {
+		return err
+	}
+	mode := pen.mode
+	interval := pen.interval
+	color := pen.color
+	r, g, b := pen.r, pen.g, pen.b
+	pen.hardReset()
+	pen.mode = mode
+	pen.interval = interval
+	pen.color = color
+	pen.r, pen.g, pen.b = r, g, b
+	pen.down = true
+	pen.x = 0
+
+	if len(xs) == 0 {
+		return nil
+	}
+	if interval <= 0 {
+		interval = 1.0
+	}
+
+	barMin := p.xMin
+	barMax := p.xMax
+	bins := map[int]int{}
+	for _, x := range xs {
+		n, err := x.Num()
+		if err != nil {
+			continue // skip non-numeric items
+		}
+		if n < barMin || n >= barMax {
+			continue // drop values outside [xmin, xmax)
+		}
+		b := int(math.Floor((n - barMin) / interval))
+		bins[b]++
+	}
+
+	totalBins := 0
+	if barMax > barMin {
+		totalBins = int(math.Ceil((barMax - barMin) / interval))
+	}
+	if pen.mode == penBar {
+		if len(bins) == 0 {
+			return nil
+		}
+		binKeys := make([]int, 0, len(bins))
+		for b := range bins {
+			binKeys = append(binKeys, b)
+		}
+		sort.Ints(binKeys)
+		for _, b := range binKeys {
+			count := bins[b]
+			x := barMin + float64(b)*interval
+			y := float64(count)
+			pen.add(x, y)
+			if pen.down {
+				p.growY(y)
+			}
+		}
+	} else {
+		for b := 0; b < totalBins; b++ {
+			count := bins[b]
+			x := barMin + float64(b)*interval
+			y := float64(count)
+			pen.add(x, y)
+			if pen.down {
+				p.growY(y)
+			}
+		}
+	}
 	return nil
 }
 

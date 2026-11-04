@@ -27,9 +27,10 @@ type compiler struct {
 	globalName    []string
 	turtle        map[string]ownSlot
 	patch         map[string]ownSlot
-	breeds        map[string]bool
-	breedSingular map[string]string
-	linkBreeds    map[string]bool
+	breeds            map[string]bool
+	breedSingular     map[string]string
+	linkBreeds        map[string]bool
+	linkBreedSingular map[string]string
 }
 
 func (vm *VM) ensureCompiled() {
@@ -61,9 +62,10 @@ func newCompiler(prog *Program) *compiler {
 		globals:    map[string]int{},
 		turtle:     map[string]ownSlot{},
 		patch:      map[string]ownSlot{},
-		breeds:        map[string]bool{},
-		breedSingular: map[string]string{},
-		linkBreeds:    map[string]bool{},
+		breeds:            map[string]bool{},
+		breedSingular:     map[string]string{},
+		linkBreeds:        map[string]bool{},
+		linkBreedSingular: map[string]string{},
 	}
 	addGlobal := func(name string) {
 		if _, ok := c.globals[name]; ok {
@@ -98,6 +100,7 @@ func newCompiler(prog *Program) *compiler {
 	}
 	for _, b := range prog.LinkBreeds {
 		c.linkBreeds[b.Plural] = true
+		c.linkBreedSingular[b.Singular] = b.Plural
 	}
 	return c
 }
@@ -261,6 +264,31 @@ func (c *compiler) compileStmt(s Stmt, locals map[string]bool) cmdFn {
 				thn(vm)
 			} else {
 				els(vm)
+			}
+		}
+	case *carefullyStmt:
+		body := c.compileBlock(s.Body, locals)
+		handler := c.compileBlock(s.Handler, locals)
+		return func(vm *VM) {
+			var hasError bool
+			var caught string
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						msg, ok := recoverRT(r)
+						if !ok {
+							panic(r)
+						}
+						hasError = true
+						caught = msg
+					}
+				}()
+				body(vm)
+			}()
+			if hasError {
+				vm.errMsgs = append(vm.errMsgs, caught)
+				defer func() { vm.errMsgs = vm.errMsgs[:len(vm.errMsgs)-1] }()
+				handler(vm)
 			}
 		}
 	case *whileStmt:
@@ -665,6 +693,15 @@ func (c *compiler) compileExpr(e Expr, locals map[string]bool) repFn {
 		return c.compileCall(e, locals)
 	case *infixExpr:
 		return c.compileInfix(e, locals)
+	case *inConeExpr:
+		pos := e.Pos
+		return func(vm *VM) Value {
+			v, err := vm.evalInCone(e)
+			if err != nil {
+				vm.fail(pos, "%s", err.Error())
+			}
+			return v
+		}
 	case *prefixExpr:
 		right := c.compileExpr(e.Right, locals)
 		pos := e.Pos
@@ -837,7 +874,7 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 			return v
 		}
 	}
-	if strings.HasSuffix(e.Name, "-on") || strings.HasSuffix(e.Name, "-at") || strings.HasPrefix(e.Name, "is-") || strings.HasSuffix(e.Name, "-neighbor?") || c.breedSingular[e.Name] != "" {
+	if strings.HasSuffix(e.Name, "-on") || strings.HasSuffix(e.Name, "-at") || strings.HasPrefix(e.Name, "is-") || strings.HasSuffix(e.Name, "-neighbor?") || c.breedSingular[e.Name] != "" || c.linkBreedSingular[e.Name] != "" {
 		return func(vm *VM) Value {
 			v, err := vm.eval(e)
 			if err != nil {
@@ -1130,6 +1167,9 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 			return func(vm *VM) Value { return SetVal(vm.breedHere(br)) }
 		}
 	}
+	if strings.HasPrefix(name, "my-") {
+		return func(vm *VM) Value { return mustIdent(vm, name, pos) }
+	}
 	if zeroArgReporters[name] {
 		return func(vm *VM) Value {
 			v, err := vm.evalZero(name, pos)
@@ -1199,6 +1239,9 @@ func (c *compiler) sealStmt(s Stmt, locals map[string]bool) {
 		c.sealExpr(s.Cond, locals)
 		c.sealLambdas(s.Then, locals)
 		c.sealLambdas(s.Else, locals)
+	case *carefullyStmt:
+		c.sealLambdas(s.Body, locals)
+		c.sealLambdas(s.Handler, locals)
 	case *whileStmt:
 		c.sealExpr(s.Cond, locals)
 		c.sealLambdas(s.Body, locals)
@@ -1245,6 +1288,10 @@ func (c *compiler) sealExpr(e Expr, locals map[string]bool) {
 	case *infixExpr:
 		c.sealExpr(e.Left, locals)
 		c.sealExpr(e.Right, locals)
+	case *inConeExpr:
+		c.sealExpr(e.Agents, locals)
+		c.sealExpr(e.Dist, locals)
+		c.sealExpr(e.Angle, locals)
 	case *prefixExpr:
 		c.sealExpr(e.Right, locals)
 	case *lambdaExpr:

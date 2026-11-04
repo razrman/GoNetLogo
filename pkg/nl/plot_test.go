@@ -499,3 +499,72 @@ func samePoints(got, want []PlotPoint) bool {
 	}
 	return true
 }
+
+func TestPlotHistogramAndPenSettings(t *testing.T) {
+	vm := plotVM(t, onePlot("dist", true, 0, 12, 0, 10, penSpec("hist", "")))
+	mustRun(t, vm, "set-histogram-num-bars 4") // interval = 12 / 4 = 3
+	_, pen, err := vm.plotTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pen.interval != 3 {
+		t.Fatalf("pen interval after set-histogram-num-bars = %f, want 3", pen.interval)
+	}
+
+	mustRun(t, vm, "set-plot-pen-mode 1")
+	mustRun(t, vm, "set-plot-pen-interval 2")  // set-plot-pen-interval overrides: interval = 2
+	mustRun(t, vm, "set-plot-pen-color 15")
+	if pen.interval != 2 {
+		t.Fatalf("pen interval after set-plot-pen-interval = %f, want 2", pen.interval)
+	}
+
+	// Test skipping non-numeric items and dropping out-of-range items (-5 and 20):
+	mustRun(t, vm, "histogram [\"foo\" -5 1 1 3 5 5 5 7 9 20]")
+
+	pts, ok := vm.PlotPoints("dist", "hist")
+	if !ok || len(pts) != 5 {
+		t.Fatalf("plotted %d points for histogram, want 5: %+v", len(pts), pts)
+	}
+	if pen.mode != 1 {
+		t.Fatalf("pen mode %d, want 1", pen.mode)
+	}
+
+	// Repeated histogram call resets pen and does not accumulate points:
+	mustRun(t, vm, "histogram [1 3]")
+	pts2, _ := vm.PlotPoints("dist", "hist")
+	if len(pts2) != 2 {
+		t.Fatalf("repeated histogram point count = %d, want 2", len(pts2))
+	}
+}
+
+func TestPlotHistogramLineModeZeroPoints(t *testing.T) {
+	// A line-mode pen, histogram [1 1 1 9] on a 0-10 range with interval 1,
+	// expecting 10 points, including zeros at x=0 and x=2..8.
+	vm := plotVM(t, onePlot("lineplot", true, 0, 10, 0, 10, penSpec("linepen", "")))
+	mustRun(t, vm, "set-plot-pen-mode 0")
+	mustRun(t, vm, "set-plot-pen-interval 1")
+	mustRun(t, vm, "histogram [1 1 1 9]")
+
+	pts, ok := vm.PlotPoints("lineplot", "linepen")
+	if !ok || len(pts) != 10 {
+		t.Fatalf("line-mode histogram points len = %d, want 10: %+v", len(pts), pts)
+	}
+	for i, pt := range pts {
+		if pt.X != float64(i) {
+			t.Fatalf("pt[%d].X = %f, want %f", i, pt.X, float64(i))
+		}
+		if i == 1 {
+			if pt.Y != 3 {
+				t.Fatalf("pt[1].Y = %f, want 3", pt.Y)
+			}
+		} else if i == 9 {
+			if pt.Y != 1 {
+				t.Fatalf("pt[9].Y = %f, want 1", pt.Y)
+			}
+		} else {
+			if pt.Y != 0 {
+				t.Fatalf("pt[%d].Y = %f, want 0", i, pt.Y)
+			}
+		}
+	}
+}

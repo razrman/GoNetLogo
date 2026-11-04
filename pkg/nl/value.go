@@ -100,6 +100,13 @@ func (v Value) Num() (float64, error) {
 	return v.N, nil
 }
 
+func (v Value) List() ([]Value, error) {
+	if v.K != KindList {
+		return nil, fmt.Errorf("expected a list, got %s", v.TypeName())
+	}
+	return v.L, nil
+}
+
 func (v Value) TypeName() string {
 	switch v.K {
 	case KindNobody:

@@ -19,6 +19,17 @@ func (e *rtError) Error() string {
 	return e.msg
 }
 
+func recoverRT(r any) (string, bool) {
+	switch e := r.(type) {
+	case *rtError:
+		return e.msg, true
+	case rtError:
+		return e.msg, true
+	default:
+		return "", false
+	}
+}
+
 // LocateError reports the procedure and source line of a NetLogo runtime
 // error. ok is false when err did not come from the interpreter.
 func LocateError(err error) (proc string, line int, ok bool) {
