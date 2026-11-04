@@ -6,12 +6,16 @@ Ideas parked for later. Not scheduled for work yet.
 
 - HubNet Not Implemented. See Roadmap item 8.
 
-## Web UI sessions
+## User & Session Management
 
-- **Simple login.** A simple login page so a user signs in to GoNetLogo with a login id. Keep it deliberately simple for now (for example just a username, or a basic local user list). Real authentication is complex and out of scope until later. Each session records the login id of the user who started it and the loaded .nlogo model name, and users only see sessions they started.
-- **Session limit and cleanup.** The backend session store (`backend/session/session.go`) has no maximum and never removes sessions until the server exits; every page load or new tab creates a session whose loop keeps running. Add a configurable maximum and drop sessions that have had no connected client for a while.
-- **Session picker on startup.** The user logs in, sees their own running sessions, then selects one to reconnect or starts a new one. Each running session is shown with its login id and loaded .nlogo model name so the user can tell sessions apart. On reconnect, redraw the view with the model's current state.
+- **Simple login.** A simple login page so a user signs in to GoNetLogo with a login id. Keep it deliberately simple for now (for example just a username, or a basic local user list). Real authentication is complex and out of scope until later. Each session records the login id of the user who started it and the loaded .nlogo model name. In the session picker, users only see sessions they started.
+- **User types.** user, power-user, and admin. A user can have only one session; a power-user can have up to 10 sessions; an admin can access the `/admin` screen.
+- **Default admin.** A default user named `admin` with admin capability.
+- **Session limit and cleanup.** The backend session store (`backend/session/session.go`) has no maximum and never removes sessions until the server exits; every page load or new tab creates a session whose loop keeps running. Cap open sessions by user type (one for a user, 10 for a power-user) and drop sessions that have had no connected client for a while.
+- **Session picker on startup.** The user logs in, sees their own running sessions, then selects one to reconnect or starts a new one when their type's cap allows it. Each running session is shown with its login id and loaded .nlogo model name so the user can tell sessions apart. On reconnect, redraw the view with the model's current state.
 - **Ask on close.** When the user closes the page, ask whether to end the session or keep it running in the background.
+- **Admin page.** An admin page at `/admin` lists users with their sessions. It shows each user's type, which sessions are connected, and how long each session has been running, and has a button to quit a session that is not connected.
+- **Change user types.** Admins can change user types.
 
 ## Roadmap
 
