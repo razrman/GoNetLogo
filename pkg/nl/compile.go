@@ -275,16 +275,12 @@ func (c *compiler) compileStmt(s Stmt, locals map[string]bool) cmdFn {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						switch e := r.(type) {
-						case *rtError:
-							hasError = true
-							caught = e.msg
-						case rtError:
-							hasError = true
-							caught = e.msg
-						default:
+						msg, ok := recoverRT(r)
+						if !ok {
 							panic(r)
 						}
+						hasError = true
+						caught = msg
 					}
 				}()
 				body(vm)
@@ -1170,6 +1166,9 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 		if c.breeds[br] {
 			return func(vm *VM) Value { return SetVal(vm.breedHere(br)) }
 		}
+	}
+	if strings.HasPrefix(name, "my-in-") || strings.HasPrefix(name, "my-out-") || strings.HasPrefix(name, "my-") {
+		return func(vm *VM) Value { return mustIdent(vm, name, pos) }
 	}
 	if zeroArgReporters[name] {
 		return func(vm *VM) Value {

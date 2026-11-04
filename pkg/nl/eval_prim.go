@@ -135,6 +135,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		"hubnet-clear-overrides", "hubnet-reset-perspective", "hubnet-kick-client",
 		"hubnet-make-plot-narrowcast", "__hubnet-make-plot-narrowcast",
 		"hubnet-clear-plot", "__hubnet-clear-plot", "hubnet-create-client", "__hubnet-create-client",
+		"hubnet-plot", "__hubnet-plot",
 		"hubnet-broadcast", "hubnet-broadcast-message", "hubnet-send", "hubnet-send-follow",
 		"hubnet-send-watch", "hubnet-send-override", "hubnet-clear-override",
 		"inspect", "stop-inspecting", "stop-inspecting-dead-agents", "export-interface",

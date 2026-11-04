@@ -519,16 +519,12 @@ func (vm *VM) execStmt(s Stmt) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					switch e := r.(type) {
-					case *rtError:
-						hasError = true
-						caught = e.msg
-					case rtError:
-						hasError = true
-						caught = e.msg
-					default:
+					msg, ok := recoverRT(r)
+					if !ok {
 						panic(r)
 					}
+					hasError = true
+					caught = msg
 				}
 			}()
 			vm.block(s.Body)
@@ -1107,6 +1103,11 @@ func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 	}
 	if name == "nobody" {
 		return Nobody(), nil
+	}
+	if vm.World != nil && len(vm.World.breedCalls) > 0 {
+		if call, ok := vm.World.breedCalls[name]; ok && call.kind == breedCallMyLinks {
+			return vm.evalBreedCallFast(call, name, nil, pos)
+		}
 	}
 	if zeroArgReporters[name] {
 		return vm.evalZero(name, pos)

@@ -457,16 +457,14 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		if len(xs) == 0 {
-			return Value{}, fmt.Errorf("median expected a non-empty list")
-		}
-		nums := make([]float64, len(xs))
-		for i, x := range xs {
-			n, err := x.Num()
-			if err != nil {
-				return Value{}, err
+		var nums []float64
+		for _, x := range xs {
+			if n, err := x.Num(); err == nil {
+				nums = append(nums, n)
 			}
-			nums[i] = n
+		}
+		if len(nums) == 0 {
+			return Value{}, fmt.Errorf("median expected a list containing at least one number")
 		}
 		sort.Float64s(nums)
 		n := len(nums)
@@ -1142,9 +1140,6 @@ func (vm *VM) evalInCone(e *inConeExpr) (Value, error) {
 	var keep []Agent
 
 	for _, a := range ags.Alive() {
-		if a == self {
-			continue
-		}
 		x, y, err := pointOf(a)
 		if err != nil {
 			return Value{}, err

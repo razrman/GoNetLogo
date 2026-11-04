@@ -156,7 +156,6 @@ type plot struct {
 	pens             []*plotPen
 	current          int
 	err              string
-	numBars          int
 	defXMin, defXMax float64
 	defYMin, defYMax float64
 	defAuto          bool
@@ -355,6 +354,28 @@ func (p *plot) grow(pen *plotPen, x, y float64) {
 	p.growAxis(x, y)
 }
 
+func (p *plot) growY(y float64) {
+	if !p.auto {
+		return
+	}
+	if y > p.yMax {
+		span := (y - p.yMin) * autoYFactor
+		next := niceBound(p.yMin+span, span)
+		if next <= y {
+			next = y
+		}
+		p.yMax = next
+	}
+	if y < p.yMin {
+		span := (p.yMax - y) * autoYFactor
+		next := niceBound(p.yMax-span, span)
+		if next >= y {
+			next = y
+		}
+		p.yMin = next
+	}
+}
+
 func (p *plot) growAxis(x, y float64) {
 	if x > p.xMax {
 		span := (x - p.xMin) * autoXFactor
@@ -435,7 +456,7 @@ func (vm *VM) plotPenReset() error {
 }
 
 func (vm *VM) setHistogramNumBars(v Value) error {
-	p, _, err := vm.plotTarget()
+	p, pen, err := vm.plotTarget()
 	if err != nil {
 		return err
 	}
@@ -446,7 +467,9 @@ func (vm *VM) setHistogramNumBars(v Value) error {
 	if n < 1 {
 		return fmt.Errorf("set-histogram-num-bars expected a positive integer")
 	}
-	p.numBars = n
+	if p.xMax > p.xMin {
+		pen.interval = (p.xMax - p.xMin) / float64(n)
+	}
 	return nil
 }
 
@@ -501,6 +524,18 @@ func (vm *VM) histogram(v Value) error {
 	if err != nil {
 		return err
 	}
+	mode := pen.mode
+	interval := pen.interval
+	color := pen.color
+	r, g, b := pen.r, pen.g, pen.b
+	pen.hardReset()
+	pen.mode = mode
+	pen.interval = interval
+	pen.color = color
+	pen.r, pen.g, pen.b = r, g, b
+	pen.down = true
+	pen.x = 0
+
 	xs, err := v.List()
 	if err != nil {
 		return err
@@ -508,49 +543,36 @@ func (vm *VM) histogram(v Value) error {
 	if len(xs) == 0 {
 		return nil
 	}
-	nums := make([]float64, 0, len(xs))
-	for _, x := range xs {
-		n, err := x.Num()
-		if err != nil {
-			return err
-		}
-		nums = append(nums, n)
-	}
-	if len(nums) == 0 {
-		return nil
-	}
-	interval := pen.interval
-	if p.numBars > 0 && p.xMax > p.xMin {
-		interval = (p.xMax - p.xMin) / float64(p.numBars)
-	}
 	if interval <= 0 {
 		interval = 1.0
 	}
-	pen.mode = penBar
-	pen.interval = interval
 
 	barMin := p.xMin
+	barMax := p.xMax
 	bins := map[int]int{}
-	minBin, maxBin := 0, 0
-	first := true
-	for _, val := range nums {
-		b := int(math.Floor((val - barMin) / interval))
+	for _, x := range xs {
+		n, err := x.Num()
+		if err != nil {
+			continue // skip non-numeric items
+		}
+		if n < barMin || n >= barMax {
+			continue // drop values outside [xmin, xmax)
+		}
+		b := int(math.Floor((n - barMin) / interval))
 		bins[b]++
-		if first || b < minBin {
-			minBin = b
-		}
-		if first || b > maxBin {
-			maxBin = b
-		}
-		first = false
 	}
-	for b := minBin; b <= maxBin; b++ {
+
+	totalBins := 0
+	if barMax > barMin {
+		totalBins = int(math.Ceil((barMax - barMin) / interval))
+	}
+	for b := 0; b < totalBins; b++ {
 		count := bins[b]
 		x := barMin + float64(b)*interval
 		y := float64(count)
 		pen.add(x, y)
 		if pen.down {
-			p.grow(pen, x, y)
+			p.growY(y)
 		}
 	}
 	return nil

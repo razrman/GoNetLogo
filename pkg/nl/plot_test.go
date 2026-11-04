@@ -501,18 +501,19 @@ func samePoints(got, want []PlotPoint) bool {
 }
 
 func TestPlotHistogramAndPenSettings(t *testing.T) {
-	vm := plotVM(t, onePlot("dist", true, 0, 10, 0, 10, penSpec("hist", "")))
-	mustRun(t, vm, "set-histogram-num-bars 5")
+	vm := plotVM(t, onePlot("dist", true, 0, 12, 0, 10, penSpec("hist", "")))
+	mustRun(t, vm, "set-histogram-num-bars 4") // interval = 12 / 4 = 3
 	mustRun(t, vm, "set-plot-pen-mode 1")
-	mustRun(t, vm, "set-plot-pen-interval 2")
+	mustRun(t, vm, "set-plot-pen-interval 2")  // set-plot-pen-interval overrides: interval = 2
 	mustRun(t, vm, "set-plot-pen-color 15")
-	mustRun(t, vm, "histogram [1 1 3 5 5 5 7 9]")
+	// Test skipping non-numeric items and dropping out-of-range items (-5 and 20):
+	mustRun(t, vm, "histogram [\"foo\" -5 1 1 3 5 5 5 7 9 20]")
 
 	pts, ok := vm.PlotPoints("dist", "hist")
 	if !ok || len(pts) == 0 {
 		t.Fatalf("no points plotted for histogram: %v", ok)
 	}
-	p, pen, err := vm.plotTarget()
+	_, pen, err := vm.plotTarget()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +523,11 @@ func TestPlotHistogramAndPenSettings(t *testing.T) {
 	if pen.interval != 2 {
 		t.Fatalf("pen interval %f, want 2", pen.interval)
 	}
-	if p.numBars != 5 {
-		t.Fatalf("numBars %d, want 5", p.numBars)
+
+	// Repeated histogram call resets pen and does not accumulate points:
+	mustRun(t, vm, "histogram [1 3]")
+	pts2, _ := vm.PlotPoints("dist", "hist")
+	if len(pts2) != len(pts) {
+		t.Fatalf("repeated histogram changed point count: got %d, want %d", len(pts2), len(pts))
 	}
 }
