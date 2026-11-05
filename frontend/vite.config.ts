@@ -5,6 +5,11 @@ import { defineConfig } from 'vite'
 // websocket, is proxied to the Go API so the page has one origin.
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // The lazily loaded 3D view chunk is mostly three.js (~570 kB, ~140 kB
+    // gzipped). It only loads for 3D models, so it is allowed to be large.
+    chunkSizeWarningLimit: 700,
+  },
   server: {
     host: '0.0.0.0',
     port: 43132,

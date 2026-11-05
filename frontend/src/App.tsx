@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -34,6 +34,10 @@ import {
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
 import { LibraryBrowser } from './LibraryBrowser'
 import { WorldCanvas } from './WorldCanvas'
+
+// three.js is only needed for 3D worlds, so it loads in its own chunk the
+// first time one is shown. 2D models never fetch it.
+const WorldView3D = lazy(() => import('./WorldView3D'))
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
 
@@ -605,6 +609,10 @@ export function App() {
               <div className="canvas-wrap">
                 {booting && !frame ? (
                   <div className="loading">Opening the forest fire…</div>
+                ) : frame && (frame.world.depth ?? 1) > 1 ? (
+                  <Suspense fallback={<WorldCanvas world={frame.world} />}>
+                    <WorldView3D world={frame.world} />
+                  </Suspense>
                 ) : (
                   <WorldCanvas world={frame?.world ?? null} />
                 )}
@@ -612,7 +620,7 @@ export function App() {
               </div>
               <div className="view-meta">
                 {frame
-                  ? `${frame.world.width} × ${frame.world.height} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
+                  ? `${frame.world.width} × ${frame.world.height}${(frame.world.depth ?? 1) > 1 ? ` × ${frame.world.depth}` : ''} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
                   : modelName}
               </div>
             </section>
