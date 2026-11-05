@@ -289,9 +289,23 @@ type World {
   highest non-black patch.
   """
   depth: Int!
+  """Z bounds. Both 0 for a 2D world."""
+  minPzcor: Int!
+  maxPzcor: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
+  """Z wrapping. Always true for a 3D world (NetLogo 3D worlds are tori); false for 2D."""
+  wrapZ: Boolean!
+  """
+  Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
+  pxcor, pycor, pzcor as little-endian int16, then r, g, b.
+  Patch order (highest layer first). Black patches are omitted.
+  Empty for a 2D world, whose patches are in patchColors.
+  """
+  voxels: String!
+  """The observer camera of a 3D world. Null for a 2D world."""
+  observer: Observer3D
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -393,10 +407,31 @@ type ShapeElement {
   h: Float!
 }
 
+"""
+The NetLogo 3D observer: a camera at (x, y, z) looking at
+(targetX, targetY, targetZ). revision goes up on every observer camera
+command (setxyz, facexyz, face, orbit-*, zoom, reset-perspective) and
+stays put while the model just runs, so a viewer can move its camera only
+when the model asks.
+"""
+type Observer3D {
+  x: Float!
+  y: Float!
+  z: Float!
+  targetX: Float!
+  targetY: Float!
+  targetZ: Float!
+  revision: Int!
+}
+
 type Turtle {
   who: Int!
   x: Float!
   y: Float!
+  """zcor, pitch, and roll. All 0 in a 2D world."""
+  z: Float!
+  pitch: Float!
+  roll: Float!
   heading: Float!
   size: Float!
   shape: String!
@@ -409,8 +444,11 @@ type Turtle {
 type Link {
   x1: Float!
   y1: Float!
+  """End z coordinates. 0 in a 2D world."""
+  z1: Float!
   x2: Float!
   y2: Float!
+  z2: Float!
   hidden: Boolean!
   r: Int!
   g: Int!

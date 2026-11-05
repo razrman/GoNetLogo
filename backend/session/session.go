@@ -9,6 +9,7 @@ package session
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -1389,16 +1390,28 @@ func worldLocked(w *nl.World) model.World {
 		Width:       w.Width(),
 		Height:      w.Height(),
 		Depth:       w.Depth(),
+		MinPzcor:    w.MinPzcor,
+		MaxPzcor:    w.MaxPzcor,
 		PatchSize:   w.PatchSize,
 		WrapX:       w.WrapX,
 		WrapY:       w.WrapY,
+		WrapZ:       w.Is3D() && w.WrapZ,
 		LabelFont:   labelFontOf(w),
 		Shapes:      shapeViews(w),
 		PatchColors: patchColors(w),
+		Voxels:      voxels(w),
 		Turtles:     []model.Turtle{},
 		Links:       []model.Link{},
 		Drawing:     drawingMarks(w),
 		Labels:      viewLabels(w),
+	}
+	if w.Is3D() {
+		o := w.Observer()
+		out.Observer = &model.Observer3d{
+			X: o.X, Y: o.Y, Z: o.Z,
+			TargetX: o.TX, TargetY: o.TY, TargetZ: o.TZ,
+			Revision: int(o.Revision),
+		}
 	}
 	if turtles := w.Turtles(); turtles != nil {
 		alive := turtles.Alive()
@@ -1425,7 +1438,8 @@ func worldLocked(w *nl.World) model.World {
 				size = 1
 			}
 			out.Turtles = append(out.Turtles, model.Turtle{
-				Who: t.Who, X: t.X, Y: t.Y, Heading: t.Heading,
+				Who: t.Who, X: t.X, Y: t.Y, Z: t.Z, Heading: t.Heading,
+				Pitch: t.Pitch, Roll: t.Roll,
 				Size: size, Shape: shape, Hidden: t.Hidden, R: r, G: g, B: b,
 			})
 		}
@@ -1438,12 +1452,37 @@ func worldLocked(w *nl.World) model.World {
 			}
 			r, g, b := colorOf(false, color.RGBA{}, l.Color)
 			out.Links = append(out.Links, model.Link{
-				X1: l.End1.X, Y1: l.End1.Y, X2: l.End2.X, Y2: l.End2.Y,
+				X1: l.End1.X, Y1: l.End1.Y, Z1: l.End1.Z,
+				X2: l.End2.X, Y2: l.End2.Y, Z2: l.End2.Z,
 				Hidden: l.Hidden, R: r, G: g, B: b,
 			})
 		}
 	}
 	return out
+}
+
+// voxelBytes is the size of one packed voxel: three int16 coordinates and
+// an RGB color.
+const voxelBytes = 9
+
+// voxels packs the non-black patches of a 3D world for the 3D view:
+// pxcor, pycor, pzcor as little-endian int16, then r, g, b. A world is
+// at most nl.MaxWorldSide patches on a side, so coordinates fit in int16.
+// A 2D world sends an empty string; its patches are in patchColors.
+func voxels(w *nl.World) string {
+	vs := w.Voxels()
+	if len(vs) == 0 {
+		return ""
+	}
+	raw := make([]byte, len(vs)*voxelBytes)
+	for i, v := range vs {
+		b := raw[i*voxelBytes:]
+		binary.LittleEndian.PutUint16(b[0:], uint16(int16(v.X)))
+		binary.LittleEndian.PutUint16(b[2:], uint16(int16(v.Y)))
+		binary.LittleEndian.PutUint16(b[4:], uint16(int16(v.Z)))
+		b[6], b[7], b[8] = v.C.R, v.C.G, v.C.B
+	}
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
 // patchColors packs one RGB pixel per patch. Row 0 is maxPycor so the

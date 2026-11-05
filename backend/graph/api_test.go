@@ -669,6 +669,109 @@ end
 	}
 }
 
+// TestFrame3DFields checks the data the 3D view draws from: packed
+// voxels, turtle z and orientation, link z, and the observer pose.
+func TestFrame3DFields(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	src := `<?xml version="1.0"?>
+<model version="NetLogo 3D 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+  ask patch 1 -1 2 [ set pcolor red ]
+  ask patch -2 0 -1 [ set pcolor rgb 1 2 3 ]
+  crt 2 [ setxyz who 0 (who * 2 - 1) set heading 90 set pitch 30 set roll 45 ]
+  ask turtle 0 [ create-link-with turtle 1 ]
+end
+]]></code>
+  <widgets>
+    <view3d minPxcor="-2" maxPxcor="2" minPycor="-2" maxPycor="2" minPzcor="-1" maxPzcor="3" patchSize="9" wrappingAllowedX="true" wrappingAllowedY="true" wrappingAllowedZ="true"/>
+  </widgets>
+</model>`
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { modelName }
+	}`, &struct{ LoadModelSource struct{ ModelName string } }{}, client.Var("id", s.ID), client.Var("name", "frame.nlogox3d"), client.Var("src", src))
+	commandWhenIdle(t, c, s.ID, "setup")
+
+	type observer struct {
+		X, Y, Z                   float64
+		TargetX, TargetY, TargetZ float64
+		Revision                  int
+	}
+	type world struct {
+		Depth, MinPzcor, MaxPzcor int
+		WrapZ                     bool
+		Voxels                    string
+		Observer                  *observer
+		Turtles                   []struct {
+			Who                           int
+			X, Y, Z, Heading, Pitch, Roll float64
+		}
+		Links []struct{ X1, Y1, Z1, X2, Y2, Z2 float64 }
+	}
+	var q struct {
+		Session struct{ World world }
+	}
+	const query = `query ($id: ID!) { session(id: $id) { world {
+		depth minPzcor maxPzcor wrapZ voxels
+		observer { x y z targetX targetY targetZ revision }
+		turtles { who x y z heading pitch roll }
+		links { x1 y1 z1 x2 y2 z2 }
+	} } }`
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	w := q.Session.World
+	if w.Depth != 5 || w.MinPzcor != -1 || w.MaxPzcor != 3 || !w.WrapZ {
+		t.Fatalf("3D bounds %+v", w)
+	}
+	raw, err := base64.StdEncoding.DecodeString(w.Voxels)
+	if err != nil || len(raw) != 2*9 {
+		t.Fatalf("voxels %d bytes, err %v", len(raw), err)
+	}
+	type voxel struct{ x, y, z, r, g, b int }
+	read := func(i int) voxel {
+		v := raw[i*9:]
+		i16 := func(o int) int { return int(int16(uint16(v[o]) | uint16(v[o+1])<<8)) }
+		return voxel{i16(0), i16(2), i16(4), int(v[6]), int(v[7]), int(v[8])}
+	}
+	red := nl.ColorRGBA(15)
+	// Highest layer first.
+	if got := read(0); got != (voxel{1, -1, 2, int(red.R), int(red.G), int(red.B)}) {
+		t.Fatalf("voxel 0 %+v", got)
+	}
+	if got := read(1); got != (voxel{-2, 0, -1, 1, 2, 3}) {
+		t.Fatalf("voxel 1 %+v (negative coordinates and RGB colors)", got)
+	}
+	if len(w.Turtles) != 2 {
+		t.Fatalf("turtles %+v", w.Turtles)
+	}
+	for _, tt := range w.Turtles {
+		if tt.Z != float64(tt.Who*2-1) || tt.Heading != 90 || tt.Pitch != 30 || tt.Roll != 45 {
+			t.Fatalf("turtle %+v", tt)
+		}
+	}
+	if len(w.Links) != 1 || w.Links[0].Z1 != -1 || w.Links[0].Z2 != 1 || w.Links[0].X2 != 1 {
+		t.Fatalf("links %+v", w.Links)
+	}
+	if o := w.Observer; o == nil || o.Revision != 0 || o.Z != 7.5 || o.TargetZ != 1 {
+		t.Fatalf("home observer %+v", o)
+	}
+
+	commandWhenIdle(t, c, s.ID, "orbit-down 90 zoom 1")
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if o := q.Session.World.Observer; o == nil || o.Revision != 2 || o.Y >= 0 || o.Z != 1 {
+		t.Fatalf("observer after orbit %+v", o)
+	}
+
+	// A 2D world keeps the 3D fields empty.
+	s2 := create(t, c, "fire.nlogo")
+	q.Session.World = world{}
+	c.MustPost(query, &q, client.Var("id", s2.ID))
+	w = q.Session.World
+	if w.Depth != 1 || w.MinPzcor != 0 || w.MaxPzcor != 0 || w.WrapZ || w.Voxels != "" || w.Observer != nil {
+		t.Fatalf("2D world 3D fields %+v", w)
+	}
+}
+
 type created struct {
 	ID           string
 	Ticks        *float64
