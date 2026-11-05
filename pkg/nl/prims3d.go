@@ -270,8 +270,10 @@ func (vm *VM) primCmd3D(name string, args []Value, pos Pos) (handled bool, err e
 		}
 		w.Resize3(b[0], b[1], b[2], b[3], b[4], b[5])
 		return true, nil
-	case "diffuse4", "uphill4", "downhill4":
-		// Same-layer forms; the 2D implementation is 3D-aware.
+	case "reset-perspective", "rp":
+		// NetLogo 3D's reset-perspective also sends the camera home. The
+		// 2D path then clears watch/follow/ride.
+		w.homeObserver()
 		return false, nil
 	}
 	return false, nil

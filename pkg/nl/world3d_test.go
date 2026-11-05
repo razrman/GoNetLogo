@@ -265,6 +265,7 @@ to-report approx [ x ] report precision x 6 end
 		{"patch var by turtle", `crt 1 [ setxyz 0 0 2 set heat 5 ]`, `[heat] of patch 0 0 2`, "5"},
 		{"resize-world 6 args", `resize-world -1 1 -1 1 0 2`, `(list world-width world-depth count patches min-pzcor)`, "[3 3 27 0]"},
 		{"observer camera", `setxyz 1 2 3 orbit-up 10 orbit-right 5 zoom 2`, `(list __oxcor __oycor __ozcor)`, "[1 2 3]"},
+		{"reset-perspective homes the camera", `setxyz 1 2 3 reset-perspective`, `(list __oxcor __oycor __ozcor)`, "[0 0 10.5]"},
 		{"diffuse keeps total", `ask patch 0 0 0 [ set heat 26 ] diffuse heat 1`, `(list sum [heat] of patches [heat] of patch 1 1 1 [heat] of patch 0 0 0)`, "[26 1 0]"},
 		{"uphill in 3D", `ask patch 0 0 1 [ set heat 9 ] crt 1 [ uphill heat ]`, `[(list zcor pitch)] of turtle 0`, "[1 90]"},
 	}
