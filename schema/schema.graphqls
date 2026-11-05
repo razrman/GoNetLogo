@@ -102,6 +102,17 @@ type Session {
   id: ID!
   modelName: String!
   code: String!
+  """
+  Markdown from the model's Info section. Empty when the file has none.
+  """
+  info: String!
+  """
+  Folder containing the loaded model, relative to the models directory.
+  Empty when the file is in that directory's root. Null when the model
+  text was not read from the models directory, so a relative Info image
+  has no folder to resolve against.
+  """
+  modelDir: String
   ticks: Float
   ticksStarted: Boolean!
   """Smoothed ticks per second over about the last second. Zero while stopped."""

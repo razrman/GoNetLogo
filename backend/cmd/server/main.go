@@ -75,6 +75,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", srv)
+	mux.Handle("/model-asset/", modelAssetHandler())
 	if ui != nil {
 		// The app owns /. The playground stays available beside it.
 		mux.Handle("/", spaHandler(ui))

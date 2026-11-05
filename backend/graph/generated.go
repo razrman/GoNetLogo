@@ -224,7 +224,9 @@ type ComplexityRoot struct {
 		FrameRateCap  func(childComplexity int) int
 		HasOutput     func(childComplexity int) int
 		ID            func(childComplexity int) int
+		Info          func(childComplexity int) int
 		Log           func(childComplexity int) int
+		ModelDir      func(childComplexity int) int
 		ModelName     func(childComplexity int) int
 		Notes         func(childComplexity int) int
 		Output        func(childComplexity int) int
@@ -1398,12 +1400,26 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Session.ID(childComplexity), true
 
+	case "Session.info":
+		if e.complexity.Session.Info == nil {
+			break
+		}
+
+		return e.complexity.Session.Info(childComplexity), true
+
 	case "Session.log":
 		if e.complexity.Session.Log == nil {
 			break
 		}
 
 		return e.complexity.Session.Log(childComplexity), true
+
+	case "Session.modelDir":
+		if e.complexity.Session.ModelDir == nil {
+			break
+		}
+
+		return e.complexity.Session.ModelDir(childComplexity), true
 
 	case "Session.modelName":
 		if e.complexity.Session.ModelName == nil {
@@ -2279,6 +2295,17 @@ type Session {
   id: ID!
   modelName: String!
   code: String!
+  """
+  Markdown from the model's Info section. Empty when the file has none.
+  """
+  info: String!
+  """
+  Folder containing the loaded model, relative to the models directory.
+  Empty when the file is in that directory's root. Null when the model
+  text was not read from the models directory, so a relative Info image
+  has no folder to resolve against.
+  """
+  modelDir: String
   ticks: Float
   ticksStarted: Boolean!
   """Smoothed ticks per second over about the last second. Zero while stopped."""
@@ -3790,6 +3817,10 @@ func (ec *executionContext) fieldContext_CommandResult_session(_ context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -3961,6 +3992,10 @@ func (ec *executionContext) fieldContext_CompileResult_session(_ context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -6423,6 +6458,10 @@ func (ec *executionContext) fieldContext_Mutation_createSession(ctx context.Cont
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -6520,6 +6559,10 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -6617,6 +6660,10 @@ func (ec *executionContext) fieldContext_Mutation_loadModelSource(ctx context.Co
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -6714,6 +6761,10 @@ func (ec *executionContext) fieldContext_Mutation_loadModelFile(ctx context.Cont
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -6939,6 +6990,10 @@ func (ec *executionContext) fieldContext_Mutation_setup(ctx context.Context, fie
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7036,6 +7091,10 @@ func (ec *executionContext) fieldContext_Mutation_go(ctx context.Context, field 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7133,6 +7192,10 @@ func (ec *executionContext) fieldContext_Mutation_stop(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7230,6 +7293,10 @@ func (ec *executionContext) fieldContext_Mutation_step(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7327,6 +7394,10 @@ func (ec *executionContext) fieldContext_Mutation_pressButton(ctx context.Contex
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7424,6 +7495,10 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7521,6 +7596,10 @@ func (ec *executionContext) fieldContext_Mutation_setFrameRate(ctx context.Conte
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7618,6 +7697,10 @@ func (ec *executionContext) fieldContext_Mutation_setSlider(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7715,6 +7798,10 @@ func (ec *executionContext) fieldContext_Mutation_setSwitch(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7812,6 +7899,10 @@ func (ec *executionContext) fieldContext_Mutation_setChooser(ctx context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -7909,6 +8000,10 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -8006,6 +8101,10 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -9662,6 +9761,10 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
 			case "ticks":
 				return ec.fieldContext_Session_ticks(ctx, field)
 			case "ticksStarted":
@@ -10101,6 +10204,91 @@ func (ec *executionContext) _Session_code(ctx context.Context, field graphql.Col
 }
 
 func (ec *executionContext) fieldContext_Session_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_info(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_info(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Info, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_info(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_modelDir(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_modelDir(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ModelDir, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_modelDir(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Session",
 		Field:      field,
@@ -17630,6 +17818,13 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "info":
+			out.Values[i] = ec._Session_info(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "modelDir":
+			out.Values[i] = ec._Session_modelDir(ctx, field, obj)
 		case "ticks":
 			out.Values[i] = ec._Session_ticks(ctx, field, obj)
 		case "ticksStarted":

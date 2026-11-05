@@ -32,6 +32,7 @@ import {
   type LibraryListing,
 } from './api'
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
+import { InfoView } from './InfoTab'
 import { LibraryBrowser } from './LibraryBrowser'
 import { WorldCanvas } from './WorldCanvas'
 
@@ -73,6 +74,8 @@ export function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('fire.nlogo')
   const [code, setCode] = useState('')
+  const [info, setInfo] = useState('')
+  const [modelDir, setModelDir] = useState<string | null>(null)
   const [notes, setNotes] = useState<string[]>([])
   const [frame, setFrame] = useState<Frame | null>(null)
   const [tab, setTab] = useState<MainTab>('interface')
@@ -134,6 +137,8 @@ export function App() {
       setSessionId(info.id)
       setModelName(info.modelName)
       setCode(info.code)
+      setInfo(info.info ?? '')
+      setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
       await speedMut({ id: info.id, speed: 30 })
       const setup = await setupMut({ id: info.id })
@@ -171,6 +176,8 @@ export function App() {
     const info = res.data.loadModel
     setModelName(info.modelName)
     setCode(info.code)
+    setInfo(info.info ?? '')
+    setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
@@ -242,6 +249,8 @@ export function App() {
     const info = res.data.loadModelSource
     setModelName(info.modelName)
     setCode(info.code)
+    setInfo(info.info ?? '')
+    setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
@@ -309,6 +318,8 @@ export function App() {
   function applyOpenedModel(info: SessionInfo) {
     setModelName(info.modelName)
     setCode(info.code)
+    setInfo(info.info ?? '')
+    setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
@@ -555,6 +566,16 @@ export function App() {
               </button>
             </div>
           </section>
+        ) : tab === 'info' ? (
+          <section className="info-panel" aria-label="Model info">
+            <MainTabs tab={tab} onChange={requestTab} />
+            <InfoView
+              key={`${modelName}\0${modelDir ?? ''}`}
+              markdown={info}
+              modelDir={modelDir}
+              loading={booting && info === ''}
+            />
+          </section>
         ) : tab === 'world' ? (
           <section className="world-panel" aria-label="World settings">
             <MainTabs tab={tab} onChange={requestTab} />
@@ -720,7 +741,7 @@ export function App() {
   )
 }
 
-type MainTab = 'interface' | 'world' | 'code'
+type MainTab = 'interface' | 'world' | 'info' | 'code'
 
 function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) => void }) {
   return (
@@ -730,6 +751,9 @@ function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) =
       </button>
       <button type="button" className={tab === 'world' ? 'on' : undefined} onClick={() => onChange('world')}>
         World
+      </button>
+      <button type="button" className={tab === 'info' ? 'on' : undefined} onClick={() => onChange('info')}>
+        Info
       </button>
       <button type="button" className={tab === 'code' ? 'on' : undefined} onClick={() => onChange('code')}>
         Code

@@ -131,7 +131,7 @@ Go 1.22 or newer, and Node 22. From the repo root:
 
 The script starts the API on `0.0.0.0:43131` and the UI on `0.0.0.0:43132`. Open [http://127.0.0.1:43132](http://127.0.0.1:43132). The page loads the forest-fire model, runs setup, and starts go. The model menu is labeled **Models**. **setup** runs once. **go** is the forever button; click it again to stop. **step** runs go a single time. The speed slider slows the loop below the midpoint and runs extra steps per frame above it. If the browser loses the server, the page shows the banner "Server disconnected. Reconnecting…" and the websocket keeps trying.
 
-The tabs are **Interface**, **World**, and **Code**. Interface is the view and the widget column. World holds max fps, min and max pxcor and pycor, patch size, wrap x, wrap y, and **Apply**. Max fps is sent as you edit it. **Apply** calls `setWorld` and then runs setup; if go is running, it stops first. Leaving World with unapplied coordinate, patch-size, or wrap edits shows "Apply changes?". **Apply** there does the same thing and then switches tabs. **Cancel** stays on World.
+The tabs are **Interface**, **World**, **Info**, and **Code**. Interface is the view and the widget column. Info renders the model's Info section from its Markdown. A model with no Info section says so. Links open in a new tab. World holds max fps, min and max pxcor and pycor, patch size, wrap x, wrap y, and **Apply**. Max fps is sent as you edit it. **Apply** calls `setWorld` and then runs setup; if go is running, it stops first. Leaving World with unapplied coordinate, patch-size, or wrap edits shows "Apply changes?". **Apply** there does the same thing and then switches tabs. **Cancel** stays on World.
 
 ### Tests
 
@@ -145,7 +145,7 @@ npm run build --prefix frontend
 
 ### Desktop window
 
-The Fyne window is still there. It needs cgo and, on Linux, a C compiler plus OpenGL / X11 headers (`build-essential`, `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`). It has the same three tabs, Interface, World, and Code, and the model menu is labeled Models. World holds max fps, the coordinates, patch size, wrapping, and Apply. Apply resizes the world in the process. Stop sets the halt flag without taking the session lock.
+The Fyne window is still there. It needs cgo and, on Linux, a C compiler plus OpenGL / X11 headers (`build-essential`, `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`). It has Interface, World, and Code tabs, and the model menu is labeled Models. World holds max fps, the coordinates, patch size, wrapping, and Apply. Apply resizes the world in the process. Stop sets the halt flag without taking the session lock.
 
 ```bash
 go build -o gonetlogo ./cmd/gonetlogo
