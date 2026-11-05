@@ -162,6 +162,15 @@ type loopStmt struct {
 func (*loopStmt) stmt()     {}
 func (s *loopStmt) at() Pos { return s.Pos }
 
+type everyStmt struct {
+	Seconds Expr
+	Body    []Stmt
+	Pos     Pos
+}
+
+func (*everyStmt) stmt()     {}
+func (s *everyStmt) at() Pos { return s.Pos }
+
 type askStmt struct {
 	Agents Expr
 	Body   []Stmt

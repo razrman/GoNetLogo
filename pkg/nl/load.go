@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -75,6 +76,7 @@ type FileModel struct {
 	Shapes *ShapeList
 	// Notes lists widgets this loader does not run.
 	Notes []string
+	Path  string
 }
 
 // LoadFile reads a .nlogo or .nlogox model.
@@ -87,6 +89,7 @@ func LoadFile(path string) (*FileModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.Path = path
 	return m, nil
 }
 
@@ -1061,7 +1064,19 @@ func attr(se xml.StartElement, name string) string {
 // Compile parses the code and marks widget variables as interface globals,
 // so clear-all leaves sliders and switches alone.
 func (m *FileModel) Compile() (*Program, error) {
-	prog, err := Parse(m.Code)
+	code := m.Code
+	if strings.Contains(code, "__includes") {
+		dir := ""
+		if m.Path != "" {
+			dir = filepath.Dir(m.Path)
+		}
+		expanded, err := expandIncludes(code, dir, map[string]bool{})
+		if err != nil {
+			return nil, err
+		}
+		code = expanded
+	}
+	prog, err := Parse(code)
 	if err != nil {
 		return nil, err
 	}
@@ -1104,6 +1119,9 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 		w.Seed(seed)
 	}
 	vm := NewVM(prog, w)
+	if m.Path != "" {
+		vm.ModelDir = filepath.Dir(m.Path)
+	}
 	m.Apply(vm)
 	return vm, nil
 }

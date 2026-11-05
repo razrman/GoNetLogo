@@ -166,6 +166,7 @@ func Check(path string, opt Options) (res Result) {
 		res.Error = oneLine(err.Error())
 		return res
 	}
+	m.Path = path
 	res.ParseOK = true
 	res.Extensions = extensionsOf(m.Code)
 	res.Includes = hasIncludes(m.Code)
@@ -183,8 +184,10 @@ func Check(path string, opt Options) (res Result) {
 		return res
 	}
 	res.CodeOK = true
-	res.HasSetup = isCommand(prog, "setup")
-	res.HasGo = isCommand(prog, "go")
+	setupAction := findSetupAction(prog, m.Widgets)
+	res.HasSetup = setupAction != ""
+	goAction := findGoAction(prog, m.Widgets)
+	res.HasGo = goAction != ""
 
 	if err := compileWidgets(prog, m.Widgets); err != nil {
 		res.Stage = "widget"
@@ -225,7 +228,7 @@ func Check(path string, opt Options) (res Result) {
 		res.Go = "skipped"
 		return res
 	}
-	runModel(vm, &res, opt)
+	runModel(vm, &res, opt, setupAction, goAction)
 	if res.Line == 0 && res.Error != "" {
 		res.Line, res.Snippet = snippetAt(m.Code, res.Error)
 	}
@@ -256,6 +259,79 @@ func worldRunnable(v nl.ViewSpec, maxSide int) (string, bool) {
 func isCommand(prog *nl.Program, name string) bool {
 	p := prog.Proc(name)
 	return p != nil && !p.IsReporter
+}
+
+func findSetupAction(prog *nl.Program, widgets []nl.Widget) string {
+	p := prog.Proc("setup")
+	if p != nil && !p.IsReporter && len(p.Params) == 0 {
+		return "setup"
+	}
+	best := ""
+	bestScore := 0
+	for _, w := range widgets {
+		if w.Kind != "button" {
+			continue
+		}
+		src := strings.TrimSpace(w.Source)
+		score := setupButtonScore(prog, src, w.Display)
+		if score > bestScore {
+			best = src
+			bestScore = score
+		}
+	}
+	if best != "" {
+		return best
+	}
+	if p != nil && !p.IsReporter {
+		return "setup"
+	}
+	return ""
+}
+
+// setupButtonScore ranks a button as setup. The command has to start
+// with setup, or the display has to be exactly "setup". A display that
+// merely contains that substring is not enough.
+func setupButtonScore(prog *nl.Program, src, display string) int {
+	fields := strings.Fields(src)
+	if len(fields) == 0 {
+		return 0
+	}
+	first := strings.ToLower(fields[0])
+	sourceSetup := first == "setup" || strings.HasPrefix(first, "setup-") || strings.HasPrefix(first, "setup_")
+	exactDisplay := strings.EqualFold(strings.TrimSpace(display), "setup")
+	score := 0
+	if sourceSetup {
+		score = 3
+		if len(fields) == 1 && isCommand(prog, first) {
+			score = 4
+		}
+	}
+	if exactDisplay && score < 2 {
+		score = 2
+	}
+	return score
+}
+
+func findGoAction(prog *nl.Program, widgets []nl.Widget) string {
+	for _, w := range widgets {
+		if w.Kind != "button" {
+			continue
+		}
+		src := strings.TrimSpace(w.Source)
+		if src == "go" || strings.ToLower(w.Display) == "go" {
+			if strings.EqualFold(w.Agent, "turtle") || strings.EqualFold(w.Agent, "turtles") {
+				return "ask turtles [ " + src + " ]"
+			}
+			if strings.EqualFold(w.Agent, "patch") || strings.EqualFold(w.Agent, "patches") {
+				return "ask patches [ " + src + " ]"
+			}
+			return src
+		}
+	}
+	if isCommand(prog, "go") {
+		return "go"
+	}
+	return ""
 }
 
 type widgetError struct {
@@ -340,9 +416,9 @@ func widgetName(w *nl.Widget) string {
 	return oneLine(s)
 }
 
-func runModel(vm *nl.VM, res *Result, opt Options) {
+func runModel(vm *nl.VM, res *Result, opt Options, setupAction, goAction string) {
 	if res.HasSetup {
-		status, err := callProc(vm, "setup", opt.timeout())
+		status, err := callAction(vm, setupAction, opt.timeout())
 		res.Setup = status
 		if status != "ok" {
 			res.Stage = "setup"
@@ -357,7 +433,7 @@ func runModel(vm *nl.VM, res *Result, opt Options) {
 	}
 	ticks := opt.ticks()
 	for i := 0; i < ticks; i++ {
-		status, err := callProc(vm, "go", opt.timeout())
+		status, err := callAction(vm, goAction, opt.timeout())
 		if status == "stopped" {
 			res.Go = "stopped"
 			res.GoTicks = i + 1
@@ -382,6 +458,48 @@ func callErrText(status string, err error) string {
 		return status
 	}
 	return oneLine(err.Error())
+}
+
+func callAction(vm *nl.VM, action string, timeout time.Duration) (status string, err error) {
+	type out struct {
+		stopped bool
+		err     error
+		pan     any
+	}
+	ch := make(chan out, 1)
+	vm.ClearHalt()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- out{pan: r}
+			}
+		}()
+		trimmed := strings.TrimSpace(action)
+		var stopped bool
+		var callErr error
+		if p := vm.Prog.Proc(trimmed); p != nil && !p.IsReporter && len(p.Params) == 0 {
+			stopped, callErr = vm.Call(trimmed)
+		} else {
+			_, callErr = vm.ExecuteLine(trimmed)
+		}
+		ch <- out{stopped: stopped, err: callErr}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case o := <-ch:
+		return classifyCall(vm, o.stopped, o.err, o.pan, timeout)
+	case <-timer.C:
+		vm.RequestHalt()
+		grace := time.NewTimer(2 * time.Second)
+		defer grace.Stop()
+		select {
+		case o := <-ch:
+			return classifyCall(vm, o.stopped, o.err, o.pan, timeout)
+		case <-grace.C:
+			return "timeout", fmt.Errorf("timed out after %s", timeout)
+		}
+	}
 }
 
 func callProc(vm *nl.VM, name string, timeout time.Duration) (status string, err error) {

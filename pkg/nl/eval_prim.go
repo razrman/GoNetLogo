@@ -46,32 +46,33 @@ func asInt(v Value, what string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s expected a number, got %s", what, v.TypeName())
 	}
-	if math.IsNaN(n) || math.IsInf(n, 0) || n != math.Trunc(n) {
+	if math.IsNaN(n) || math.IsInf(n, 0) {
 		return 0, fmt.Errorf("%s expected an integer", what)
 	}
 	if n > 1e12 || n < -1e12 {
 		return 0, fmt.Errorf("%s: number is too large", what)
 	}
-	return int(n), nil
+	return int(math.Trunc(n)), nil
 }
 
 // moveTurtle is the shared fd/bk/jump implementation. jumpAll moves the
 // whole distance and stays put when that would leave the world. Otherwise
 // the turtle walks in unit steps and stops at the last legal position.
-func (vm *VM) moveTurtle(t *Turtle, dist float64, jumpAll bool) {
+func (vm *VM) moveTurtle(t *Turtle, dist float64, jumpAll bool) error {
 	if jumpAll {
-		_ = vm.World.Jump(t, dist)
-		return
+		// jump stays put when the whole step would leave the world.
+		// A tied turtle that cannot follow is still an error.
+		return swallowEdge(vm.World.Jump(t, dist))
 	}
-	_ = vm.World.Forward(t, dist)
+	return vm.World.Forward(t, dist)
 }
 
-func (vm *VM) facePoint(t *Turtle, x, y float64) {
+func (vm *VM) facePoint(t *Turtle, x, y float64) error {
 	h, err := vm.World.HeadingTowards(t.X, t.Y, x, y)
 	if err != nil {
-		return
+		return nil
 	}
-	vm.World.SetHeading(t, h)
+	return vm.World.SetHeading(t, h)
 }
 
 func (vm *VM) moveToAgent(target Value, pos Pos) error {
@@ -100,9 +101,11 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		w.ClearAll()
 		vm.clearOutput()
 		vm.clearAllPlots()
+		vm.sweepDeadEveryTimers()
 	case "clear-turtles", "ct":
 		vm.requireObserver(pos, "clear-turtles")
 		w.ClearTurtles()
+		vm.sweepDeadEveryTimers()
 	case "clear-patches", "cp":
 		vm.requireObserver(pos, "clear-patches")
 		w.ClearPatches()
@@ -112,6 +115,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "clear-links":
 		vm.requireObserver(pos, "clear-links")
 		w.ClearLinks()
+		vm.sweepDeadEveryTimers()
 	case "clear-ticks":
 		vm.requireObserver(pos, "clear-ticks")
 		w.ClearTicks()
@@ -221,25 +225,26 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 			return fmt.Errorf("patches cannot die")
 		}
 		w.Die(vm.self)
+		vm.dropEveryTimers(vm.self)
 		panic(diePanic{})
 	case "fd", "forward":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		vm.moveTurtle(vm.requireTurtle(pos), n, false)
+		return vm.moveTurtle(vm.requireTurtle(pos), n, false)
 	case "bk", "back":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		vm.moveTurtle(vm.requireTurtle(pos), -n, false)
+		return vm.moveTurtle(vm.requireTurtle(pos), -n, false)
 	case "jump":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		vm.moveTurtle(vm.requireTurtle(pos), n, true)
+		return vm.moveTurtle(vm.requireTurtle(pos), n, true)
 	case "move-to":
 		return vm.moveToAgent(args[0], pos)
 	case "rt", "right":
@@ -247,13 +252,13 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		w.Turn(vm.requireTurtle(pos), n)
+		return w.Turn(vm.requireTurtle(pos), n)
 	case "lt", "left":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		w.Turn(vm.requireTurtle(pos), -n)
+		return w.Turn(vm.requireTurtle(pos), -n)
 	case "setxy":
 		x, err := args[0].Num()
 		if err != nil {
@@ -272,7 +277,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		vm.facePoint(t, x, y)
+		return vm.facePoint(t, x, y)
 	case "facexy":
 		t := vm.requireTurtle(pos)
 		x, err := args[0].Num()
@@ -283,7 +288,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		vm.facePoint(t, x, y)
+		return vm.facePoint(t, x, y)
 	case "pen-down", "pd", "pendown":
 		vm.requireTurtle(pos).PenDown = true
 	case "pen-up", "pu", "penup":
@@ -314,6 +319,48 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		vm.emitOutput(args[0].Format(true), false)
 	case "user-message":
 		vm.emit(args[0].Format(false))
+	case "file-open":
+		if args[0].K != KindString {
+			return fmt.Errorf("file-open expected a string")
+		}
+		return vm.fileOpen(args[0].S)
+	case "file-close":
+		return vm.fileClose()
+	case "file-close-all":
+		return vm.fileCloseAll()
+	case "file-delete":
+		if args[0].K != KindString {
+			return fmt.Errorf("file-delete expected a string")
+		}
+		return vm.fileDelete(args[0].S)
+	case "file-flush":
+		return vm.fileFlush()
+	case "file-print":
+		return vm.filePrint(args[0])
+	case "file-type":
+		return vm.fileType(args[0])
+	case "file-show":
+		return vm.fileShow(args[0])
+	case "file-write":
+		return vm.fileWrite(args[0])
+	case "import-world", "export-world", "import-pcolors", "import-pcolors-rgb":
+		return fmt.Errorf("%s is not supported yet", name)
+	case "tie":
+		l, ok := vm.self.(*Link)
+		if !ok || l == nil {
+			return fmt.Errorf("tie can only be used by a link")
+		}
+		l.TieMode = "fixed"
+		return nil
+	case "untie":
+		l, ok := vm.self.(*Link)
+		if !ok || l == nil {
+			return fmt.Errorf("untie can only be used by a link")
+		}
+		l.TieMode = "none"
+		return nil
+	case "layout-spring":
+		return vm.layoutSpring(args[0], args[1], args[2], args[3], args[4])
 	case "resize-world":
 		vm.requireObserver(pos, "resize-world")
 		a, err := asInt(args[0], "resize-world")
@@ -561,15 +608,168 @@ func (vm *VM) cachedCommands(src string) ([]Stmt, error) {
 	return stmts, nil
 }
 
+func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstVal Value) error {
+	var nodes []*Turtle
+	switch nodesVal.K {
+	case KindAgentset:
+		for _, a := range nodesVal.Set.Alive() {
+			if t, ok := a.(*Turtle); ok {
+				nodes = append(nodes, t)
+			}
+		}
+	case KindList:
+		for _, v := range nodesVal.L {
+			if v.K == KindAgent {
+				if t, ok := v.A.(*Turtle); ok && !t.IsDead() {
+					nodes = append(nodes, t)
+				}
+			}
+		}
+	default:
+		return fmt.Errorf("layout-spring expected a turtle agentset or list")
+	}
+
+	var links []*Link
+	switch linksVal.K {
+	case KindAgentset:
+		for _, a := range linksVal.Set.Alive() {
+			if l, ok := a.(*Link); ok {
+				links = append(links, l)
+			}
+		}
+	case KindList:
+		for _, v := range linksVal.L {
+			if v.K == KindAgent {
+				if l, ok := v.A.(*Link); ok && !l.IsDead() {
+					links = append(links, l)
+				}
+			}
+		}
+	default:
+		return fmt.Errorf("layout-spring expected a link agentset or list")
+	}
+
+	k_spring, err := sprConstVal.Num()
+	if err != nil {
+		return err
+	}
+	l_spring, err := sprLenVal.Num()
+	if err != nil {
+		return err
+	}
+	k_rep, err := repConstVal.Num()
+	if err != nil {
+		return err
+	}
+
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	nodeSet := make(map[*Turtle]bool, len(nodes))
+	fx := make(map[*Turtle]float64, len(nodes))
+	fy := make(map[*Turtle]float64, len(nodes))
+	for _, t := range nodes {
+		nodeSet[t] = true
+	}
+
+	for i := 0; i < len(nodes); i++ {
+		t1 := nodes[i]
+		for j := i + 1; j < len(nodes); j++ {
+			t2 := nodes[j]
+			dx := t2.X - t1.X
+			dy := t2.Y - t1.Y
+			d := math.Hypot(dx, dy)
+			if d < 0.001 {
+				d = 0.001
+				dx = 0.001
+			}
+			repForce := k_rep / (d * d)
+			if repForce > 10.0 {
+				repForce = 10.0
+			}
+			fx[t1] -= repForce * (dx / d)
+			fy[t1] -= repForce * (dy / d)
+			fx[t2] += repForce * (dx / d)
+			fy[t2] += repForce * (dy / d)
+		}
+	}
+
+	for _, l := range links {
+		t1, t2 := l.End1, l.End2
+		if t1 == nil || t2 == nil || !nodeSet[t1] || !nodeSet[t2] {
+			continue
+		}
+		dx := t2.X - t1.X
+		dy := t2.Y - t1.Y
+		d := math.Hypot(dx, dy)
+		if d < 0.001 {
+			d = 0.001
+		}
+		disp := d - l_spring
+		springForce := k_spring * disp
+		if springForce > 10.0 {
+			springForce = 10.0
+		} else if springForce < -10.0 {
+			springForce = -10.0
+		}
+		fx[t1] += springForce * (dx / d)
+		fy[t1] += springForce * (dy / d)
+		fx[t2] -= springForce * (dx / d)
+		fy[t2] -= springForce * (dy / d)
+	}
+
+	for _, t := range nodes {
+		newX := clampInside(t.X+fx[t]*0.1, vm.World.MinPxcor, vm.World.MaxPxcor, vm.World.WrapX)
+		newY := clampInside(t.Y+fy[t]*0.1, vm.World.MinPycor, vm.World.MaxPycor, vm.World.WrapY)
+		if err := vm.World.MoveTo(t, newX, newY); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// clampInside keeps a coordinate inside a non-wrapping axis. The legal
+// interval is [minPcor-0.5, maxPcor+0.5). maxPcor+0.5 itself is outside,
+// and MoveTo would reject it and leave the turtle unmoved.
+func clampInside(x float64, minP, maxP int, wrap bool) float64 {
+	if wrap {
+		return x
+	}
+	min := float64(minP) - 0.5
+	max := float64(maxP) + 0.5
+	if x < min {
+		return min
+	}
+	if x >= max {
+		const eps = 1e-9
+		if max-eps > min {
+			return max - eps
+		}
+		return min
+	}
+	return x
+}
+
 func (vm *VM) layoutCircle(agents, radius Value) error {
-	if agents.K != KindAgentset {
-		return fmt.Errorf("layout-circle expected a turtle agentset")
+	var live []Agent
+	if agents.K == KindAgentset && agents.Set != nil {
+		live = agents.Set.Alive()
+	} else if agents.K == KindList {
+		// sort of an agentset is a list. NetLogo's layout-circle accepts
+		// that list, and several Models Library files pass it.
+		for _, v := range agents.L {
+			if v.K == KindAgent && v.A != nil && !v.A.IsDead() {
+				live = append(live, v.A)
+			}
+		}
+	} else {
+		return fmt.Errorf("layout-circle expected a turtle agentset or list of turtles")
 	}
 	r, err := radius.Num()
 	if err != nil {
 		return err
 	}
-	live := agents.Set.Alive()
 	n := len(live)
 	if n == 0 {
 		return nil
@@ -584,7 +784,9 @@ func (vm *VM) layoutCircle(agents, radius Value) error {
 		if err := vm.World.MoveTo(t, r*math.Sin(rad), r*math.Cos(rad)); err != nil {
 			return err
 		}
-		vm.World.SetHeading(t, h)
+		if err := vm.World.SetHeading(t, h); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -662,8 +864,9 @@ func (vm *VM) createLinks(name string, args []Value, block []Stmt, pos Pos) {
 		if err != nil {
 			vm.fail(pos, "%s", err.Error())
 		}
+		// NetLogo leaves an existing link alone and does not run the block.
 		if !created {
-			vm.fail(pos, "there is already a link between those turtles")
+			continue
 		}
 		if block != nil {
 			vm.execAgentBlock(l, block)
@@ -811,6 +1014,61 @@ func (vm *VM) evalZero(name string, pos Pos) (Value, error) {
 			ags[i] = l
 		}
 		return SetVal(&AgentSet{Kind: KindLink, Agents: ags}), nil
+	case "my-in-links":
+		t, ok := vm.self.(*Turtle)
+		if !ok {
+			return Value{}, errorAt(pos, "my-in-links can only be used by a turtle")
+		}
+		var ags []Agent
+		for _, l := range w.LinksOf(t) {
+			if l.Directed && l.End2 == t {
+				ags = append(ags, l)
+			}
+		}
+		return SetVal(&AgentSet{Kind: KindLink, Agents: ags}), nil
+	case "my-out-links":
+		t, ok := vm.self.(*Turtle)
+		if !ok {
+			return Value{}, errorAt(pos, "my-out-links can only be used by a turtle")
+		}
+		var ags []Agent
+		for _, l := range w.LinksOf(t) {
+			if l.Directed && l.End1 == t {
+				ags = append(ags, l)
+			}
+		}
+		return SetVal(&AgentSet{Kind: KindLink, Agents: ags}), nil
+	case "link-heading":
+		l, ok := vm.self.(*Link)
+		if !ok {
+			return Value{}, errorAt(pos, "link-heading can only be used by a link")
+		}
+		h, err := w.HeadingTowards(l.End1.X, l.End1.Y, l.End2.X, l.End2.Y)
+		if err != nil {
+			return Value{}, errorAt(pos, "%s", err.Error())
+		}
+		return Num(h), nil
+	case "shapes":
+		lib := w.Shapes
+		if lib == nil || lib.Len() == 0 {
+			lib = DefaultShapes()
+		}
+		all := lib.All()
+		vals := make([]Value, len(all))
+		for i, sh := range all {
+			vals[i] = Str(sh.Name)
+		}
+		return List(vals...), nil
+	case "no-turtles":
+		return SetVal(&AgentSet{Kind: KindTurtle, Agents: nil}), nil
+	case "no-patches":
+		return SetVal(&AgentSet{Kind: KindPatch, Agents: nil}), nil
+	case "no-links":
+		return SetVal(&AgentSet{Kind: KindLink, Agents: nil}), nil
+	case "e":
+		return Num(math.E), nil
+	case "behaviorspace-run-number":
+		return Num(0), nil
 	case "link-neighbors":
 		return vm.linkNeighborSet(0, pos)
 	case "out-link-neighbors":
@@ -879,8 +1137,8 @@ func (vm *VM) evalCall(c *callExpr) (Value, error) {
 }
 
 func (vm *VM) evalIfelseValue(c *callExpr) (Value, error) {
-	if len(c.Args) < 3 {
-		return Value{}, errorAt(c.Pos, "ifelse-value expected at least 3 inputs")
+	if len(c.Args) < 2 {
+		return Value{}, errorAt(c.Pos, "ifelse-value expected at least 2 inputs")
 	}
 	// pairs of (cond, value) then a final else. Non-variadic is cond, a, b.
 	args := c.Args
@@ -901,7 +1159,10 @@ func (vm *VM) evalIfelseValue(c *callExpr) (Value, error) {
 		}
 		args = args[2:]
 	}
-	return Value{}, errorAt(c.Pos, "ifelse-value expected an else value")
+	if len(args) == 1 {
+		return vm.eval(args[0])
+	}
+	return Value{}, errorAt(c.Pos, "ifelse-value: no conditions matched and no else value provided")
 }
 
 func (vm *VM) evalAgentBlockRep(c *callExpr) (Value, error) {
@@ -964,11 +1225,17 @@ func (vm *VM) evalAgentBlockRep(c *callExpr) (Value, error) {
 		return SetVal(&AgentSet{Kind: ags.Kind, Breed: ags.Breed, Agents: outAgs}), nil
 	}
 
-	target, err := vm.eval(c.Args[0])
+	targetExpr := c.Args[0]
+	block := c.Args[1]
+	// sort-on is [reporter] agentset, the reverse of with and n-of.
+	if c.Name == "sort-on" {
+		targetExpr = c.Args[1]
+		block = c.Args[0]
+	}
+	target, err := vm.eval(targetExpr)
 	if err != nil {
 		return Value{}, err
 	}
-	block := c.Args[1]
 	switch c.Name {
 	case "all?":
 		ags, err := vm.asAgentset(target)
@@ -1091,12 +1358,12 @@ func (vm *VM) evalBreedCallFast(call breedCallDef, name string, args []Value, po
 		return Bool(t.Breed == call.breed), nil
 	case breedCallOn:
 		if len(args) >= 1 {
-			p, err := vm.agentPatch(args[0])
+			ps, err := vm.agentPatches(args[0])
 			if err != nil {
 				return Value{}, err
 			}
 			var ags []Agent
-			if p != nil {
+			for _, p := range ps {
 				for _, t := range vm.World.TurtlesHere(p) {
 					if t.Breed == call.breed {
 						ags = append(ags, t)

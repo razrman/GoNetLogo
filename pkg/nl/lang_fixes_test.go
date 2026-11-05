@@ -112,7 +112,8 @@ to-report probe-multi
 end
 
 to-report probe-runresult
-  report (word runresult answer (runresult twice 4) (runresult abs -5) runresult "2 + 2")
+  let task-var [ -> answer ]
+  report (word (runresult [ -> answer ]) (runresult task-var) (runresult [ n -> twice n ] 4) (runresult [ n -> abs n ] -5) runresult "2 + 2")
 end
 
 to load-chrom
@@ -215,7 +216,10 @@ func TestConciseTasksAndIfelseValue(t *testing.T) {
 		check("probe-if-plain", "1")
 		check("probe-nested", "2")
 		check("probe-multi", "3")
-		check("probe-runresult", "42854")
+		check("probe-runresult", "4242854")
+		if _, err := vm.ExecuteLine("show runresult 42"); err == nil {
+			t.Fatal("expected runresult 42 to fail")
+		}
 		if !walk && vm.Prog.Proc("probe-abs").cmdFn == nil {
 			t.Fatal("closure compiler did not compile probe-abs")
 		}

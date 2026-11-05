@@ -21,14 +21,19 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		}
 		return AgentVal(t), nil
 	case "patch":
-		x, err := asInt(args[0], "patch")
+		xNum, err := args[0].Num()
 		if err != nil {
-			return Value{}, err
+			return Value{}, fmt.Errorf("patch expected a number, got %s", args[0].TypeName())
 		}
-		y, err := asInt(args[1], "patch")
+		yNum, err := args[1].Num()
 		if err != nil {
-			return Value{}, err
+			return Value{}, fmt.Errorf("patch expected a number, got %s", args[1].TypeName())
 		}
+		if math.IsNaN(xNum) || math.IsInf(xNum, 0) || math.IsNaN(yNum) || math.IsInf(yNum, 0) {
+			return Value{}, fmt.Errorf("patch expected a valid coordinate")
+		}
+		x := int(math.Round(xNum))
+		y := int(math.Round(yNum))
 		p := vm.World.PatchAtPcor(x, y)
 		if p == nil {
 			return Nobody(), nil
@@ -54,14 +59,15 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		}
 		return Nobody(), nil
 	case "turtles-on":
-		p, err := vm.agentPatch(args[0])
+		ps, err := vm.agentPatches(args[0])
 		if err != nil {
 			return Value{}, err
 		}
-		if p == nil {
-			return SetVal(turtleSet(nil)), nil
+		var ags []*Turtle
+		for _, p := range ps {
+			ags = append(ags, vm.World.TurtlesHere(p)...)
 		}
-		return SetVal(turtleSet(vm.World.TurtlesHere(p))), nil
+		return SetVal(turtleSet(ags)), nil
 	case "turtles-at":
 		dx, err := args[0].Num()
 		if err != nil {
@@ -127,6 +133,79 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 			return Nobody(), nil
 		}
 		return AgentVal(p), nil
+	case "patch-at-heading-and-distance":
+		ang, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		dist, err := args[1].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		x, y, err := vm.selfPoint()
+		if err != nil {
+			return Value{}, err
+		}
+		dx, dy := headingDelta(ang, dist)
+		p := vm.World.PatchAt(x+dx, y+dy)
+		if p == nil {
+			return Nobody(), nil
+		}
+		return AgentVal(p), nil
+	case "up-to-n-of":
+		return vm.upToNOf(args[0], args[1])
+	case "random-poisson":
+		lam, err := args[0].Num()
+		if err != nil {
+			return Value{}, err
+		}
+		if lam < 0 {
+			return Value{}, fmt.Errorf("random-poisson expected mean to be non-negative")
+		}
+		val := vm.randomPoisson(lam)
+		return Num(val), nil
+	case "plot-pen-exists?":
+		if args[0].K != KindString {
+			return Value{}, fmt.Errorf("plot-pen-exists? expected a string")
+		}
+		name := args[0].S
+		p, err := vm.currentPlot()
+		if err != nil {
+			return Bool(false), nil
+		}
+		for _, pen := range p.pens {
+			if strings.EqualFold(pen.name, name) {
+				return Bool(true), nil
+			}
+		}
+		return Bool(false), nil
+	case "file-exists?":
+		if args[0].K != KindString {
+			return Value{}, fmt.Errorf("file-exists? expected a string")
+		}
+		return Bool(vm.fileExists(args[0].S)), nil
+	case "file-at-end?":
+		atEnd, err := vm.fileAtEnd()
+		if err != nil {
+			return Value{}, err
+		}
+		return Bool(atEnd), nil
+	case "file-read":
+		return vm.fileRead()
+	case "file-read-line":
+		return vm.fileReadLine()
+	case "file-read-characters":
+		n, err := asInt(args[0], "file-read-characters")
+		if err != nil {
+			return Value{}, err
+		}
+		return vm.fileReadChars(n)
+	case "user-file":
+		return vm.userPick(vm.UserFile)
+	case "user-new-file":
+		return vm.userPick(vm.UserNewFile)
+	case "user-directory":
+		return vm.userPick(vm.UserDirectory)
 	case "one-of":
 		return vm.oneOf(args[0])
 	case "n-of":
@@ -328,6 +407,8 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		return removeDuplicates(args[0])
 	case "replace-item":
 		return replaceItem(args[0], args[1], args[2])
+	case "insert-item":
+		return insertItem(args[0], args[1], args[2])
 	case "sublist":
 		return sublist(args[0], args[1], args[2])
 	case "substring":
@@ -1266,6 +1347,16 @@ func (vm *VM) asAgentset(v Value) (*AgentSet, error) {
 func (vm *VM) oneOf(v Value) (Value, error) {
 	switch v.K {
 	case KindAgentset:
+		if v.Set == nil || len(v.Set.Agents) == 0 {
+			return Nobody(), nil
+		}
+		// The canonical patch set never contains dead agents, and Patches
+		// caches it. Indexing it keeps one-of patches O(1). Rock Paper
+		// Scissors asks one random patch per event, once per patch per tick.
+		if v.Set.All && v.Set.Kind == KindPatch {
+			ags := v.Set.Agents
+			return AgentVal(ags[vm.World.rng.Intn(len(ags))]), nil
+		}
 		live := v.Set.Alive()
 		if len(live) == 0 {
 			return Nobody(), nil
@@ -1278,6 +1369,97 @@ func (vm *VM) oneOf(v Value) (Value, error) {
 		return v.L[vm.World.rng.Intn(len(v.L))], nil
 	default:
 		return Value{}, fmt.Errorf("one-of expected a list or agentset")
+	}
+}
+
+func (vm *VM) randomPoisson(lam float64) float64 {
+	if lam == 0 {
+		return 0
+	}
+	vm.World.rngDraws.Add(1)
+	if lam < 30 {
+		L := math.Exp(-lam)
+		k := 0.0
+		p := 1.0
+		for p > L {
+			k++
+			p *= vm.World.rng.Float64()
+		}
+		return k - 1
+	}
+	val := math.Round(lam + math.Sqrt(lam)*vm.World.rng.NormFloat64())
+	if val < 0 {
+		return 0
+	}
+	return val
+}
+
+func (vm *VM) upToNOf(nVal, src Value) (Value, error) {
+	n, err := asInt(nVal, "up-to-n-of")
+	if err != nil {
+		return Value{}, err
+	}
+	if n < 0 {
+		return Value{}, fmt.Errorf("up-to-n-of expected a non-negative number")
+	}
+	switch src.K {
+	case KindList:
+		if n > len(src.L) {
+			n = len(src.L)
+		}
+		idx := vm.World.rng.Perm(len(src.L))[:n]
+		sort.Ints(idx)
+		out := make([]Value, n)
+		for i, j := range idx {
+			out[i] = src.L[j]
+		}
+		return List(out...), nil
+	case KindAgentset:
+		live := src.Set.Alive()
+		if n > len(live) {
+			n = len(live)
+		}
+		idx := vm.World.rng.Perm(len(live))[:n]
+		sort.Ints(idx)
+		ags := make([]Agent, n)
+		for i, j := range idx {
+			ags[i] = live[j]
+		}
+		return SetVal(&AgentSet{Kind: src.Set.Kind, Breed: src.Set.Breed, Agents: ags}), nil
+	default:
+		return Value{}, fmt.Errorf("up-to-n-of expected a list or agentset")
+	}
+}
+
+func insertItem(index, src, val Value) (Value, error) {
+	i, err := asInt(index, "insert-item")
+	if err != nil {
+		return Value{}, err
+	}
+	switch src.K {
+	case KindList:
+		if i < 0 || i > len(src.L) {
+			return Value{}, fmt.Errorf("insert-item index out of range")
+		}
+		out := make([]Value, len(src.L)+1)
+		copy(out[:i], src.L[:i])
+		out[i] = val
+		copy(out[i+1:], src.L[i:])
+		return List(out...), nil
+	case KindString:
+		r := []rune(src.S)
+		if i < 0 || i > len(r) {
+			return Value{}, fmt.Errorf("insert-item index out of range")
+		}
+		vs := val.String()
+		vr := []rune(vs)
+		out := make([]rune, 0, len(r)+len(vr))
+		out = append(out, r[:i]...)
+		out = append(out, vr...)
+		out = append(out, r[i:]...)
+		return Str(string(out)), nil
+	default:
+		return Value{}, fmt.Errorf("insert-item expected a list or string")
 	}
 }
 
@@ -1525,10 +1707,18 @@ func (vm *VM) doSortBy(task, list Value, pos Pos) (Value, error) {
 	if task.K != KindTask || task.Task == nil || task.Task.IsCommand {
 		return Value{}, fmt.Errorf("sort-by expected a reporter task")
 	}
-	if list.K != KindList {
-		return Value{}, fmt.Errorf("sort-by expected a list")
+	var items []Value
+	if list.K == KindList {
+		items = append([]Value(nil), list.L...)
+	} else if list.K == KindAgentset && list.Set != nil {
+		ags := list.Set.Alive()
+		items = make([]Value, len(ags))
+		for i, a := range ags {
+			items[i] = AgentVal(a)
+		}
+	} else {
+		return Value{}, fmt.Errorf("sort-by expected a list or agentset")
 	}
-	items := append([]Value(nil), list.L...)
 	var sortErr error
 	sort.SliceStable(items, func(i, j int) bool {
 		v := vm.callTaskRep(task.Task, []Value{items[i], items[j]}, pos)
@@ -1643,8 +1833,14 @@ func position(item, src Value) int {
 }
 
 func removeVal(item, src Value) (Value, error) {
+	if src.K == KindString {
+		if item.K != KindString {
+			return Value{}, fmt.Errorf("remove expected a string, got %s", item.TypeName())
+		}
+		return Str(strings.ReplaceAll(src.S, item.S, "")), nil
+	}
 	if src.K != KindList {
-		return Value{}, fmt.Errorf("remove expected a list")
+		return Value{}, fmt.Errorf("remove expected a list or string")
 	}
 	var out []Value
 	for _, e := range src.L {
@@ -1806,22 +2002,36 @@ func (vm *VM) buildSet(name string, args []Value) (Value, error) {
 		}
 		return nil
 	}
-	for _, arg := range args {
-		switch arg.K {
+	var processVal func(v Value) error
+	processVal = func(v Value) error {
+		switch v.K {
 		case KindAgent:
-			if err := add(arg.A); err != nil {
-				return Value{}, err
-			}
+			return add(v.A)
 		case KindAgentset:
-			for _, a := range arg.Set.Alive() {
-				if err := add(a); err != nil {
-					return Value{}, err
+			if v.Set != nil {
+				for _, a := range v.Set.Alive() {
+					if err := add(a); err != nil {
+						return err
+					}
 				}
 			}
+			return nil
 		case KindNobody:
-			continue
+			return nil
+		case KindList:
+			for _, item := range v.L {
+				if err := processVal(item); err != nil {
+					return err
+				}
+			}
+			return nil
 		default:
-			return Value{}, fmt.Errorf("%s expected agents", name)
+			return fmt.Errorf("%s expected agents", name)
+		}
+	}
+	for _, arg := range args {
+		if err := processVal(arg); err != nil {
+			return Value{}, err
 		}
 	}
 	return SetVal(&AgentSet{Kind: kind, Agents: ags}), nil
@@ -1935,6 +2145,69 @@ func (vm *VM) agentPatch(v Value) (*Patch, error) {
 	default:
 		return nil, fmt.Errorf("expected an agent")
 	}
+}
+
+func (vm *VM) agentPatches(v Value) ([]*Patch, error) {
+	seen := map[*Patch]bool{}
+	var patches []*Patch
+	var collect func(v Value) error
+	collect = func(val Value) error {
+		switch val.K {
+		case KindAgent:
+			switch a := val.A.(type) {
+			case *Patch:
+				if a != nil && !a.IsDead() && !seen[a] {
+					seen[a] = true
+					patches = append(patches, a)
+				}
+			case *Turtle:
+				if a != nil && !a.IsDead() {
+					p := vm.World.PatchHere(a)
+					if p != nil && !seen[p] {
+						seen[p] = true
+						patches = append(patches, p)
+					}
+				}
+			}
+			return nil
+		case KindAgentset:
+			if val.Set != nil {
+				for _, a := range val.Set.Alive() {
+					switch a := a.(type) {
+					case *Patch:
+						if a != nil && !a.IsDead() && !seen[a] {
+							seen[a] = true
+							patches = append(patches, a)
+						}
+					case *Turtle:
+						if a != nil && !a.IsDead() {
+							p := vm.World.PatchHere(a)
+							if p != nil && !seen[p] {
+								seen[p] = true
+								patches = append(patches, p)
+							}
+						}
+					}
+				}
+			}
+			return nil
+		case KindNobody:
+			return nil
+		case KindList:
+			for _, item := range val.L {
+				if err := collect(item); err != nil {
+					return err
+				}
+			}
+			return nil
+		default:
+			return fmt.Errorf("expected an agent or agentset, got %s", val.TypeName())
+		}
+	}
+	if err := collect(v); err != nil {
+		return nil, err
+	}
+	return patches, nil
 }
 
 func (vm *VM) patchAtOffset(dx, dy float64) *Patch {
@@ -2141,8 +2414,7 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		vm.World.SetHeading(t, n)
-		return true, nil
+		return true, vm.World.SetHeading(t, n)
 	case "xcor":
 		n, err := v.Num()
 		if err != nil {
