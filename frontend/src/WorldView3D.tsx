@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { Observer3D, World } from './types'
 import { WorldCanvas } from './WorldCanvas'
+import { wrapSegments, type WrapBounds } from './wrapSegment'
 
 // Interactive view of a NetLogo 3D world. Scene coordinates are NetLogo
 // coordinates (x east, y north, z up), with the camera's up vector on +z.
@@ -361,17 +362,42 @@ class Scene3D {
 
   private updateLinks(world: World) {
     const shown = world.links.filter((l) => !l.hidden)
-    const pos = new Float32Array(shown.length * 6)
-    const col = new Float32Array(shown.length * 6)
-    shown.forEach((l, i) => {
-      pos.set([l.x1, l.y1, l.z1 ?? 0, l.x2, l.y2, l.z2 ?? 0], i * 6)
+    const bounds = linkWrapBounds(world)
+    const pos: number[] = []
+    const col: number[] = []
+    for (const l of shown) {
+      const segs = wrapSegments(
+        { x: l.x1, y: l.y1, z: l.z1 ?? 0 },
+        { x: l.x2, y: l.y2, z: l.z2 ?? 0 },
+        bounds,
+      )
       this.color.setRGB(l.r / 255, l.g / 255, l.b / 255, THREE.SRGBColorSpace)
-      col.set([this.color.r, this.color.g, this.color.b, this.color.r, this.color.g, this.color.b], i * 6)
-    })
+      const r = this.color.r
+      const g = this.color.g
+      const b = this.color.b
+      for (const s of segs) {
+        pos.push(s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z)
+        col.push(r, g, b, r, g, b)
+      }
+    }
     const g = this.links.geometry
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(pos), 3))
+    g.setAttribute('color', new THREE.BufferAttribute(Float32Array.from(col), 3))
     g.computeBoundingSphere()
+  }
+}
+
+// linkWrapBounds is the half-patch wall on each axis. A link is split
+// only on axes whose wrap flag is set.
+function linkWrapBounds(world: World): WrapBounds {
+  return {
+    x: { min: world.minPxcor - 0.5, max: world.maxPxcor + 0.5, wrap: world.wrapX },
+    y: { min: world.minPycor - 0.5, max: world.maxPycor + 0.5, wrap: world.wrapY },
+    z: {
+      min: (world.minPzcor ?? 0) - 0.5,
+      max: (world.maxPzcor ?? 0) + 0.5,
+      wrap: world.wrapZ ?? false,
+    },
   }
 }
 

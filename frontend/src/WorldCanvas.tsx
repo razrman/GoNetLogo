@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { TurtleShape, World } from './types'
+import { wrapSegments2D } from './wrapSegment'
 
 // Draw the patch grid, links, and turtles. NetLogo y grows upward and
 // heading 0 points north, increasing clockwise. Patch colors arrive as
@@ -116,12 +117,21 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   ctx.lineWidth = Math.max(1, scale * 0.12)
   ctx.textBaseline = 'middle'
   ctx.font = `${Math.max(10, scale * 0.42)}px sans-serif`
+  // Walls are the half-patch edges. Segments stay in order from end 1
+  // to end 2, so an arrowhead on the last point would sit on end 2.
+  const linkBounds = {
+    x: { min: world.minPxcor - 0.5, max: world.maxPxcor + 0.5, wrap: world.wrapX },
+    y: { min: world.minPycor - 0.5, max: world.maxPycor + 0.5, wrap: world.wrapY },
+  }
   for (const link of world.links) {
     if (link.hidden) continue
     ctx.strokeStyle = rgbCss(link.r, link.g, link.b)
+    const segs = wrapSegments2D({ x: link.x1, y: link.y1 }, { x: link.x2, y: link.y2 }, linkBounds)
     ctx.beginPath()
-    ctx.moveTo(xOf(link.x1), yOf(link.y1))
-    ctx.lineTo(xOf(link.x2), yOf(link.y2))
+    for (const s of segs) {
+      ctx.moveTo(xOf(s.a.x), yOf(s.a.y))
+      ctx.lineTo(xOf(s.b.x), yOf(s.b.y))
+    }
     ctx.stroke()
   }
 
