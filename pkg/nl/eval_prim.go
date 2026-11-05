@@ -95,6 +95,11 @@ func (vm *VM) moveToAgent(target Value, pos Pos) error {
 
 func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	w := vm.World
+	if w.threeD {
+		if handled, err := vm.primCmd3D(name, args, pos); handled {
+			return err
+		}
+	}
 	switch name {
 	case "clear-all", "ca":
 		vm.requireObserver(pos, "clear-all")
@@ -876,6 +881,11 @@ func (vm *VM) createLinks(name string, args []Value, block []Stmt, pos Pos) {
 
 func (vm *VM) evalZero(name string, pos Pos) (Value, error) {
 	w := vm.World
+	if w.threeD || zeroArgReporters3D[name] {
+		if v, handled, err := vm.evalZero3D(name, pos); handled {
+			return v, err
+		}
+	}
 	switch name {
 	case "turtles":
 		return SetVal(w.Turtles()), nil
@@ -1382,7 +1392,13 @@ func (vm *VM) evalBreedCallFast(call breedCallDef, name string, args []Value, po
 			if err != nil {
 				return Value{}, err
 			}
-			p := vm.patchAtOffset(dx, dy)
+			dz := 0.0
+			if len(args) >= 3 {
+				if dz, err = args[2].Num(); err != nil {
+					return Value{}, err
+				}
+			}
+			p := vm.patchAtOffset3(dx, dy, dz)
 			var ags []Agent
 			if p != nil {
 				for _, t := range vm.World.TurtlesHere(p) {

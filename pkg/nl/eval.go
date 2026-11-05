@@ -359,6 +359,9 @@ func isCommandLine(src string, prog *Program) bool {
 	if _, ok := commands[name]; ok {
 		return true
 	}
+	if is3DCommand(name, prog) {
+		return true
+	}
 	if prog != nil {
 		if pr := prog.Proc(name); pr != nil && !pr.IsReporter {
 			return true
@@ -831,7 +834,7 @@ func (vm *VM) execSprout(s *sproutStmt) {
 	for i := 0; i < k; i++ {
 		cn := vm.World.rng.Intn(14)
 		h := vm.World.rng.Intn(360)
-		t := vm.World.CreateTurtle(s.Breed, float64(p.PX), float64(p.PY), cn, h)
+		t := vm.World.CreateTurtle3(s.Breed, float64(p.PX), float64(p.PY), float64(p.PZ), cn, h)
 		made = append(made, t)
 	}
 	for _, a := range made {
@@ -1182,7 +1185,7 @@ func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 			return vm.evalBreedCallFast(call, name, nil, pos)
 		}
 	}
-	if zeroArgReporters[name] {
+	if isZeroArgReporter(name, vm.World.threeD) {
 		return vm.evalZero(name, pos)
 	}
 	if strings.HasSuffix(name, "-here") {

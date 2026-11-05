@@ -7,6 +7,18 @@ import (
 
 // Parse compiles a NetLogo program.
 func Parse(src string) (*Program, error) {
+	return parseDialect(src, false)
+}
+
+// Parse3D compiles a NetLogo 3D program. The 3D dialect adds the 3D
+// primitives and changes the arity of patch, patch-at, turtles-at,
+// <breeds>-at, and resize-world. Command lists parsed later against the
+// returned program use the same dialect.
+func Parse3D(src string) (*Program, error) {
+	return parseDialect(src, true)
+}
+
+func parseDialect(src string, is3D bool) (*Program, error) {
 	toks, err := cleanTokens(src)
 	if err != nil {
 		return nil, err
@@ -15,6 +27,7 @@ func Parse(src string) (*Program, error) {
 		BreedOwn:      map[string][]string{},
 		LinkBreedOwn:  map[string][]string{},
 		InterfaceVars: map[string]bool{},
+		Is3D:          is3D,
 	}}
 	if err := p.parseStructure(); err != nil {
 		return nil, err
@@ -242,7 +255,11 @@ func (p *parser) installDecls() {
 	for pl, sg := range p.breedPlural {
 		p.extraRep[pl+"-here"] = primSpec{argc: 0}
 		p.extraRep[pl+"-on"] = primSpec{argc: 1, prec: precNormal}
-		p.extraRep[pl+"-at"] = primSpec{argc: 2, prec: precNormal}
+		atArgs := 2
+		if p.prog != nil && p.prog.Is3D {
+			atArgs = 3 // <breeds>-at dx dy dz
+		}
+		p.extraRep[pl+"-at"] = primSpec{argc: atArgs, prec: precNormal}
 		p.extraRep["is-"+sg+"?"] = primSpec{argc: 1, prec: precNormal}
 		p.extraRep[sg] = primSpec{argc: 1, prec: precNormal}
 		p.extraCmd["create-"+pl] = primSpec{argc: 1, optBlock: true}
@@ -505,6 +522,11 @@ func (p *parser) lookupCmd(name string) (primSpec, bool) {
 	if s, ok := p.extraCmd[name]; ok {
 		return s, true
 	}
+	if p.prog != nil && p.prog.Is3D {
+		if s, ok := commands3D[name]; ok {
+			return s, true
+		}
+	}
 	s, ok := commands[name]
 	return s, ok
 }
@@ -512,6 +534,11 @@ func (p *parser) lookupCmd(name string) (primSpec, bool) {
 func (p *parser) lookupRep(name string) (primSpec, bool) {
 	if s, ok := p.extraRep[name]; ok && (s.argc > 0 || s.variadic) {
 		return s, true
+	}
+	if p.prog != nil && p.prog.Is3D {
+		if s, ok := reporters3D[name]; ok {
+			return s, true
+		}
 	}
 	s, ok := reporters[name]
 	return s, ok
@@ -1119,7 +1146,7 @@ func (p *parser) taskName(t Token, g goal) (Expr, bool) {
 			p.next()
 			return reporterTask(name, len(proc.Params), t.Pos), true
 		}
-		if zeroArgReporters[name] {
+		if isZeroArgReporter(name, p.prog != nil && p.prog.Is3D) {
 			p.next()
 			return reporterTask(name, 0, t.Pos), true
 		}
