@@ -404,8 +404,35 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   gap: 8px;
 }
 
+.view-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: -12px -12px 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #faf6ee;
+  border-radius: 14px 14px 0 0;
+}
+
+.model-title {
+  margin: 0 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
 .tabs {
   display: flex;
+  flex: 0 0 auto;
   gap: 6px;
 }
 
