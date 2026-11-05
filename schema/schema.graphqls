@@ -54,7 +54,7 @@ type Mutation {
   That directory is MODELS_DIR, or the discovered models directory when the
   variable is unset (the repo, bin/, or a macOS .app next to the repo).
   path is relative to it. Absolute paths and any .. segment are rejected.
-  A .nlogo, .nlogox, or .nlogox3d file is accepted.
+  A .nlogo, .nlogox, .nlogo3d, or .nlogox3d file is accepted.
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
@@ -283,6 +283,12 @@ type World {
   maxPycor: Int!
   width: Int!
   height: Int!
+  """
+  Number of patch layers. 1 for a 2D world. A NetLogo 3D world has more,
+  and patchColors is then a top-down projection: each column shows its
+  highest non-black patch.
+  """
+  depth: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!

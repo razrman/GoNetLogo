@@ -290,6 +290,7 @@ type ComplexityRoot struct {
 	}
 
 	World struct {
+		Depth       func(childComplexity int) int
 		Drawing     func(childComplexity int) int
 		Height      func(childComplexity int) int
 		LabelFont   func(childComplexity int) int
@@ -1746,6 +1747,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Drawing(childComplexity), true
 
+	case "World.depth":
+		if e.complexity.World.Depth == nil {
+			break
+		}
+
+		return e.complexity.World.Depth(childComplexity), true
+
 	case "World.height":
 		if e.complexity.World.Height == nil {
 			break
@@ -2084,7 +2092,7 @@ type Mutation {
   That directory is MODELS_DIR, or the discovered models directory when the
   variable is unset (the repo, bin/, or a macOS .app next to the repo).
   path is relative to it. Absolute paths and any .. segment are rejected.
-  A .nlogo, .nlogox, or .nlogox3d file is accepted.
+  A .nlogo, .nlogox, .nlogo3d, or .nlogox3d file is accepted.
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
@@ -2313,6 +2321,12 @@ type World {
   maxPycor: Int!
   width: Int!
   height: Int!
+  """
+  Number of patch layers. 1 for a 2D world. A NetLogo 3D world has more,
+  and patchColors is then a top-down projection: each column shows its
+  highest non-black patch.
+  """
+  depth: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
@@ -5267,6 +5281,8 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_width(ctx, field)
 			case "height":
 				return ec.fieldContext_World_height(ctx, field)
+			case "depth":
+				return ec.fieldContext_World_depth(ctx, field)
 			case "patchSize":
 				return ec.fieldContext_World_patchSize(ctx, field)
 			case "wrapX":
@@ -10310,6 +10326,8 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_width(ctx, field)
 			case "height":
 				return ec.fieldContext_World_height(ctx, field)
+			case "depth":
+				return ec.fieldContext_World_depth(ctx, field)
 			case "patchSize":
 				return ec.fieldContext_World_patchSize(ctx, field)
 			case "wrapX":
@@ -12675,6 +12693,50 @@ func (ec *executionContext) _World_height(ctx context.Context, field graphql.Col
 }
 
 func (ec *executionContext) fieldContext_World_height(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_depth(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_depth(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Depth, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_depth(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "World",
 		Field:      field,
@@ -17012,6 +17074,11 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "height":
 			out.Values[i] = ec._World_height(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "depth":
+			out.Values[i] = ec._World_depth(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

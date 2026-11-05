@@ -150,7 +150,7 @@ func ListFolder(rel string) (LibraryListing, error) {
 
 func isLibraryModel(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".nlogo", ".nlogox", ".nlogox3d":
+	case ".nlogo", ".nlogox", ".nlogo3d", ".nlogox3d":
 		return true
 	default:
 		return false
@@ -192,7 +192,7 @@ func readModelFile(path string) (string, string, error) {
 		return "", "", fmt.Errorf("model path is not a file")
 	}
 	if !isLibraryModel(filepath.Base(resolved)) {
-		return "", "", fmt.Errorf("model file must be .nlogo, .nlogox, or .nlogox3d")
+		return "", "", fmt.Errorf("model file must be .nlogo, .nlogox, .nlogo3d, or .nlogox3d")
 	}
 	if info.Size() > maxModelBytes {
 		return "", "", fmt.Errorf("model file is too large")

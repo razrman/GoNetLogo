@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"gonetlogo/backend/session"
+	"gonetlogo/pkg/nl"
 )
 
 func newClient(t *testing.T) *client.Client {
@@ -590,6 +591,81 @@ end
 	}{}, client.Var("id", s.ID), client.Var("model", "../fire.nlogo"))
 	if err == nil || !strings.Contains(err.Error(), "unknown model") {
 		t.Fatalf("loadModel traversal: %v", err)
+	}
+}
+
+// TestLoad3DModelProjectsTopDown loads a .nlogox3d source and checks that
+// the frame reports the depth and projects the highest colored patch of
+// each column, while a 2D world keeps depth 1.
+func TestLoad3DModelProjectsTopDown(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	src := `<?xml version="1.0"?>
+<model version="NetLogo 3D 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+  ask patch 0 0 -1 [ set pcolor red ]
+  ask patch 0 0 1 [ set pcolor blue ]
+  ask patch 1 1 -1 [ set pcolor green ]
+  crt 2 [ setxyz 0 0 who ]
+end
+]]></code>
+  <widgets>
+    <view3d minPxcor="-1" maxPxcor="1" minPycor="-1" maxPycor="1" minPzcor="-1" maxPzcor="1" patchSize="9" wrappingAllowedX="true" wrappingAllowedY="true" wrappingAllowedZ="true"/>
+  </widgets>
+</model>`
+	type world struct {
+		Width, Height, Depth int
+		PatchColors          string
+		Turtles              []struct{ Who int }
+	}
+	var loaded struct {
+		LoadModelSource struct{ World world }
+	}
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { world { width height depth } }
+	}`, &loaded, client.Var("id", s.ID), client.Var("name", "cube.nlogox3d"), client.Var("src", src))
+	if w := loaded.LoadModelSource.World; w.Width != 3 || w.Height != 3 || w.Depth != 3 {
+		t.Fatalf("3D world %+v", w)
+	}
+	commandWhenIdle(t, c, s.ID, "setup")
+	var q struct {
+		Session struct{ World world }
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { world { width height depth patchColors turtles { who } } } }`, &q, client.Var("id", s.ID))
+	raw, err := base64.StdEncoding.DecodeString(q.Session.World.PatchColors)
+	if err != nil || len(raw) != 3*3*3 {
+		t.Fatalf("patch colors %d bytes, err %v", len(raw), err)
+	}
+	pixel := func(px, py int) [3]byte {
+		i := ((1-py)*3 + (px + 1)) * 3
+		return [3]byte{raw[i], raw[i+1], raw[i+2]}
+	}
+	blue, green := nl.ColorRGBA(105), nl.ColorRGBA(55)
+	if got := pixel(0, 0); got != [3]byte{blue.R, blue.G, blue.B} {
+		t.Fatalf("center column %v, want blue (the highest patch)", got)
+	}
+	if got := pixel(1, 1); got != [3]byte{green.R, green.G, green.B} {
+		t.Fatalf("corner column %v, want green", got)
+	}
+	if got := pixel(-1, -1); got != [3]byte{0, 0, 0} {
+		t.Fatalf("empty column %v, want black", got)
+	}
+	// Higher turtles come later so they paint on top.
+	ts := q.Session.World.Turtles
+	if len(ts) != 2 || ts[0].Who != 0 || ts[1].Who != 1 {
+		t.Fatalf("turtle order %+v", ts)
+	}
+	commandWhenIdle(t, c, s.ID, "ask turtle 0 [ set zcor 1 ] ask turtle 1 [ set zcor -1 ]")
+	c.MustPost(`query ($id: ID!) { session(id: $id) { world { turtles { who } } } }`, &q, client.Var("id", s.ID))
+	if ts := q.Session.World.Turtles; len(ts) != 2 || ts[0].Who != 1 {
+		t.Fatalf("turtle order after moving %+v", ts)
+	}
+
+	s2 := create(t, c, "fire.nlogo")
+	c.MustPost(`query ($id: ID!) { session(id: $id) { world { depth } } }`, &q, client.Var("id", s2.ID))
+	if q.Session.World.Depth != 1 {
+		t.Fatalf("2D depth %d", q.Session.World.Depth)
 	}
 }
 

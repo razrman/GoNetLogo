@@ -1388,6 +1388,7 @@ func worldLocked(w *nl.World) model.World {
 		MaxPycor:    w.MaxPycor,
 		Width:       w.Width(),
 		Height:      w.Height(),
+		Depth:       w.Depth(),
 		PatchSize:   w.PatchSize,
 		WrapX:       w.WrapX,
 		WrapY:       w.WrapY,
@@ -1400,7 +1401,16 @@ func worldLocked(w *nl.World) model.World {
 		Labels:      viewLabels(w),
 	}
 	if turtles := w.Turtles(); turtles != nil {
-		for _, a := range turtles.Alive() {
+		alive := turtles.Alive()
+		if w.Is3D() {
+			// Top-down view of a 3D world: paint low turtles first so the
+			// highest one on a column ends up on top.
+			alive = append([]nl.Agent(nil), alive...)
+			sort.SliceStable(alive, func(i, j int) bool {
+				return alive[i].(*nl.Turtle).Z < alive[j].(*nl.Turtle).Z
+			})
+		}
+		for _, a := range alive {
 			t, ok := a.(*nl.Turtle)
 			if !ok {
 				continue
@@ -1437,7 +1447,8 @@ func worldLocked(w *nl.World) model.World {
 }
 
 // patchColors packs one RGB pixel per patch. Row 0 is maxPycor so the
-// bytes can be drawn as an image without flipping.
+// bytes can be drawn as an image without flipping. A 3D world is
+// projected top-down: each column shows its highest non-black patch.
 func patchColors(w *nl.World) string {
 	width, height := w.Width(), w.Height()
 	if width < 1 || height < 1 {
@@ -1445,6 +1456,16 @@ func patchColors(w *nl.World) string {
 	}
 	raw := make([]byte, width*height*3)
 	i := 0
+	if w.Is3D() {
+		for py := w.MaxPycor; py >= w.MinPycor; py-- {
+			for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
+				c, _ := w.TopColor(px, py)
+				raw[i], raw[i+1], raw[i+2] = c.R, c.G, c.B
+				i += 3
+			}
+		}
+		return base64.StdEncoding.EncodeToString(raw)
+	}
 	for py := w.MaxPycor; py >= w.MinPycor; py-- {
 		for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
 			p := w.GetPatch(px, py)

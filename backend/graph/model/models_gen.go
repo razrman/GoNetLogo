@@ -282,12 +282,16 @@ type Widget struct {
 }
 
 type World struct {
-	MinPxcor  int     `json:"minPxcor"`
-	MaxPxcor  int     `json:"maxPxcor"`
-	MinPycor  int     `json:"minPycor"`
-	MaxPycor  int     `json:"maxPycor"`
-	Width     int     `json:"width"`
-	Height    int     `json:"height"`
+	MinPxcor int `json:"minPxcor"`
+	MaxPxcor int `json:"maxPxcor"`
+	MinPycor int `json:"minPycor"`
+	MaxPycor int `json:"maxPycor"`
+	Width    int `json:"width"`
+	Height   int `json:"height"`
+	// Number of patch layers. 1 for a 2D world. A NetLogo 3D world has more,
+	// and patchColors is then a top-down projection: each column shows its
+	// highest non-black patch.
+	Depth     int     `json:"depth"`
 	PatchSize float64 `json:"patchSize"`
 	WrapX     bool    `json:"wrapX"`
 	WrapY     bool    `json:"wrapY"`
