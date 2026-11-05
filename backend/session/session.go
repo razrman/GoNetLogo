@@ -1470,17 +1470,25 @@ const voxelBytes = 9
 // at most nl.MaxWorldSide patches on a side, so coordinates fit in int16.
 // A 2D world sends an empty string; its patches are in patchColors.
 func voxels(w *nl.World) string {
-	vs := w.Voxels()
-	if len(vs) == 0 {
+	if !w.Is3D() {
 		return ""
 	}
-	raw := make([]byte, len(vs)*voxelBytes)
-	for i, v := range vs {
-		b := raw[i*voxelBytes:]
-		binary.LittleEndian.PutUint16(b[0:], uint16(int16(v.X)))
-		binary.LittleEndian.PutUint16(b[2:], uint16(int16(v.Y)))
-		binary.LittleEndian.PutUint16(b[4:], uint16(int16(v.Z)))
-		b[6], b[7], b[8] = v.C.R, v.C.G, v.C.B
+	var raw []byte
+	var rec [voxelBytes]byte
+	w.EachVoxel(func(v nl.Voxel) {
+		if raw == nil {
+			// Most colored 3D worlds color a good share of their patches;
+			// start at a quarter of the grid to skip early regrowth.
+			raw = make([]byte, 0, len(w.Patches().Agents)/4*voxelBytes+voxelBytes)
+		}
+		binary.LittleEndian.PutUint16(rec[0:], uint16(int16(v.X)))
+		binary.LittleEndian.PutUint16(rec[2:], uint16(int16(v.Y)))
+		binary.LittleEndian.PutUint16(rec[4:], uint16(int16(v.Z)))
+		rec[6], rec[7], rec[8] = v.C.R, v.C.G, v.C.B
+		raw = append(raw, rec[:]...)
+	})
+	if len(raw) == 0 {
+		return ""
 	}
 	return base64.StdEncoding.EncodeToString(raw)
 }

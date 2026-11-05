@@ -560,18 +560,24 @@ type Voxel struct {
 // Voxels lists the patches of a 3D world whose color is not black, in
 // patch order. A 2D world reports nil; its patches are sent as an image.
 func (w *World) Voxels() []Voxel {
-	if !w.threeD {
-		return nil
-	}
 	var out []Voxel
+	w.EachVoxel(func(v Voxel) { out = append(out, v) })
+	return out
+}
+
+// EachVoxel calls fn for every non-black patch of a 3D world, in patch
+// order, without building a list. A 2D world calls it for none.
+func (w *World) EachVoxel(fn func(Voxel)) {
+	if !w.threeD {
+		return
+	}
 	for _, p := range w.patchOrder {
 		c := patchRGBA(p)
 		if c.R == 0 && c.G == 0 && c.B == 0 {
 			continue
 		}
-		out = append(out, Voxel{X: p.PX, Y: p.PY, Z: p.PZ, C: c})
+		fn(Voxel{X: p.PX, Y: p.PY, Z: p.PZ, C: c})
 	}
-	return out
 }
 
 // --- projection for flat views ---
