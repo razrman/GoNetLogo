@@ -155,7 +155,7 @@ type ComplexityRoot struct {
 		SetSlider       func(childComplexity int, sessionID string, index int, value float64) int
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
-		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool) int
+		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool) int
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
 		Stop            func(childComplexity int, sessionID string) int
@@ -321,6 +321,7 @@ type ComplexityRoot struct {
 		PatchColors func(childComplexity int) int
 		PatchSize   func(childComplexity int) int
 		Shapes      func(childComplexity int) int
+		ThreeD      func(childComplexity int) int
 		Turtles     func(childComplexity int) int
 		Voxels      func(childComplexity int) int
 		Width       func(childComplexity int) int
@@ -333,11 +334,15 @@ type ComplexityRoot struct {
 		FrameRateCap func(childComplexity int) int
 		MaxPxcor     func(childComplexity int) int
 		MaxPycor     func(childComplexity int) int
+		MaxPzcor     func(childComplexity int) int
 		MinPxcor     func(childComplexity int) int
 		MinPycor     func(childComplexity int) int
+		MinPzcor     func(childComplexity int) int
 		PatchSize    func(childComplexity int) int
+		ThreeD       func(childComplexity int) int
 		WrapX        func(childComplexity int) int
 		WrapY        func(childComplexity int) int
+		WrapZ        func(childComplexity int) int
 	}
 }
 
@@ -359,7 +364,7 @@ type MutationResolver interface {
 	SetSwitch(ctx context.Context, sessionID string, index int, on bool) (*model.Session, error)
 	SetChooser(ctx context.Context, sessionID string, index int, current int) (*model.Session, error)
 	SetInput(ctx context.Context, sessionID string, index int, text string) (*model.Session, error)
-	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool) (*model.Session, error)
+	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool) (*model.Session, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]string, error)
@@ -1037,7 +1042,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool)), true
+		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool), args["minPzcor"].(*int), args["maxPzcor"].(*int), args["wrapZ"].(*bool)), true
 
 	case "Mutation.setup":
 		if e.complexity.Mutation.Setup == nil {
@@ -1956,6 +1961,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Shapes(childComplexity), true
 
+	case "World.threeD":
+		if e.complexity.World.ThreeD == nil {
+			break
+		}
+
+		return e.complexity.World.ThreeD(childComplexity), true
+
 	case "World.turtles":
 		if e.complexity.World.Turtles == nil {
 			break
@@ -2019,6 +2031,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.WorldSettings.MaxPycor(childComplexity), true
 
+	case "WorldSettings.maxPzcor":
+		if e.complexity.WorldSettings.MaxPzcor == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.MaxPzcor(childComplexity), true
+
 	case "WorldSettings.minPxcor":
 		if e.complexity.WorldSettings.MinPxcor == nil {
 			break
@@ -2033,12 +2052,26 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.WorldSettings.MinPycor(childComplexity), true
 
+	case "WorldSettings.minPzcor":
+		if e.complexity.WorldSettings.MinPzcor == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.MinPzcor(childComplexity), true
+
 	case "WorldSettings.patchSize":
 		if e.complexity.WorldSettings.PatchSize == nil {
 			break
 		}
 
 		return e.complexity.WorldSettings.PatchSize(childComplexity), true
+
+	case "WorldSettings.threeD":
+		if e.complexity.WorldSettings.ThreeD == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.ThreeD(childComplexity), true
 
 	case "WorldSettings.wrapX":
 		if e.complexity.WorldSettings.WrapX == nil {
@@ -2053,6 +2086,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.WorldSettings.WrapY(childComplexity), true
+
+	case "WorldSettings.wrapZ":
+		if e.complexity.WorldSettings.WrapZ == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.WrapZ(childComplexity), true
 
 	}
 	return 0, false
@@ -2257,6 +2297,10 @@ type Mutation {
   """
   Resize the world and set patch size and wrapping.
   Turtles and links die and patches are reset, as with resize-world.
+  minPzcor and maxPzcor resize the Z axis of a 3D world, the same way
+  resize-world takes six bounds there. Pass both, or omit both to leave
+  Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
+  on a 2D world. A 3D world keeps wrapping in X and Y.
   """
   setWorld(
     sessionId: ID!
@@ -2267,6 +2311,9 @@ type Mutation {
     patchSize: Float!
     wrapX: Boolean!
     wrapY: Boolean!
+    minPzcor: Int
+    maxPzcor: Int
+    wrapZ: Boolean
   ): Session!
 }
 
@@ -2448,9 +2495,16 @@ type WorldSettings {
   maxPxcor: Int!
   minPycor: Int!
   maxPycor: Int!
+  """Z bounds. Both 0 for a 2D world."""
+  minPzcor: Int!
+  maxPzcor: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
+  """Z wrapping. False for a 2D world."""
+  wrapZ: Boolean!
+  """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
+  threeD: Boolean!
 }
 
 type World {
@@ -2472,8 +2526,13 @@ type World {
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
-  """Z wrapping. Always true for a 3D world (NetLogo 3D worlds are tori); false for 2D."""
+  """
+  Z wrapping. False for a 2D world. A 3D world starts wrapped; setWorld
+  can change it. X and Y stay wrapped on a 3D world.
+  """
   wrapZ: Boolean!
+  """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
+  threeD: Boolean!
   """
   Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b.
@@ -3077,6 +3136,33 @@ func (ec *executionContext) field_Mutation_setWorld_args(ctx context.Context, ra
 		}
 	}
 	args["wrapY"] = arg7
+	var arg8 *int
+	if tmp, ok := rawArgs["minPzcor"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minPzcor"))
+		arg8, err = ec.unmarshalOInt2ᚖint(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["minPzcor"] = arg8
+	var arg9 *int
+	if tmp, ok := rawArgs["maxPzcor"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxPzcor"))
+		arg9, err = ec.unmarshalOInt2ᚖint(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["maxPzcor"] = arg9
+	var arg10 *bool
+	if tmp, ok := rawArgs["wrapZ"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("wrapZ"))
+		arg10, err = ec.unmarshalOBoolean2ᚖbool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["wrapZ"] = arg10
 	return args, nil
 }
 
@@ -5472,6 +5558,8 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_wrapY(ctx, field)
 			case "wrapZ":
 				return ec.fieldContext_World_wrapZ(ctx, field)
+			case "threeD":
+				return ec.fieldContext_World_threeD(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -7975,7 +8063,7 @@ func (ec *executionContext) _Mutation_setWorld(ctx context.Context, field graphq
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool))
+		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool), fc.Args["minPzcor"].(*int), fc.Args["maxPzcor"].(*int), fc.Args["wrapZ"].(*bool))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9763,12 +9851,20 @@ func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context
 				return ec.fieldContext_WorldSettings_minPycor(ctx, field)
 			case "maxPycor":
 				return ec.fieldContext_WorldSettings_maxPycor(ctx, field)
+			case "minPzcor":
+				return ec.fieldContext_WorldSettings_minPzcor(ctx, field)
+			case "maxPzcor":
+				return ec.fieldContext_WorldSettings_maxPzcor(ctx, field)
 			case "patchSize":
 				return ec.fieldContext_WorldSettings_patchSize(ctx, field)
 			case "wrapX":
 				return ec.fieldContext_WorldSettings_wrapX(ctx, field)
 			case "wrapY":
 				return ec.fieldContext_WorldSettings_wrapY(ctx, field)
+			case "wrapZ":
+				return ec.fieldContext_WorldSettings_wrapZ(ctx, field)
+			case "threeD":
+				return ec.fieldContext_WorldSettings_threeD(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type WorldSettings", field.Name)
 		},
@@ -10923,6 +11019,8 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_wrapY(ctx, field)
 			case "wrapZ":
 				return ec.fieldContext_World_wrapZ(ctx, field)
+			case "threeD":
+				return ec.fieldContext_World_threeD(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -13738,6 +13836,50 @@ func (ec *executionContext) fieldContext_World_wrapZ(_ context.Context, field gr
 	return fc, nil
 }
 
+func (ec *executionContext) _World_threeD(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_threeD(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ThreeD, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_threeD(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _World_voxels(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_World_voxels(ctx, field)
 	if err != nil {
@@ -14471,6 +14613,94 @@ func (ec *executionContext) fieldContext_WorldSettings_maxPycor(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _WorldSettings_minPzcor(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_minPzcor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MinPzcor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_minPzcor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_maxPzcor(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_maxPzcor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MaxPzcor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_maxPzcor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _WorldSettings_patchSize(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_WorldSettings_patchSize(ctx, field)
 	if err != nil {
@@ -14591,6 +14821,94 @@ func (ec *executionContext) _WorldSettings_wrapY(ctx context.Context, field grap
 }
 
 func (ec *executionContext) fieldContext_WorldSettings_wrapY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_wrapZ(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_wrapZ(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.WrapZ, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_wrapZ(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_threeD(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_threeD(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ThreeD, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_threeD(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "WorldSettings",
 		Field:      field,
@@ -18174,6 +18492,11 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "threeD":
+			out.Values[i] = ec._World_threeD(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "voxels":
 			out.Values[i] = ec._World_voxels(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18275,6 +18598,16 @@ func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.Selectio
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "minPzcor":
+			out.Values[i] = ec._WorldSettings_minPzcor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxPzcor":
+			out.Values[i] = ec._WorldSettings_maxPzcor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "patchSize":
 			out.Values[i] = ec._WorldSettings_patchSize(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18287,6 +18620,16 @@ func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.Selectio
 			}
 		case "wrapY":
 			out.Values[i] = ec._WorldSettings_wrapY(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "wrapZ":
+			out.Values[i] = ec._WorldSettings_wrapZ(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "threeD":
+			out.Values[i] = ec._WorldSettings_threeD(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

@@ -60,8 +60,34 @@ func ValidWorld3D(minPx, maxPx, minPy, maxPy, minPz, maxPz int) error {
 // Turtles and links die and patches are rebuilt, as with Resize.
 func (w *World) Resize3(minPx, maxPx, minPy, maxPy, minPz, maxPz int) {
 	w.MinPzcor, w.MaxPzcor = minPz, maxPz
+	w.WrapZ = true
 	w.Resize(minPx, maxPx, minPy, maxPy, true, true)
 	w.homeObserver()
+}
+
+// ApplyView3D is ApplyView for a NetLogo 3D world, including the Z axis.
+// Turtles and links die and patches are reset, as with resize-world.
+// X and Y wrapping stay on, because Resize keeps a 3D world a torus on
+// those axes. Z wrapping is the caller's choice. The observer camera
+// goes home, as with Resize3. A 2D world is an error.
+func (w *World) ApplyView3D(minPx, maxPx, minPy, maxPy, minPz, maxPz int, patchSize float64, wrapX, wrapY, wrapZ bool) error {
+	if !w.threeD {
+		return fmt.Errorf("not a 3D world")
+	}
+	if err := ValidWorld3D(minPx, maxPx, minPy, maxPy, minPz, maxPz); err != nil {
+		return err
+	}
+	if patchSize <= 0 || patchSize > 100 {
+		return fmt.Errorf("patch size must be positive and at most 100")
+	}
+	w.mu.Lock()
+	defer w.unlockPublish()
+	w.MinPzcor, w.MaxPzcor = minPz, maxPz
+	w.WrapZ = wrapZ
+	w.Resize(minPx, maxPx, minPy, maxPy, wrapX, wrapY)
+	w.PatchSize = patchSize
+	w.homeObserver()
+	return nil
 }
 
 func (w *World) wrapCoordZ(z float64) (float64, error) {

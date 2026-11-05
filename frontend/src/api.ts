@@ -277,9 +277,13 @@ export const WorldSettingsQuery = `
       maxPxcor
       minPycor
       maxPycor
+      minPzcor
+      maxPzcor
       patchSize
       wrapX
       wrapY
+      wrapZ
+      threeD
     }
   }
 `
@@ -294,6 +298,9 @@ export const SetWorld = `
     $patchSize: Float!
     $wrapX: Boolean!
     $wrapY: Boolean!
+    $minPzcor: Int
+    $maxPzcor: Int
+    $wrapZ: Boolean
   ) {
     setWorld(
       sessionId: $id
@@ -304,6 +311,9 @@ export const SetWorld = `
       patchSize: $patchSize
       wrapX: $wrapX
       wrapY: $wrapY
+      minPzcor: $minPzcor
+      maxPzcor: $maxPzcor
+      wrapZ: $wrapZ
     ) { id }
   }
 `
@@ -366,6 +376,7 @@ export const Frames = `
         wrapX
         wrapY
         wrapZ
+        threeD
         voxels
         observer { x y z targetX targetY targetZ revision }
         labelFont

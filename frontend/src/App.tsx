@@ -800,19 +800,23 @@ function WorldSettingsForm({
   onDirtyChange: (dirty: boolean) => void
   registerApply: (apply: (() => Promise<boolean>) | null) => void
 }) {
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<WorldDraft>({
     minPxcor: '0',
     maxPxcor: '99',
     minPycor: '0',
     maxPycor: '99',
+    minPzcor: '0',
+    maxPzcor: '0',
     patchSize: '12',
     wrapX: true,
     wrapY: true,
+    wrapZ: false,
   })
   const [error, setError] = useState<string | null>(null)
   const [synced, setSynced] = useState(false)
+  const showZ = world?.threeD === true
   const signature = world
-    ? `${world.minPxcor},${world.maxPxcor},${world.minPycor},${world.maxPycor},${world.patchSize},${world.wrapX},${world.wrapY}`
+    ? `${world.minPxcor},${world.maxPxcor},${world.minPycor},${world.maxPycor},${world.minPzcor ?? 0},${world.maxPzcor ?? 0},${world.patchSize},${world.wrapX},${world.wrapY},${world.wrapZ ?? false},${world.threeD ?? false}`
     : ''
 
   useEffect(() => {
@@ -822,9 +826,12 @@ function WorldSettingsForm({
       maxPxcor: String(world.maxPxcor),
       minPycor: String(world.minPycor),
       maxPycor: String(world.maxPycor),
+      minPzcor: String(world.minPzcor ?? 0),
+      maxPzcor: String(world.maxPzcor ?? 0),
       patchSize: String(world.patchSize),
       wrapX: world.wrapX,
       wrapY: world.wrapY,
+      wrapZ: world.wrapZ ?? false,
     })
     setError(null)
     setSynced(true)
@@ -837,7 +844,7 @@ function WorldSettingsForm({
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function submitDraft() {
-    const parsed = parseWorldDraft(draft)
+    const parsed = parseWorldDraft(draft, showZ)
     if (typeof parsed === 'string') {
       setError(parsed)
       return false
@@ -851,7 +858,7 @@ function WorldSettingsForm({
   useEffect(() => {
     registerApply(submitDraft)
     return () => registerApply(null)
-  }, [registerApply, draft, onApply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [registerApply, draft, showZ, onApply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function apply(event: FormEvent) {
     event.preventDefault()
@@ -871,6 +878,13 @@ function WorldSettingsForm({
         <span className="axis">pycor</span>
         <input aria-label="min pycor" size={4} inputMode="numeric" value={draft.minPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPycor: e.target.value })} />
         <input aria-label="max pycor" size={4} inputMode="numeric" value={draft.maxPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPycor: e.target.value })} />
+        {showZ && (
+          <>
+            <span className="axis">pzcor</span>
+            <input aria-label="min pzcor" size={4} inputMode="numeric" value={draft.minPzcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPzcor: e.target.value })} />
+            <input aria-label="max pzcor" size={4} inputMode="numeric" value={draft.maxPzcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPzcor: e.target.value })} />
+          </>
+        )}
       </div>
       <div className="extras">
         <label className="patch">
@@ -885,6 +899,12 @@ function WorldSettingsForm({
           <input type="checkbox" aria-label="wrap y" checked={draft.wrapY} disabled={disabled} onChange={(e) => setDraft({ ...draft, wrapY: e.target.checked })} />
           wrap y
         </label>
+        {showZ && (
+          <label className="check">
+            <input type="checkbox" aria-label="wrap z" checked={draft.wrapZ} disabled={disabled} onChange={(e) => setDraft({ ...draft, wrapZ: e.target.checked })} />
+            wrap z
+          </label>
+        )}
       </div>
       <button className="iface" type="submit" disabled={disabled}>Apply</button>
       {error && <p className="err">{error}</p>}
@@ -897,13 +917,16 @@ type WorldDraft = {
   maxPxcor: string
   minPycor: string
   maxPycor: string
+  minPzcor: string
+  maxPzcor: string
   patchSize: string
   wrapX: boolean
   wrapY: boolean
+  wrapZ: boolean
 }
 
 function worldDraftDirty(draft: WorldDraft, world: WorldView) {
-  return (
+  const xy =
     !sameNumber(draft.minPxcor, world.minPxcor) ||
     !sameNumber(draft.maxPxcor, world.maxPxcor) ||
     !sameNumber(draft.minPycor, world.minPycor) ||
@@ -911,6 +934,12 @@ function worldDraftDirty(draft: WorldDraft, world: WorldView) {
     !sameNumber(draft.patchSize, world.patchSize) ||
     draft.wrapX !== world.wrapX ||
     draft.wrapY !== world.wrapY
+  if (world.threeD !== true) return xy
+  return (
+    xy ||
+    !sameNumber(draft.minPzcor, world.minPzcor ?? 0) ||
+    !sameNumber(draft.maxPzcor, world.maxPzcor ?? 0) ||
+    draft.wrapZ !== (world.wrapZ ?? false)
   )
 }
 
@@ -921,31 +950,56 @@ function sameNumber(raw: string, live: number) {
   return Number.isFinite(n) && n === live
 }
 
-function parseWorldDraft(draft: WorldDraft): WorldView | string {
+function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string {
   const minPxcor = Number(draft.minPxcor)
   const maxPxcor = Number(draft.maxPxcor)
   const minPycor = Number(draft.minPycor)
   const maxPycor = Number(draft.maxPycor)
   const patchSize = Number(draft.patchSize)
-  if (![minPxcor, maxPxcor, minPycor, maxPycor].every((n) => Number.isInteger(n))) {
+  const coords = [minPxcor, maxPxcor, minPycor, maxPycor]
+  let minPzcor = 0
+  let maxPzcor = 0
+  if (threeD) {
+    minPzcor = Number(draft.minPzcor)
+    maxPzcor = Number(draft.maxPzcor)
+    coords.push(minPzcor, maxPzcor)
+  }
+  if (!coords.every((n) => Number.isInteger(n))) {
     return 'Coordinates must be integers.'
   }
-  if (minPxcor > 0 || maxPxcor < 0 || minPycor > 0 || maxPycor < 0) {
-    return 'The world must contain the origin (0, 0).'
+  const missesOrigin =
+    minPxcor > 0 || maxPxcor < 0 || minPycor > 0 || maxPycor < 0 || (threeD && (minPzcor > 0 || maxPzcor < 0))
+  if (missesOrigin) {
+    return threeD ? 'The world must contain the origin (0, 0, 0).' : 'The world must contain the origin (0, 0).'
   }
   if (!(patchSize > 0) || patchSize > 100) {
     return 'Patch size must be greater than 0 and at most 100.'
   }
-  return { minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY }
+  const next: WorldView = { minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY }
+  if (!threeD) return next
+  return { ...next, minPzcor, maxPzcor, wrapZ: draft.wrapZ, threeD: true }
 }
 
 function sendWorld(
   sessionId: string,
   next: WorldView,
-  setWorldMut: (vars: WorldView & { id: string }) => Promise<{ error?: { message: string } }>,
+  setWorldMut: (
+    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ'> & {
+      id: string
+      minPzcor: number | null
+      maxPzcor: number | null
+      wrapZ: boolean | null
+    },
+  ) => Promise<{ error?: { message: string } }>,
 ) {
   return retryWhileRunning(async () => {
-    const res = await setWorldMut({ id: sessionId, ...next })
+    const res = await setWorldMut({
+      id: sessionId,
+      ...next,
+      minPzcor: next.threeD ? (next.minPzcor ?? 0) : null,
+      maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
+      wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
+    })
     return res.error?.message
   })
 }

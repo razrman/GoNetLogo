@@ -320,8 +320,11 @@ type World struct {
 	PatchSize float64 `json:"patchSize"`
 	WrapX     bool    `json:"wrapX"`
 	WrapY     bool    `json:"wrapY"`
-	// Z wrapping. Always true for a 3D world (NetLogo 3D worlds are tori); false for 2D.
+	// Z wrapping. False for a 2D world. A 3D world starts wrapped; setWorld
+	// can change it. X and Y stay wrapped on a 3D world.
 	WrapZ bool `json:"wrapZ"`
+	// True when this is a NetLogo 3D world, even if both Z bounds are 0.
+	ThreeD bool `json:"threeD"`
 	// Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
 	// pxcor, pycor, pzcor as little-endian int16, then r, g, b.
 	// Patch order (highest layer first). Black patches are omitted.
@@ -352,12 +355,19 @@ type World struct {
 
 type WorldSettings struct {
 	// Publish cap in frames per second. 1..120, default 24.
-	FrameRateCap int     `json:"frameRateCap"`
-	MinPxcor     int     `json:"minPxcor"`
-	MaxPxcor     int     `json:"maxPxcor"`
-	MinPycor     int     `json:"minPycor"`
-	MaxPycor     int     `json:"maxPycor"`
-	PatchSize    float64 `json:"patchSize"`
-	WrapX        bool    `json:"wrapX"`
-	WrapY        bool    `json:"wrapY"`
+	FrameRateCap int `json:"frameRateCap"`
+	MinPxcor     int `json:"minPxcor"`
+	MaxPxcor     int `json:"maxPxcor"`
+	MinPycor     int `json:"minPycor"`
+	MaxPycor     int `json:"maxPycor"`
+	// Z bounds. Both 0 for a 2D world.
+	MinPzcor  int     `json:"minPzcor"`
+	MaxPzcor  int     `json:"maxPzcor"`
+	PatchSize float64 `json:"patchSize"`
+	WrapX     bool    `json:"wrapX"`
+	WrapY     bool    `json:"wrapY"`
+	// Z wrapping. False for a 2D world.
+	WrapZ bool `json:"wrapZ"`
+	// True when this is a NetLogo 3D world, even if both Z bounds are 0.
+	ThreeD bool `json:"threeD"`
 }

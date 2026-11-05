@@ -468,6 +468,110 @@ func TestSetWorld(t *testing.T) {
 	}
 }
 
+// TestSetWorldZBounds reads and sets min-pzcor and max-pzcor on a 3D world.
+// A 2D world keeps the page's old fields: Z arguments do not add a Z axis.
+func TestSetWorldZBounds(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+
+	type bounds struct {
+		MinPxcor, MaxPxcor  int
+		MinPycor, MaxPycor  int
+		MinPzcor, MaxPzcor  int
+		Depth               int
+		WrapX, WrapY, WrapZ bool
+		ThreeD              bool
+		PatchSize           float64
+	}
+	var flat struct{ WorldSettings bounds }
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) {
+			minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor wrapX wrapY wrapZ threeD
+		}
+	}`, &flat, client.Var("id", s.ID))
+	if flat.WorldSettings.ThreeD || flat.WorldSettings.WrapZ || flat.WorldSettings.MinPzcor != 0 || flat.WorldSettings.MaxPzcor != 0 {
+		t.Fatalf("2D settings %+v", flat.WorldSettings)
+	}
+
+	var ignored struct {
+		SetWorld struct{ World bounds }
+	}
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -5, maxPxcor: 5, minPycor: -5, maxPycor: 5, patchSize: 8, wrapX: false, wrapY: true, minPzcor: -3, maxPzcor: 3, wrapZ: true) {
+			world { minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor depth wrapX wrapY wrapZ threeD patchSize }
+		}
+	}`, &ignored, client.Var("id", s.ID))
+	if got := ignored.SetWorld.World; got.ThreeD || got.WrapZ || got.MinPzcor != 0 || got.MaxPzcor != 0 || got.Depth != 1 || got.MinPxcor != -5 || got.WrapX || !got.WrapY {
+		t.Fatalf("2D setWorld changed Z %+v", got)
+	}
+
+	src := `<?xml version="1.0"?>
+<model version="NetLogo 3D 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+end
+]]></code>
+  <widgets>
+    <view3d minPxcor="-2" maxPxcor="2" minPycor="-2" maxPycor="2" minPzcor="-1" maxPzcor="4" patchSize="9" wrappingAllowedX="true" wrappingAllowedY="true" wrappingAllowedZ="true"/>
+  </widgets>
+</model>`
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { id }
+	}`, &struct{ LoadModelSource struct{ ID string } }{}, client.Var("id", s.ID), client.Var("name", "box.nlogox3d"), client.Var("src", src))
+
+	var loaded struct{ WorldSettings bounds }
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) {
+			minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor wrapX wrapY wrapZ threeD
+		}
+	}`, &loaded, client.Var("id", s.ID))
+	if got := loaded.WorldSettings; !got.ThreeD || !got.WrapZ || got.MinPzcor != -1 || got.MaxPzcor != 4 || got.MinPxcor != -2 {
+		t.Fatalf("3D settings %+v", got)
+	}
+
+	err := c.Post(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -2, maxPxcor: 2, minPycor: -2, maxPycor: 2, patchSize: 9, wrapX: true, wrapY: true, minPzcor: -4) { id }
+	}`, &struct{ SetWorld struct{ ID string } }{}, client.Var("id", s.ID))
+	if err == nil || !strings.Contains(err.Error(), "both") {
+		t.Fatalf("expected both Z bounds, got %v", err)
+	}
+	err = c.Post(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -2, maxPxcor: 2, minPycor: -2, maxPycor: 2, patchSize: 9, wrapX: true, wrapY: true, minPzcor: 1, maxPzcor: 4, wrapZ: true) { id }
+	}`, &struct{ SetWorld struct{ ID string } }{}, client.Var("id", s.ID))
+	if err == nil || !strings.Contains(err.Error(), "origin") {
+		t.Fatalf("expected origin error, got %v", err)
+	}
+
+	var resized struct {
+		SetWorld struct{ World bounds }
+	}
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -1, maxPxcor: 1, minPycor: -1, maxPycor: 1, minPzcor: -4, maxPzcor: 2, patchSize: 10, wrapX: false, wrapY: false, wrapZ: false) {
+			world { minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor depth wrapX wrapY wrapZ threeD patchSize }
+		}
+	}`, &resized, client.Var("id", s.ID))
+	if got := resized.SetWorld.World; got.MinPzcor != -4 || got.MaxPzcor != 2 || got.Depth != 7 || got.WrapZ || !got.WrapX || !got.WrapY || !got.ThreeD || got.PatchSize != 10 || got.MinPxcor != -1 || got.MaxPxcor != 1 {
+		t.Fatalf("resized 3D world %+v", got)
+	}
+
+	// Omitting Z leaves the axis alone, including wrapping that was turned off.
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -1, maxPxcor: 3, minPycor: -1, maxPycor: 1, patchSize: 10, wrapX: true, wrapY: true) {
+			world { maxPxcor minPzcor maxPzcor wrapZ threeD depth }
+		}
+	}`, &resized, client.Var("id", s.ID))
+	if got := resized.SetWorld.World; got.MaxPxcor != 3 || got.MinPzcor != -4 || got.MaxPzcor != 2 || got.WrapZ || !got.ThreeD || got.Depth != 7 {
+		t.Fatalf("Z changed when omitted %+v", got)
+	}
+
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) { minPzcor maxPzcor wrapZ threeD }
+	}`, &loaded, client.Var("id", s.ID))
+	if got := loaded.WorldSettings; got.MinPzcor != -4 || got.MaxPzcor != 2 || got.WrapZ || !got.ThreeD {
+		t.Fatalf("settings after resize %+v", got)
+	}
+}
+
 func TestLoadModelSourceAndFile(t *testing.T) {
 	c := newClient(t)
 	s := create(t, c, "fire.nlogo")
