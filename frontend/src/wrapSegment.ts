@@ -62,8 +62,13 @@ export function wrapSegments(a: Vec3, b: Vec3, bounds: WrapBounds): Segment[] {
     const bound = bounds[axis]
     if (!bound.wrap || d === 0) continue
     const wall = d > 0 ? bound.max : bound.min
-    const t = (wall - a[axis]) / d
-    if (t >= -eps && t < 1 - eps) hits.push({ t: t < eps ? 0 : t, axis })
+    const tRaw = (wall - a[axis]) / d
+    // t in (0, 1] means the short path reaches this wall, including a
+    // path that ends exactly on it. Past the wall (t > 1) the segment
+    // stays inside and is not split here.
+    if (tRaw < -eps || tRaw > 1 + eps) continue
+    const t = tRaw < eps ? 0 : tRaw > 1 ? 1 : tRaw
+    hits.push({ t, axis })
   }
   hits.sort((p, q) => p.t - q.t || axes.indexOf(p.axis) - axes.indexOf(q.axis))
 

@@ -51,6 +51,15 @@ test('no wrap keeps a single segment on the original endpoints', () => {
   near(segs[0].b, b.x, b.y, b.z)
 })
 
+test('a path that ends on the opposite wall stops at the near wall', () => {
+  // -16.5 is the min wall. The short way from 15 is +1.5, which lands
+  // exactly on the max wall, so the continuation has no length.
+  const segs = wrapSegments({ x: 15, y: 0, z: 0 }, { x: -16.5, y: 0, z: 0 }, bounds())
+  assert.equal(segs.length, 1)
+  near(segs[0].a, 15, 0, 0)
+  near(segs[0].b, 16.5, 0, 0)
+})
+
 test('a non-wrapping axis is not split even when the long way is shorter', () => {
   // x wraps (short hop east through the wall). y does not, so the
   // link keeps the long north-south difference.
