@@ -693,7 +693,10 @@ func (s *Session) PressButton(index int) error {
 
 // SetWorld resizes the patch grid and sets patch size and wrapping.
 // Turtles and links die and patches are reset, as with resize-world.
-func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
+// minPz, maxPz, and wrapZ change the Z axis of a 3D world. Pass both Z
+// bounds or neither. A nil wrapZ leaves Z wrapping as it is. On a 2D
+// world the Z arguments are ignored.
+func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.rejectIfActiveLocked("set world"); err != nil {
@@ -702,7 +705,26 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 	if s.vm == nil || s.vm.World == nil {
 		return fmt.Errorf("no world")
 	}
-	if err := s.vm.World.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
+	w := s.vm.World
+	if w.Is3D() && (minPz != nil || maxPz != nil || wrapZ != nil) {
+		if (minPz == nil) != (maxPz == nil) {
+			return fmt.Errorf("min-pzcor and max-pzcor must both be set")
+		}
+		minZ, maxZ := w.MinPzcor, w.MaxPzcor
+		if minPz != nil {
+			minZ, maxZ = *minPz, *maxPz
+		}
+		zWrap := w.WrapZ
+		if wrapZ != nil {
+			zWrap = *wrapZ
+		}
+		if err := w.ApplyView3D(minPx, maxPx, minPy, maxPy, minZ, maxZ, patchSize, wrapX, wrapY, zWrap); err != nil {
+			return err
+		}
+		s.broadcastLocked()
+		return nil
+	}
+	if err := w.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
 		return err
 	}
 	s.broadcastLocked()
@@ -727,9 +749,13 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 			MaxPxcor:     w.MaxPxcor,
 			MinPycor:     w.MinPycor,
 			MaxPycor:     w.MaxPycor,
+			MinPzcor:     w.MinPzcor,
+			MaxPzcor:     w.MaxPzcor,
 			PatchSize:    w.PatchSize,
 			WrapX:        w.WrapX,
 			WrapY:        w.WrapY,
+			WrapZ:        w.Is3D() && w.WrapZ,
+			ThreeD:       w.Is3D(),
 		}
 	})
 	return out, nil
@@ -1421,6 +1447,7 @@ func worldLocked(w *nl.World) model.World {
 		WrapX:       w.WrapX,
 		WrapY:       w.WrapY,
 		WrapZ:       w.Is3D() && w.WrapZ,
+		ThreeD:      w.Is3D(),
 		LabelFont:   labelFontOf(w),
 		Shapes:      shapeViews(w),
 		PatchColors: patchColors(w),

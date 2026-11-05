@@ -80,6 +80,10 @@ type Mutation {
   """
   Resize the world and set patch size and wrapping.
   Turtles and links die and patches are reset, as with resize-world.
+  minPzcor and maxPzcor resize the Z axis of a 3D world, the same way
+  resize-world takes six bounds there. Pass both, or omit both to leave
+  Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
+  on a 2D world. A 3D world keeps wrapping in X and Y.
   """
   setWorld(
     sessionId: ID!
@@ -90,6 +94,9 @@ type Mutation {
     patchSize: Float!
     wrapX: Boolean!
     wrapY: Boolean!
+    minPzcor: Int
+    maxPzcor: Int
+    wrapZ: Boolean
   ): Session!
 }
 
@@ -282,9 +289,16 @@ type WorldSettings {
   maxPxcor: Int!
   minPycor: Int!
   maxPycor: Int!
+  """Z bounds. Both 0 for a 2D world."""
+  minPzcor: Int!
+  maxPzcor: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
+  """Z wrapping. False for a 2D world."""
+  wrapZ: Boolean!
+  """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
+  threeD: Boolean!
 }
 
 type World {
@@ -306,8 +320,13 @@ type World {
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
-  """Z wrapping. Always true for a 3D world (NetLogo 3D worlds are tori); false for 2D."""
+  """
+  Z wrapping. False for a 2D world. A 3D world starts wrapped; setWorld
+  can change it. X and Y stay wrapped on a 3D world.
+  """
   wrapZ: Boolean!
+  """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
+  threeD: Boolean!
   """
   Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b.
