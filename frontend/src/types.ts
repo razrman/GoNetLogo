@@ -86,6 +86,12 @@ export type WorldView = {
   patchSize: number
   wrapX: boolean
   wrapY: boolean
+  // Present on a 3D world. A 2D world omits them or leaves them at 0 / false.
+  minPzcor?: number
+  maxPzcor?: number
+  wrapZ?: boolean
+  // True for a NetLogo 3D world, including one whose Z bounds are both 0.
+  threeD?: boolean
 }
 
 export type ShapeElement = {
@@ -126,9 +132,6 @@ export type World = WorldView & {
   // Patch layers: 1 for a 2D world. A 3D world (depth > 1) is drawn by
   // WorldView3D from voxels, turtle z/pitch/roll, and link z.
   depth?: number
-  minPzcor?: number
-  maxPzcor?: number
-  wrapZ?: boolean
   // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b.
   voxels?: string
   observer?: Observer3D | null
@@ -209,6 +212,9 @@ export type SessionInfo = {
   id: string
   modelName: string
   code: string
+  info: string
+  modelDir: string | null
   notes: string[]
+  procedures: string[]
   widgets: { index: number; kind: string; display: string; forever: boolean }[]
 }

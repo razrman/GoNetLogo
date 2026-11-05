@@ -352,6 +352,78 @@ func TestWolfSheepSteps(t *testing.T) {
 	}
 }
 
+func TestInfoText(t *testing.T) {
+	nlogo := "to setup\n  clear-all\nend\n@#$#@#$#@\n@#$#@#$#@\n## Sheep\n\nWhite sheep from the section.\n@#$#@#$#@\nnot the info\n"
+	m, err := ParseModel("pack.nlogo", nlogo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.Info, "White sheep from the section.") || strings.Contains(m.Info, "not the info") {
+		t.Fatalf("nlogo info %q", m.Info)
+	}
+	if strings.Contains(m.Code, "White sheep") {
+		t.Fatalf("info leaked into code %q", m.Code)
+	}
+	m3, err := ParseModel("pack.nlogo3d", nlogo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m3.Info != m.Info {
+		t.Fatalf("nlogo3d info %q", m3.Info)
+	}
+	blank, err := ParseModel("blank.nlogo", "to setup\nend\n@#$#@#$#@\n@#$#@#$#@\n  \n@#$#@#$#@\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blank.Info != "" {
+		t.Fatalf("blank info %q", blank.Info)
+	}
+
+	nlogox := `<?xml version="1.0"?>
+<model version="NetLogo 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+end
+]]></code>
+  <info><![CDATA[## WHAT IS IT?
+
+Water is H<sub>2</sub>O.
+]]></info>
+</model>`
+	xmlModel, err := ParseModel("pack.nlogox", nlogox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(xmlModel.Info, "## WHAT IS IT?") || !strings.Contains(xmlModel.Info, "H<sub>2</sub>O") {
+		t.Fatalf("nlogox info %q", xmlModel.Info)
+	}
+	xml3, err := ParseModel("pack.nlogox3d", nlogox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if xml3.Info != xmlModel.Info {
+		t.Fatalf("nlogox3d info %q", xml3.Info)
+	}
+
+	sheep := loadModel(t, "wolfsheep.nlogo")
+	if !strings.Contains(sheep.Info, "White sheep, black wolves.") {
+		t.Fatalf("wolfsheep.nlogo info %q", sheep.Info)
+	}
+	if strings.Contains(sheep.Code, "White sheep") {
+		t.Fatalf("wolfsheep info leaked into code")
+	}
+	real, err := LoadFile(filepath.Join("..", "..", "models", "library", "Sample Models", "Biology", "Wolf Sheep Predation.nlogox"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(real.Info, "## WHAT IS IT?") || !strings.Contains(real.Info, "predator-prey") {
+		t.Fatalf("Wolf Sheep Predation info %q", real.Info[:80])
+	}
+	if strings.Contains(real.Code, "WHAT IS IT") {
+		t.Fatal("nlogox info leaked into code")
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

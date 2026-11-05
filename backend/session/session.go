@@ -66,7 +66,8 @@ func (st *Store) Create(modelName string) (*Session, error) {
 		return nil, err
 	}
 	s := newSession()
-	if err := s.useModel(name, content); err != nil {
+	root := ""
+	if err := s.useModelFrom(name, content, &root); err != nil {
 		slog.Warn("session create failed", "session", s.id, "model", name, "err", err)
 		s.Close()
 		return nil, err
@@ -109,6 +110,10 @@ type Session struct {
 	id        string
 	modelName string
 	model     *nl.FileModel
+	// modelDir is the loaded file's folder relative to the models
+	// directory. Nil when the text was not read from that directory.
+	// A pointer to an empty string is the models root.
+	modelDir  *string
 	vm        *nl.VM
 	buttons   map[int][]nl.Stmt
 	running   int
@@ -385,6 +390,13 @@ func (s *Session) Subscribe() (wake <-chan struct{}, cancel func()) {
 }
 
 func (s *Session) useModel(name, content string) error {
+	return s.useModelFrom(name, content, nil)
+}
+
+// useModelFrom installs a parsed model. modelDir is the folder relative
+// to the models directory, copied so the caller can reuse its variable.
+// nil clears it: the text did not come from that directory.
+func (s *Session) useModelFrom(name, content string, modelDir *string) error {
 	n := len(content)
 	m, err := nl.ParseModel(name, content)
 	if err != nil {
@@ -405,6 +417,12 @@ func (s *Session) useModel(name, content string) error {
 	s.log = nil
 	s.logMu.Unlock()
 	s.installLocked(name, m, vm)
+	if modelDir == nil {
+		s.modelDir = nil
+	} else {
+		dir := *modelDir
+		s.modelDir = &dir
+	}
 	s.broadcastLocked()
 	return nil
 }
@@ -472,7 +490,8 @@ func (s *Session) LoadModel(modelName string) error {
 		slog.Warn("model load failed", "session", s.id, "model", modelName, "err", err)
 		return err
 	}
-	return s.useModel(name, content)
+	root := ""
+	return s.useModelFrom(name, content, &root)
 }
 
 // LoadModelSource replaces the program with the contents of a .nlogo or
@@ -489,7 +508,7 @@ func (s *Session) LoadModelSource(filename, source string) error {
 		slog.Warn("model load failed", "session", s.id, "model", filename, "bytes", len(source), "err", err)
 		return err
 	}
-	return s.useModel(modelDisplayName(filename), source)
+	return s.useModelFrom(modelDisplayName(filename), source, nil)
 }
 
 // LoadModelFile reads one model from the server models directory
@@ -500,7 +519,8 @@ func (s *Session) LoadModelFile(path string) error {
 		slog.Warn("model load failed", "session", s.id, "model", path, "err", err)
 		return err
 	}
-	return s.useModel(name, content)
+	dir := modelDirectory(path)
+	return s.useModelFrom(name, content, &dir)
 }
 
 // SetCode recompiles the editor buffer. A failed compile keeps the
@@ -554,6 +574,35 @@ func (s *Session) RunCommand(text string) (output string, err error) {
 // Setup runs the setup button, or the setup procedure when there is no button.
 func (s *Session) Setup() error {
 	return s.runNamed("setup", false)
+}
+
+// HasProcedure reports whether the compiled model defines a procedure
+// with this name. The match is case-insensitive, as NetLogo procedure
+// names are. The compiled spelling is lowercase.
+func (s *Session) HasProcedure(name string) bool {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc(key) != nil
+}
+
+// procedureNames lists compiled procedures. Names are lowercase.
+// A nil VM yields an empty list, never nil, so the GraphQL field stays non-null.
+func procedureNames(vm *nl.VM) []string {
+	if vm == nil || vm.Prog == nil || len(vm.Prog.Procedures) == 0 {
+		return []string{}
+	}
+	names := make([]string, 0, len(vm.Prog.Procedures))
+	for _, pr := range vm.Prog.Procedures {
+		if pr == nil || pr.Name == "" {
+			continue
+		}
+		names = append(names, pr.Name)
+	}
+	return names
 }
 
 // Go starts the forever button.
@@ -673,7 +722,10 @@ func (s *Session) PressButton(index int) error {
 
 // SetWorld resizes the patch grid and sets patch size and wrapping.
 // Turtles and links die and patches are reset, as with resize-world.
-func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
+// minPz, maxPz, and wrapZ change the Z axis of a 3D world. Pass both Z
+// bounds or neither. A nil wrapZ leaves Z wrapping as it is. On a 2D
+// world the Z arguments are ignored.
+func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.rejectIfActiveLocked("set world"); err != nil {
@@ -682,7 +734,26 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 	if s.vm == nil || s.vm.World == nil {
 		return fmt.Errorf("no world")
 	}
-	if err := s.vm.World.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
+	w := s.vm.World
+	if w.Is3D() && (minPz != nil || maxPz != nil || wrapZ != nil) {
+		if (minPz == nil) != (maxPz == nil) {
+			return fmt.Errorf("min-pzcor and max-pzcor must both be set")
+		}
+		minZ, maxZ := w.MinPzcor, w.MaxPzcor
+		if minPz != nil {
+			minZ, maxZ = *minPz, *maxPz
+		}
+		zWrap := w.WrapZ
+		if wrapZ != nil {
+			zWrap = *wrapZ
+		}
+		if err := w.ApplyView3D(minPx, maxPx, minPy, maxPy, minZ, maxZ, patchSize, wrapX, wrapY, zWrap); err != nil {
+			return err
+		}
+		s.broadcastLocked()
+		return nil
+	}
+	if err := w.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
 		return err
 	}
 	s.broadcastLocked()
@@ -707,9 +778,13 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 			MaxPxcor:     w.MaxPxcor,
 			MinPycor:     w.MinPycor,
 			MaxPycor:     w.MaxPycor,
+			MinPzcor:     w.MinPzcor,
+			MaxPzcor:     w.MaxPzcor,
 			PatchSize:    w.PatchSize,
 			WrapX:        w.WrapX,
 			WrapY:        w.WrapY,
+			WrapZ:        w.Is3D() && w.WrapZ,
+			ThreeD:       w.Is3D(),
 		}
 	})
 	return out, nil
@@ -1209,13 +1284,14 @@ func (s *Session) withWorldLocked(fn func()) {
 
 func (s *Session) sessionLocked() *model.Session {
 	out := &model.Session{
-		ID:        s.id,
-		ModelName: s.modelName,
-		Speed:     s.speed,
-		Running:   s.running >= 0,
-		Notes:     []string{},
-		Output:    []string{},
-		Widgets:   []model.Widget{},
+		ID:         s.id,
+		ModelName:  s.modelName,
+		Speed:      s.speed,
+		Running:    s.running >= 0,
+		Procedures: procedureNames(s.vm),
+		Notes:      []string{},
+		Output:     []string{},
+		Widgets:    []model.Widget{},
 		World: model.World{
 			LabelFont: 10,
 			Shapes:    []model.TurtleShape{},
@@ -1233,10 +1309,15 @@ func (s *Session) sessionLocked() *model.Session {
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
+		out.Info = s.model.Info
 		out.Notes = append([]string(nil), s.model.Notes...)
 		if out.Notes == nil {
 			out.Notes = []string{}
 		}
+	}
+	if s.modelDir != nil {
+		dir := *s.modelDir
+		out.ModelDir = &dir
 	}
 	s.fillRunStats(out)
 	var started bool
@@ -1396,6 +1477,7 @@ func worldLocked(w *nl.World) model.World {
 		WrapX:       w.WrapX,
 		WrapY:       w.WrapY,
 		WrapZ:       w.Is3D() && w.WrapZ,
+		ThreeD:      w.Is3D(),
 		LabelFont:   labelFontOf(w),
 		Shapes:      shapeViews(w),
 		PatchColors: patchColors(w),
