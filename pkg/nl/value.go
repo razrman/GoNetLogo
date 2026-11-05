@@ -287,6 +287,19 @@ func (s *AgentSet) Alive() []Agent {
 }
 
 func (s *AgentSet) String() string {
+	if s.All {
+		switch s.Kind {
+		case KindTurtle:
+			return "turtles"
+		case KindPatch:
+			return "patches"
+		case KindLink:
+			return "links"
+		}
+	}
+	if s.Breed != "" {
+		return s.Breed
+	}
 	kind := "agents"
 	switch s.Kind {
 	case KindTurtle:
@@ -296,11 +309,7 @@ func (s *AgentSet) String() string {
 	case KindLink:
 		kind = "links"
 	}
-	name := kind
-	if s.Breed != "" {
-		name = s.Breed
-	}
-	return fmt.Sprintf("(agentset, %d %s)", s.Count(), name)
+	return fmt.Sprintf("(agentset, %d %s)", s.Count(), kind)
 }
 
 func (s *AgentSet) sameMembers(o *AgentSet) bool {

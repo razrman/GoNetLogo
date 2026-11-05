@@ -1,6 +1,7 @@
 package nl
 
 import (
+	"path/filepath"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -75,6 +76,7 @@ type FileModel struct {
 	Shapes *ShapeList
 	// Notes lists widgets this loader does not run.
 	Notes []string
+	Path string
 }
 
 // LoadFile reads a .nlogo or .nlogox model.
@@ -87,6 +89,7 @@ func LoadFile(path string) (*FileModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.Path = path
 	return m, nil
 }
 
@@ -1104,6 +1107,9 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 		w.Seed(seed)
 	}
 	vm := NewVM(prog, w)
+	if m.Path != "" {
+		vm.ModelDir = filepath.Dir(m.Path)
+	}
 	m.Apply(vm)
 	return vm, nil
 }

@@ -599,7 +599,7 @@ func (c *compiler) compileCmd(s *cmdStmt, locals map[string]bool) cmdFn {
 			}
 		}
 	}
-	if s.Name == "diffuse" || s.Name == "diffuse4" {
+	if s.Name == "diffuse" || s.Name == "diffuse4" || s.Name == "uphill" || s.Name == "uphill4" || s.Name == "downhill" || s.Name == "downhill4" {
 		return func(vm *VM) { vm.execCmd(s) }
 	}
 	spec, known := commands[s.Name]
@@ -1074,7 +1074,7 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 		return func(vm *VM) Value {
 			if t, ok := vm.self.(*Turtle); ok {
 				if v, ok := t.Vars[key]; ok {
-					return v
+					return sanitizeAgentVal(v)
 				}
 			}
 			return mustIdent(vm, name, pos)

@@ -131,6 +131,14 @@ type VM struct {
 	askBuf []Agent
 	// runCache remembers run strings that are not a bare command name.
 	runCache map[string][]Stmt
+	ModelDir string
+	files    *fileMgr
+	everyTimers map[everyKey]time.Time
+}
+
+type everyKey struct {
+	agent Agent
+	pos   Pos
 }
 
 // NewVM builds a VM for a program. The world is resized only when spec is non-nil.
@@ -366,7 +374,9 @@ func (vm *VM) recover(errp *error, stopped *bool) {
 				*stopped = true
 			}
 		case diePanic:
-			// died outside an ask; the agent is already gone
+			if vm.self != nil {
+				panic(e)
+			}
 		case reportPanic:
 			*errp = fmt.Errorf("REPORT can only be used inside TO-REPORT")
 		default:
@@ -569,6 +579,28 @@ func (vm *VM) execStmt(s Stmt) {
 	case *loopStmt:
 		for {
 			vm.checkpoint()
+			vm.block(s.Body)
+		}
+	case *everyStmt:
+		secV, err := vm.eval(s.Seconds)
+		if err != nil {
+			vm.fail(s.Pos, "%s", err.Error())
+		}
+		sVal, err := secV.Num()
+		if err != nil {
+			vm.fail(s.Pos, "%s", err.Error())
+		}
+		if sVal < 0 {
+			vm.fail(s.Pos, "every expected a non-negative number")
+		}
+		if vm.everyTimers == nil {
+			vm.everyTimers = map[everyKey]time.Time{}
+		}
+		key := everyKey{agent: vm.self, pos: s.Pos}
+		now := time.Now()
+		last, exists := vm.everyTimers[key]
+		if !exists || now.Sub(last).Seconds() >= sVal {
+			vm.everyTimers[key] = now
 			vm.block(s.Body)
 		}
 	case *askStmt:
@@ -949,6 +981,22 @@ func (vm *VM) execCmd(s *cmdStmt) {
 		}
 		return
 	}
+	if s.Name == "uphill" || s.Name == "uphill4" || s.Name == "downhill" || s.Name == "downhill4" {
+		t, ok := vm.self.(*Turtle)
+		if !ok || t == nil {
+			vm.fail(s.Pos, "%s can only be used by turtles", s.Name)
+		}
+		id, ok := s.Args[0].(*identExpr)
+		if !ok {
+			vm.fail(s.Pos, "%s expected a patch variable", s.Name)
+		}
+		four := strings.HasSuffix(s.Name, "4")
+		down := strings.HasPrefix(s.Name, "down")
+		if err := vm.World.Hill(t, id.Name, four, down); err != nil {
+			vm.fail(s.Pos, "%s", err.Error())
+		}
+		return
+	}
 	spec, _ := commands[s.Name]
 	if spec.optBlock || strings.Contains(s.Name, "-with") || strings.Contains(s.Name, "-to") || strings.Contains(s.Name, "-from") {
 		vm.execMaybeLink(s)
@@ -1063,19 +1111,26 @@ func (vm *VM) eval(e Expr) (Value, error) {
 	}
 }
 
+func sanitizeAgentVal(v Value) Value {
+	if v.K == KindAgent && (v.A == nil || v.A.IsDead()) {
+		return Nobody()
+	}
+	return v
+}
+
 func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 	if vm.scope != nil {
 		if v, ok := vm.scope.get(name); ok {
-			return v, nil
+			return sanitizeAgentVal(v), nil
 		}
 	}
 	if vm.self != nil {
 		if v, ok, err := vm.getAgentVar(name); ok || err != nil {
-			return v, err
+			return sanitizeAgentVal(v), err
 		}
 	}
 	if v, ok := vm.World.Global(name); ok {
-		return v, nil
+		return sanitizeAgentVal(v), nil
 	}
 	if _, ok := vm.World.breeds[name]; ok {
 		return SetVal(vm.World.TurtlesOfBreed(name)), nil

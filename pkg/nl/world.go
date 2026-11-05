@@ -1090,17 +1090,51 @@ func (w *World) Perspective() (string, Agent) {
 // MoveTo sets a turtle's position. A wrapping axis wraps. A coordinate
 // outside a non-wrapping axis is a runtime error and the turtle stays put.
 func (w *World) MoveTo(t *Turtle, x, y float64) error {
+	return w.moveToInternal(t, x, y, make(map[*Turtle]bool))
+}
+
+func (w *World) moveToInternal(t *Turtle, x, y float64, visited map[*Turtle]bool) error {
+	if visited[t] {
+		return nil
+	}
+	visited[t] = true
+
 	nx, errX := w.wrapCoordX(x)
 	ny, errY := w.wrapCoordY(y)
 	if errX != nil || errY != nil {
 		return fmt.Errorf("the point [%s %s] is outside of the world", formatNum(x), formatNum(y))
 	}
+	oldX, oldY := t.X, t.Y
+	dx := nx - oldX
+	dy := ny - oldY
+
 	if t.PenDown {
 		w.drawLine(t.X, t.Y, nx, ny, t.Color, t.PenSize)
 	}
 	w.detach(t)
 	t.X, t.Y = nx, ny
 	w.attach(t)
+
+	for _, l := range t.links {
+		if l == nil || l.dead || l.TieMode == "none" || l.TieMode == "" {
+			continue
+		}
+		var leaf *Turtle
+		if l.Directed {
+			if l.End1 == t {
+				leaf = l.End2
+			}
+		} else {
+			if l.End1 == t {
+				leaf = l.End2
+			} else if l.End2 == t {
+				leaf = l.End1
+			}
+		}
+		if leaf != nil && !leaf.dead && !visited[leaf] {
+			_ = w.moveToInternal(leaf, leaf.X+dx, leaf.Y+dy, visited)
+		}
+	}
 	return nil
 }
 
@@ -1154,12 +1188,54 @@ func (w *World) CanMove(t *Turtle, dist float64) bool {
 }
 
 func (w *World) SetHeading(t *Turtle, h float64) {
-	t.Heading = h
-	w.normalizeHeading(t)
+	delta := h - t.Heading
+	w.Turn(t, delta)
 }
 
 func (w *World) Turn(t *Turtle, delta float64) {
-	w.SetHeading(t, t.Heading+delta)
+	w.turnInternal(t, delta, make(map[*Turtle]bool))
+}
+
+func (w *World) turnInternal(t *Turtle, delta float64, visited map[*Turtle]bool) {
+	if visited[t] {
+		return
+	}
+	visited[t] = true
+
+	t.Heading += delta
+	w.normalizeHeading(t)
+
+	rad := delta * math.Pi / 180
+	cosA, sinA := math.Cos(rad), math.Sin(rad)
+
+	for _, l := range t.links {
+		if l == nil || l.dead || l.TieMode == "none" || l.TieMode == "" {
+			continue
+		}
+		var leaf *Turtle
+		if l.Directed {
+			if l.End1 == t {
+				leaf = l.End2
+			}
+		} else {
+			if l.End1 == t {
+				leaf = l.End2
+			} else if l.End2 == t {
+				leaf = l.End1
+			}
+		}
+		if leaf != nil && !leaf.dead && !visited[leaf] {
+			relX := leaf.X - t.X
+			relY := leaf.Y - t.Y
+			newRelX := relX*cosA + relY*sinA
+			newRelY := -relX*sinA + relY*cosA
+			_ = w.moveToInternal(leaf, t.X+newRelX, t.Y+newRelY, visited)
+			delete(visited, leaf)
+			if l.TieMode == "fixed" {
+				w.turnInternal(leaf, delta, visited)
+			}
+		}
+	}
 }
 
 // PatchHere is the patch under a turtle.
@@ -1315,7 +1391,7 @@ func (w *World) RandomInt(n int) (int, error) {
 
 func (w *World) RandomFloat(n float64) (float64, error) {
 	if n == 0 {
-		return 0, fmt.Errorf("random-float expected a nonzero number")
+		return 0, nil
 	}
 	if n > 0 {
 		return w.rng.Float64() * n, nil
@@ -1452,6 +1528,84 @@ func (w *World) LinkNeighbors(t *Turtle, dir int) []*Turtle {
 
 // Diffuse shares fraction of a patch variable with the 8 neighbors.
 // Shares that would leave a non-wrapping world are lost.
+func (w *World) patchVarNum(p *Patch, varName string) (float64, error) {
+	switch varName {
+	case "pcolor":
+		return p.PColor, nil
+	case "pxcor":
+		return float64(p.PX), nil
+	case "pycor":
+		return float64(p.PY), nil
+	}
+	v, ok := p.Vars[varName]
+	if !ok {
+		return 0, fmt.Errorf("there is no patch variable called %s", varName)
+	}
+	return v.Num()
+}
+
+// Hill moves turtle to the neighboring patch with the highest (uphill) or
+// lowest (downhill) value of varName, breaking ties randomly. If no neighbor
+// is higher (uphill) or lower (downhill) than the turtle's current patch,
+// the turtle does not move.
+func (w *World) Hill(t *Turtle, varName string, four, down bool) error {
+	curP := w.PatchAt(t.X, t.Y)
+	if curP == nil {
+		return nil
+	}
+	curVal, err := w.patchVarNum(curP, varName)
+	if err != nil {
+		return err
+	}
+	var nbs []*Patch
+	if four {
+		nbs = w.Neighbors4(curP)
+	} else {
+		nbs = w.Neighbors(curP)
+	}
+	if len(nbs) == 0 {
+		return nil
+	}
+	bestVal := curVal
+	var bestPatches []*Patch
+	for _, p := range nbs {
+		val, err := w.patchVarNum(p, varName)
+		if err != nil {
+			return err
+		}
+		if down {
+			if val < bestVal {
+				bestVal = val
+				bestPatches = []*Patch{p}
+			} else if val == bestVal && len(bestPatches) > 0 {
+				bestPatches = append(bestPatches, p)
+			}
+		} else {
+			if val > bestVal {
+				bestVal = val
+				bestPatches = []*Patch{p}
+			} else if val == bestVal && len(bestPatches) > 0 {
+				bestPatches = append(bestPatches, p)
+			}
+		}
+	}
+	if len(bestPatches) == 0 {
+		return nil
+	}
+	var pick *Patch
+	if len(bestPatches) == 1 {
+		pick = bestPatches[0]
+	} else {
+		pick = bestPatches[w.rng.Intn(len(bestPatches))]
+	}
+	h, err := w.HeadingTowards(t.X, t.Y, float64(pick.PX), float64(pick.PY))
+	if err == nil {
+		w.SetHeading(t, h)
+	}
+	w.MoveTo(t, float64(pick.PX), float64(pick.PY))
+	return nil
+}
+
 func (w *World) Diffuse(varName string, amount float64, four bool) error {
 	if amount < 0 || amount > 1 {
 		return fmt.Errorf("diffuse amount must be between 0 and 1")

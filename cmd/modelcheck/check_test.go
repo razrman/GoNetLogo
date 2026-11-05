@@ -109,11 +109,8 @@ func TestExtensionColon(t *testing.T) {
 func TestIncludesDirective(t *testing.T) {
 	path := writeModel(t, "inc.nlogo", "__includes [ \"actions.nls\" ]\nto setup\nend\n")
 	res := Check(path, Options{SkipRun: true})
-	if res.CompileOK || !res.Includes {
+	if !res.CompileOK || !res.Includes {
 		t.Fatalf("includes %+v", res)
-	}
-	if !strings.Contains(Signature(res), "__includes") {
-		t.Fatalf("signature %s err %s", Signature(res), res.Error)
 	}
 }
 

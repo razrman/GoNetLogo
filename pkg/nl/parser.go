@@ -152,6 +152,19 @@ func (p *parser) parseStructure() error {
 				return err
 			}
 			p.prog.LinksOwn = append(p.prog.LinksOwn, names...)
+		case "__includes":
+			p.next()
+			if p.peek().Kind != TokLBrack {
+				return p.errf(p.peek(), "expected [")
+			}
+			p.next()
+			for p.peek().Kind != TokRBrack {
+				if p.peek().Kind == TokEOF {
+					return p.errf(p.peek(), "expected ]")
+				}
+				p.next()
+			}
+			p.next()
 		case "extensions":
 			p.next()
 			names, err := p.parseNameList()
@@ -426,7 +439,9 @@ func (p *parser) parseStatement(variadic bool) (Stmt, error) {
 		return p.parseRepeat()
 	case "loop":
 		return p.parseLoop()
-	case "ask":
+	case "every":
+		return p.parseEvery()
+	case "ask", "ask-concurrent":
 		return p.parseAsk()
 	case "foreach":
 		return p.parseForeach(variadic)
@@ -550,6 +565,18 @@ func (p *parser) parseVarNames() ([]string, error) {
 	if p.peek().Kind == TokLBrack {
 		return p.parseNameList()
 	}
+	if p.peek().Kind == TokLParen {
+		p.next()
+		names, err := p.parseVarNames()
+		if err != nil {
+			return nil, err
+		}
+		if p.peek().Kind != TokRParen {
+			return nil, p.errf(p.peek(), "expected )")
+		}
+		p.next()
+		return names, nil
+	}
 	t := p.next()
 	if t.Kind != TokIdent {
 		return nil, p.errf(t, "expected a variable name")
@@ -600,7 +627,7 @@ func (p *parser) parseIfelse(variadic bool) (Stmt, error) {
 		if p.peek().Kind == TokRParen || p.peek().Kind == TokEOF {
 			break
 		}
-		if p.peek().Kind == TokLBrack {
+		if p.isElseBlock() {
 			elseB, err := p.expectCmdBlock()
 			if err != nil {
 				return nil, err
@@ -984,6 +1011,24 @@ func (p *parser) parseIdentExpr(t Token, g goal, variadic bool) (Expr, error) {
 	return &identExpr{Name: name, Pos: t.Pos}, nil
 }
 
+func (p *parser) isElseBlock() bool {
+	if p.peek().Kind != TokLBrack {
+		return false
+	}
+	depth := 0
+	for i := p.i; i < len(p.toks); i++ {
+		if p.toks[i].Kind == TokLBrack {
+			depth++
+		} else if p.toks[i].Kind == TokRBrack {
+			depth--
+			if depth == 0 {
+				return i+1 < len(p.toks) && p.toks[i+1].Kind == TokRParen
+			}
+		}
+	}
+	return false
+}
+
 func (p *parser) wantUnaryMinus() bool {
 	// A minus with no left-hand side. Callers in primary position already
 	// imply that. Always allow it; NetLogo is stricter inside non-paren
@@ -997,8 +1042,8 @@ func (p *parser) parseIfelseValueVar() ([]Expr, error) {
 		if p.peek().Kind == TokRParen || p.peek().Kind == TokEOF {
 			break
 		}
-		// A bracket where a condition would start is the else reporter.
-		if p.peek().Kind == TokLBrack {
+		// A bracket where a condition would start is the else reporter if it's the final input.
+		if p.isElseBlock() {
 			e, err := p.parseBracket(goalRepBlock)
 			if err != nil {
 				return nil, err
@@ -1026,8 +1071,8 @@ func (p *parser) parseIfelseValueVar() ([]Expr, error) {
 			return nil, p.errf(p.peek(), "too many arguments")
 		}
 	}
-	if len(args) < 3 || len(args)%2 == 0 {
-		return nil, p.errf(p.peek(), "ifelse-value expected at least 3 inputs")
+	if len(args) < 2 {
+		return nil, p.errf(p.peek(), "ifelse-value expected at least 2 inputs")
 	}
 	return args, nil
 }
@@ -1326,6 +1371,19 @@ func (p *parser) parseLambda(pos Pos, params []string, body []Token, arrow Token
 	return &lambdaExpr{Params: params, Rep: e, Pos: pos}, nil
 }
 
+func (p *parser) parseEvery() (Stmt, error) {
+	t := p.next()
+	sec, err := p.parseExpr(precMin, goalAny, false)
+	if err != nil {
+		return nil, err
+	}
+	body, err := p.expectCmdBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &everyStmt{Seconds: sec, Body: body, Pos: t.Pos}, nil
+}
+
 func (p *parser) parseCarefully() (Stmt, error) {
 	t := p.next()
 	body, err := p.expectCmdBlock()
@@ -1352,7 +1410,7 @@ func (p *parser) startsWithCommand() bool {
 	}
 	name := t.Lit
 	switch name {
-	case "let", "set", "if", "ifelse", "if-else", "carefully", "while", "repeat", "loop", "ask", "foreach",
+	case "let", "set", "if", "ifelse", "if-else", "carefully", "while", "repeat", "loop", "every", "ask", "foreach",
 		"report", "stop", "create-turtles", "crt", "create-ordered-turtles", "cro",
 		"sprout", "hatch":
 		return true
@@ -1461,6 +1519,17 @@ func (p *parser) parseLiteralElem() (Expr, error) {
 			return nil, err
 		}
 		return p.parseLiteralList(open.Pos, inner)
+	case TokLParen:
+		p.next()
+		e, err := p.parseExpr(precMin, goalAny, false)
+		if err != nil {
+			return nil, err
+		}
+		if p.peek().Kind != TokRParen {
+			return nil, p.errf(p.peek(), "expected )")
+		}
+		p.next()
+		return e, nil
 	case TokIdent:
 		if t.Lit == "true" || t.Lit == "false" {
 			p.next()
