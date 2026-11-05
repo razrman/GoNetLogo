@@ -231,6 +231,7 @@ type ComplexityRoot struct {
 		Notes         func(childComplexity int) int
 		Output        func(childComplexity int) int
 		OutputPartial func(childComplexity int) int
+		Procedures    func(childComplexity int) int
 		PublishedFps  func(childComplexity int) int
 		Running       func(childComplexity int) int
 		Speed         func(childComplexity int) int
@@ -1454,6 +1455,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Session.OutputPartial(childComplexity), true
 
+	case "Session.procedures":
+		if e.complexity.Session.Procedures == nil {
+			break
+		}
+
+		return e.complexity.Session.Procedures(childComplexity), true
+
 	case "Session.publishedFps":
 		if e.complexity.Session.PublishedFps == nil {
 			break
@@ -2342,6 +2350,12 @@ type Session {
   id: ID!
   modelName: String!
   code: String!
+  """
+  Procedure names defined by the compiled model.
+  NetLogo compares these case-insensitively, and the names here are
+  the compiled spelling, which is lowercase.
+  """
+  procedures: [String!]!
   """
   Markdown from the model's Info section. Empty when the file has none.
   """
@@ -3903,6 +3917,8 @@ func (ec *executionContext) fieldContext_CommandResult_session(_ context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -4078,6 +4094,8 @@ func (ec *executionContext) fieldContext_CompileResult_session(_ context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -6546,6 +6564,8 @@ func (ec *executionContext) fieldContext_Mutation_createSession(ctx context.Cont
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -6647,6 +6667,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -6748,6 +6770,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModelSource(ctx context.Co
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -6849,6 +6873,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModelFile(ctx context.Cont
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7078,6 +7104,8 @@ func (ec *executionContext) fieldContext_Mutation_setup(ctx context.Context, fie
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7179,6 +7207,8 @@ func (ec *executionContext) fieldContext_Mutation_go(ctx context.Context, field 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7280,6 +7310,8 @@ func (ec *executionContext) fieldContext_Mutation_stop(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7381,6 +7413,8 @@ func (ec *executionContext) fieldContext_Mutation_step(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7482,6 +7516,8 @@ func (ec *executionContext) fieldContext_Mutation_pressButton(ctx context.Contex
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7583,6 +7619,8 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7684,6 +7722,8 @@ func (ec *executionContext) fieldContext_Mutation_setFrameRate(ctx context.Conte
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7785,6 +7825,8 @@ func (ec *executionContext) fieldContext_Mutation_setSlider(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7886,6 +7928,8 @@ func (ec *executionContext) fieldContext_Mutation_setSwitch(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -7987,6 +8031,8 @@ func (ec *executionContext) fieldContext_Mutation_setChooser(ctx context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -8088,6 +8134,8 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -8189,6 +8237,8 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -9849,6 +9899,8 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
 				return ec.fieldContext_Session_info(ctx, field)
 			case "modelDir":
@@ -10300,6 +10352,50 @@ func (ec *executionContext) _Session_code(ctx context.Context, field graphql.Col
 }
 
 func (ec *executionContext) fieldContext_Session_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_procedures(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_procedures(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Procedures, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_procedures(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Session",
 		Field:      field,
@@ -18133,6 +18229,11 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "code":
 			out.Values[i] = ec._Session_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "procedures":
+			out.Values[i] = ec._Session_procedures(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

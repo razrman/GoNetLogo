@@ -152,61 +152,48 @@ export const LibraryQuery = `
   }
 `
 
+const openedModelFields = `
+  id
+  modelName
+  code
+  info
+  modelDir
+  notes
+  procedures
+  widgets { index kind display forever }
+`
+
 export const CreateSession = `
   mutation CreateSession($model: String!) {
-    createSession(model: $model) {
-      id
-      modelName
-      code
-      info
-      modelDir
-      notes
-      widgets { index kind display forever }
-    }
+    createSession(model: $model) {${openedModelFields}}
   }
 `
 
 export const LoadModel = `
   mutation LoadModel($id: ID!, $model: String!) {
-    loadModel(sessionId: $id, model: $model) {
-      id
-      modelName
-      code
-      info
-      modelDir
-      notes
-      widgets { index kind display forever }
-    }
+    loadModel(sessionId: $id, model: $model) {${openedModelFields}}
   }
 `
 
 export const LoadModelFile = `
   mutation LoadModelFile($id: ID!, $path: String!) {
-    loadModelFile(sessionId: $id, path: $path) {
-      id
-      modelName
-      code
-      info
-      modelDir
-      notes
-      widgets { index kind display forever }
-    }
+    loadModelFile(sessionId: $id, path: $path) {${openedModelFields}}
   }
 `
 
 export const LoadModelSource = `
   mutation LoadModelSource($id: ID!, $filename: String!, $source: String!) {
-    loadModelSource(sessionId: $id, filename: $filename, source: $source) {
-      id
-      modelName
-      code
-      info
-      modelDir
-      notes
-      widgets { index kind display forever }
-    }
+    loadModelSource(sessionId: $id, filename: $filename, source: $source) {${openedModelFields}}
   }
 `
+
+// hasProcedure is true when the compiled procedure list includes name.
+// NetLogo procedure names are case-insensitive. This does not look at source text.
+export function hasProcedure(procedures: readonly string[] | null | undefined, name: string) {
+  const key = name.trim().toLowerCase()
+  if (!key) return false
+  return (procedures ?? []).some((proc) => proc.toLowerCase() === key)
+}
 
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
@@ -322,7 +309,7 @@ export const SetWorld = `
       minPzcor: $minPzcor
       maxPzcor: $maxPzcor
       wrapZ: $wrapZ
-    ) { id }
+    ) { id procedures }
   }
 `
 

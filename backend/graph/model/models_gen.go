@@ -200,6 +200,10 @@ type Session struct {
 	ID        string `json:"id"`
 	ModelName string `json:"modelName"`
 	Code      string `json:"code"`
+	// Procedure names defined by the compiled model.
+	// NetLogo compares these case-insensitively, and the names here are
+	// the compiled spelling, which is lowercase.
+	Procedures []string `json:"procedures"`
 	// Markdown from the model's Info section. Empty when the file has none.
 	Info string `json:"info"`
 	// Folder containing the loaded model, relative to the models directory.

@@ -25,6 +25,7 @@ import {
   Step,
   Stop,
   WorldSettingsQuery,
+  hasProcedure,
   isDisconnectError,
   onConnection,
   reportDisconnect,
@@ -146,8 +147,7 @@ export function App() {
       setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
       await speedMut({ id: info.id, speed: 30 })
-      const setup = await setupMut({ id: info.id })
-      if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+      await autoSetup(info.id, info.procedures)
       const go = await goMut({ id: info.id })
       if (go.error && !reportDisconnect(go.error.message)) setBanner(go.error.message)
       else setActive(foreverIndex(info.widgets))
@@ -187,8 +187,7 @@ export function App() {
     setCompileError(null)
     setActive(null)
     resetPlots()
-    const setup = await setupMut({ id: sessionId })
-    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+    await autoSetup(sessionId, info.procedures)
   }
 
   async function onSetup() {
@@ -260,8 +259,7 @@ export function App() {
     setCompileError(null)
     setActive(null)
     resetPlots()
-    const setup = await setupMut({ id: sessionId })
-    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+    await autoSetup(sessionId, info.procedures)
   }
 
   async function onPickFile(file: File | undefined) {
@@ -336,6 +334,7 @@ export function App() {
   async function openLibraryFile(entry: LibraryEntry) {
     if (!sessionId) return
     setLibraryError(null)
+    setBanner(null)
     const res = await loadModelFile({ id: sessionId, path: entry.path })
     if (res.error || !res.data) {
       const message = (res.error?.message ?? 'Could not open that model').replace(/^\[GraphQL\]\s*/i, '').trim()
@@ -346,8 +345,7 @@ export function App() {
     }
     const info = res.data.loadModelFile
     applyOpenedModel(info)
-    const setup = await setupMut({ id: sessionId })
-    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+    await autoSetup(sessionId, info.procedures)
   }
 
   async function onCommand(event: FormEvent) {
@@ -370,9 +368,14 @@ export function App() {
       if (stopped.error) return stopped.error.message
       setActive(null)
     }
-    let message = await sendWorld(sessionId, next, setWorldMut)
-    if (message) return message
-    const setup = await setupMut({ id: sessionId })
+    const applied = await sendWorld(sessionId, next, setWorldMut)
+    if (applied.message) return applied.message
+    return autoSetup(sessionId, applied.procedures)
+  }
+
+  async function autoSetup(id: string, procedures: readonly string[] | undefined): Promise<string | null> {
+    if (!hasProcedure(procedures, 'setup')) return null
+    const setup = await setupMut({ id })
     if (reportDisconnect(setup.error?.message)) return 'Server disconnected. Reconnecting…'
     if (setup.error) {
       setBanner(setup.error.message)
@@ -1023,6 +1026,8 @@ function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string
   return { ...next, minPzcor, maxPzcor, wrapZ: draft.wrapZ, threeD: true }
 }
 
+type WorldApply = { message: string | null; procedures: string[] }
+
 function sendWorld(
   sessionId: string,
   next: WorldView,
@@ -1033,8 +1038,11 @@ function sendWorld(
       maxPzcor: number | null
       wrapZ: boolean | null
     },
-  ) => Promise<{ error?: { message: string } }>,
-) {
+  ) => Promise<{
+    error?: { message: string }
+    data?: { setWorld: { procedures?: string[] } }
+  }>,
+): Promise<WorldApply> {
   return retryWhileRunning(async () => {
     const res = await setWorldMut({
       id: sessionId,
@@ -1043,20 +1051,21 @@ function sendWorld(
       maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
       wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
     })
-    return res.error?.message
+    if (res.error?.message) return { message: res.error.message, procedures: [] }
+    return { message: null, procedures: res.data?.setWorld.procedures ?? [] }
   })
 }
 
-async function retryWhileRunning(run: () => Promise<string | undefined>) {
-  let message: string | null = null
+async function retryWhileRunning(run: () => Promise<WorldApply>): Promise<WorldApply> {
+  let last: WorldApply = { message: null, procedures: [] }
   for (let attempt = 0; attempt < 10; attempt++) {
-    const err = await run()
-    if (reportDisconnect(err)) return 'Server disconnected. Reconnecting…'
-    message = err ?? null
-    if (!message || !/model is running|running a command/i.test(message)) return message
+    const got = await run()
+    if (reportDisconnect(got.message)) return { message: 'Server disconnected. Reconnecting…', procedures: [] }
+    last = got
+    if (!got.message || !/model is running|running a command/i.test(got.message)) return got
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
-  return message
+  return last
 }
 
 function dragHasFiles(event: DragEvent) {

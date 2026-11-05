@@ -576,6 +576,35 @@ func (s *Session) Setup() error {
 	return s.runNamed("setup", false)
 }
 
+// HasProcedure reports whether the compiled model defines a procedure
+// with this name. The match is case-insensitive, as NetLogo procedure
+// names are. The compiled spelling is lowercase.
+func (s *Session) HasProcedure(name string) bool {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc(key) != nil
+}
+
+// procedureNames lists compiled procedures. Names are lowercase.
+// A nil VM yields an empty list, never nil, so the GraphQL field stays non-null.
+func procedureNames(vm *nl.VM) []string {
+	if vm == nil || vm.Prog == nil || len(vm.Prog.Procedures) == 0 {
+		return []string{}
+	}
+	names := make([]string, 0, len(vm.Prog.Procedures))
+	for _, pr := range vm.Prog.Procedures {
+		if pr == nil || pr.Name == "" {
+			continue
+		}
+		names = append(names, pr.Name)
+	}
+	return names
+}
+
 // Go starts the forever button.
 func (s *Session) Go() error {
 	s.mu.Lock()
@@ -1255,13 +1284,14 @@ func (s *Session) withWorldLocked(fn func()) {
 
 func (s *Session) sessionLocked() *model.Session {
 	out := &model.Session{
-		ID:        s.id,
-		ModelName: s.modelName,
-		Speed:     s.speed,
-		Running:   s.running >= 0,
-		Notes:     []string{},
-		Output:    []string{},
-		Widgets:   []model.Widget{},
+		ID:         s.id,
+		ModelName:  s.modelName,
+		Speed:      s.speed,
+		Running:    s.running >= 0,
+		Procedures: procedureNames(s.vm),
+		Notes:      []string{},
+		Output:     []string{},
+		Widgets:    []model.Widget{},
 		World: model.World{
 			LabelFont: 10,
 			Shapes:    []model.TurtleShape{},
