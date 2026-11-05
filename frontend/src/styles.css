@@ -389,7 +389,7 @@ body.pane-dragging { user-select: none; }
 body.pane-col, body.pane-col * { cursor: col-resize !important; }
 body.pane-row, body.pane-row * { cursor: row-resize !important; }
 
-.view, .side, .code-panel, .world-panel, .command {
+.view, .side, .code-panel, .world-panel, .info-panel, .command {
   background: var(--ivory);
   border-radius: 14px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
@@ -740,7 +740,7 @@ canvas.world {
   display: inline-block;
 }
 
-.code-panel {
+.code-panel, .info-panel {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -749,6 +749,78 @@ canvas.world {
   padding: 12px;
   gap: 8px;
 }
+
+.info-doc {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 28px 36px;
+  line-height: 1.55;
+}
+
+.info-doc h1,
+.info-doc h2,
+.info-doc h3,
+.info-doc h4 {
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", serif;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.15em 0 0.4em;
+}
+
+.info-doc h1 { font-size: 1.55rem; }
+.info-doc h2 { font-size: 1.22rem; }
+.info-doc h3 { font-size: 1.05rem; }
+.info-doc > :first-child { margin-top: 0; }
+
+.info-doc p { margin: 0.7em 0; }
+.info-doc ul, .info-doc ol { margin: 0.6em 0; padding-left: 1.4em; }
+.info-doc li { margin: 0.2em 0; }
+.info-doc a { color: var(--steel); }
+.info-doc img { max-width: 100%; height: auto; }
+
+.info-doc blockquote {
+  margin: 0.8em 0;
+  padding-left: 0.9em;
+  border-left: 3px solid var(--line);
+  color: #4e483f;
+}
+
+.info-doc :not(pre) > code {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+  font-size: 0.88em;
+  background: var(--ivory-2);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+
+.info-doc pre {
+  margin: 0.8em 0;
+  overflow: auto;
+  background: #241f18;
+  color: #f4efe4;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.info-doc pre code {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+  font-size: 0.84rem;
+  background: none;
+  padding: 0;
+}
+
+.info-doc table { border-collapse: collapse; margin: 0.8em 0; }
+.info-doc th, .info-doc td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.info-missing { color: var(--muted); font-style: italic; }
 
 .world-panel {
   flex: 1 1 auto;
