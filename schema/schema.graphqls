@@ -102,6 +102,12 @@ type Session {
   id: ID!
   modelName: String!
   code: String!
+  """
+  Procedure names defined by the compiled model.
+  NetLogo compares these case-insensitively, and the names here are
+  the compiled spelling, which is lowercase.
+  """
+  procedures: [String!]!
   ticks: Float
   ticksStarted: Boolean!
   """Smoothed ticks per second over about the last second. Zero while stopped."""

@@ -210,5 +210,6 @@ export type SessionInfo = {
   modelName: string
   code: string
   notes: string[]
+  procedures: string[]
   widgets: { index: number; kind: string; display: string; forever: boolean }[]
 }

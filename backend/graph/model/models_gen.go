@@ -197,9 +197,13 @@ type Query struct {
 }
 
 type Session struct {
-	ID           string   `json:"id"`
-	ModelName    string   `json:"modelName"`
-	Code         string   `json:"code"`
+	ID        string `json:"id"`
+	ModelName string `json:"modelName"`
+	Code      string `json:"code"`
+	// Procedure names defined by the compiled model.
+	// NetLogo compares these case-insensitively, and the names here are
+	// the compiled spelling, which is lowercase.
+	Procedures   []string `json:"procedures"`
 	Ticks        *float64 `json:"ticks,omitempty"`
 	TicksStarted bool     `json:"ticksStarted"`
 	// Smoothed ticks per second over about the last second. Zero while stopped.
