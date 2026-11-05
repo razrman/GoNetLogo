@@ -373,7 +373,7 @@ func (w *World) unlockPublish() {
 
 // Resize rebuilds the patch grid and removes every turtle and link.
 // Patch variables and colors go back to their defaults. The who counter
-// is left alone, matching clear-turtles rather than clear-all.
+// is left alone; clear-turtles and clear-all are what reset it.
 func (w *World) Resize(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) {
 	if w.threeD {
 		// NetLogo 3D worlds wrap on every axis.
@@ -808,7 +808,11 @@ func (w *World) ClearPatches() {
 	}
 }
 
+// ClearTurtles kills every turtle and link and resets the who counter, so
+// the next turtle created is turtle 0, as NetLogo's clear-turtles does.
+// clear-all calls it. die does not reset the counter.
 func (w *World) ClearTurtles() {
+	w.nextWho = 0
 	for _, t := range w.turtles {
 		t.dead = true
 		t.patch = nil
