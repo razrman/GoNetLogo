@@ -1,6 +1,7 @@
 package nl
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"math"
@@ -15,8 +16,14 @@ import (
 type World struct {
 	MinPxcor, MaxPxcor int
 	MinPycor, MaxPycor int
+	// MinPzcor and MaxPzcor are the Z bounds. A 2D world keeps both at 0,
+	// so it has depth 1 and every 2D path sees one flat layer.
+	MinPzcor, MaxPzcor int
 	WrapX, WrapY       bool
-	PatchSize          float64
+	// WrapZ is meaningful only in a 3D world. NetLogo 3D worlds are tori,
+	// so NewWorld3D turns on wrapping on every axis.
+	WrapZ     bool
+	PatchSize float64
 	// LabelFont is the view's label point size at PatchSize. NetLogo's
 	// default is 10. Zero is treated as that default when painting.
 	LabelFont int
@@ -25,9 +32,24 @@ type World struct {
 	Shapes *ShapeList
 
 	width, height int
-	patches       []*Patch
+	// depth is the number of patch layers. It is 1 in a 2D world.
+	depth int
+	// threeD marks a NetLogo 3D world. 3D-only primitives check it, and
+	// the 2D code paths are taken whenever it is false.
+	threeD bool
+	// The 3D observer camera: position, target, spherical pose around the
+	// target, and a revision bumped by every observer camera command. See
+	// world3d.go.
+	obsX, obsY, obsZ        float64
+	obsTX, obsTY, obsTZ     float64
+	obsDist, obsAz, obsElev float64
+	obsRev                  uint64
+	patches                 []*Patch
 	// patchOrder is NetLogo's patch iteration order: top to bottom, left to right.
 	patchOrder []*Patch
+	// patchSet is the cached canonical patches agentset. Patches are not
+	// created or destroyed except by resize, so one-of patches can index it.
+	patchSet *AgentSet
 
 	turtles map[int]*Turtle
 	whoSeq  []int // ascending who, including dead slots compacted lazily
@@ -91,12 +113,18 @@ const (
 	breedCallOn
 	breedCallAt
 	breedCallSingular
+	breedCallLinkSingular
+	breedCallLinkWith
+	breedCallInLinkFrom
+	breedCallOutLinkTo
+	breedCallMyLinks
 )
 
 type breedCallDef struct {
-	kind  breedCallKind
-	breed string
-	dir   int
+	kind     breedCallKind
+	breed    string
+	dir      int
+	directed bool
 }
 
 type breedDef struct {
@@ -115,6 +143,7 @@ type linkBreedDef struct {
 // Patch is one cell of the grid.
 type Patch struct {
 	PX, PY  int
+	PZ      int // always 0 in a 2D world
 	PColor  float64
 	RGB     color.RGBA
 	HasRGB  bool
@@ -128,6 +157,9 @@ type Patch struct {
 func (p *Patch) AgentKind() AgentKind { return KindPatch }
 func (p *Patch) IsDead() bool         { return p == nil || p.dead }
 func (p *Patch) AgentString() string {
+	if p.world != nil && p.world.threeD {
+		return fmt.Sprintf("(patch %d %d %d)", p.PX, p.PY, p.PZ)
+	}
 	return fmt.Sprintf("(patch %d %d)", p.PX, p.PY)
 }
 
@@ -136,19 +168,22 @@ type Turtle struct {
 	Who     int
 	X, Y    float64
 	Heading float64
-	Color   float64
-	Shape   string
-	Size    float64
-	Hidden  bool
-	Label   Value
-	Breed   string // plural; empty means the default turtles breed
-	PenDown bool
-	PenSize float64
-	Vars    map[string]Value
-	links   []*Link
-	dead    bool
-	world   *World
-	patch   *Patch
+	// Z, Pitch, and Roll are the 3D position and orientation. They stay 0
+	// in a 2D world. Pitch and Roll are degrees in [0, 360).
+	Z, Pitch, Roll float64
+	Color          float64
+	Shape          string
+	Size           float64
+	Hidden         bool
+	Label          Value
+	Breed          string // plural; empty means the default turtles breed
+	PenDown        bool
+	PenSize        float64
+	Vars           map[string]Value
+	links          []*Link
+	dead           bool
+	world          *World
+	patch          *Patch
 }
 
 func (t *Turtle) AgentKind() AgentKind { return KindTurtle }
@@ -219,34 +254,50 @@ func NewWorld(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) *World {
 }
 
 func (w *World) recreatePatches() {
+	w.patchSet = nil
+	if !w.threeD {
+		w.MinPzcor, w.MaxPzcor = 0, 0
+	}
 	w.width = w.MaxPxcor - w.MinPxcor + 1
 	w.height = w.MaxPycor - w.MinPycor + 1
-	if w.width < 1 || w.height < 1 {
+	w.depth = w.MaxPzcor - w.MinPzcor + 1
+	if w.width < 1 || w.height < 1 || w.depth < 1 {
 		panic("world size must be positive")
 	}
-	w.patches = make([]*Patch, w.width*w.height)
-	w.patchOrder = make([]*Patch, 0, w.width*w.height)
-	for y := w.MaxPycor; y >= w.MinPycor; y-- {
-		for x := w.MinPxcor; x <= w.MaxPxcor; x++ {
-			p := &Patch{
-				PX: x, PY: y,
-				PColor: 0,
-				Vars:   map[string]Value{},
-				Label:  Str(""),
-				world:  w,
+	n := w.width * w.height * w.depth
+	w.patches = make([]*Patch, n)
+	w.patchOrder = make([]*Patch, 0, n)
+	// NetLogo order is top to bottom, left to right. A 3D world lists the
+	// highest layer first, the same way each layer lists its top row first.
+	for z := w.MaxPzcor; z >= w.MinPzcor; z-- {
+		for y := w.MaxPycor; y >= w.MinPycor; y-- {
+			for x := w.MinPxcor; x <= w.MaxPxcor; x++ {
+				p := &Patch{
+					PX: x, PY: y, PZ: z,
+					PColor: 0,
+					Vars:   map[string]Value{},
+					Label:  Str(""),
+					world:  w,
+				}
+				for _, name := range w.patchesOwn {
+					p.Vars[name] = Num(0)
+				}
+				w.patches[w.patchIndex3(x, y, z)] = p
+				w.patchOrder = append(w.patchOrder, p)
 			}
-			for _, name := range w.patchesOwn {
-				p.Vars[name] = Num(0)
-			}
-			w.patches[w.patchIndex(x, y)] = p
-			w.patchOrder = append(w.patchOrder, p)
 		}
 	}
 	w.drawing = drawingLog{}
 }
 
+// patchIndex is the slot of (px, py) on layer pzcor 0, the only layer of
+// a 2D world.
 func (w *World) patchIndex(px, py int) int {
-	return (py-w.MinPycor)*w.width + (px - w.MinPxcor)
+	return w.patchIndex3(px, py, 0)
+}
+
+func (w *World) patchIndex3(px, py, pz int) int {
+	return ((pz-w.MinPzcor)*w.height+(py-w.MinPycor))*w.width + (px - w.MinPxcor)
 }
 
 func (w *World) inBounds(px, py int) bool {
@@ -274,11 +325,31 @@ func ValidWorld(minPx, maxPx, minPy, maxPy int) error {
 	return nil
 }
 
+func (w *World) findLinkBreed(a, b *Turtle, breed string, directed bool) *Link {
+	for _, l := range w.links {
+		if l.dead || l.Directed != directed || l.Breed != breed {
+			continue
+		}
+		if directed {
+			if l.End1 == a && l.End2 == b {
+				return l
+			}
+		} else if (l.End1 == a && l.End2 == b) || (l.End1 == b && l.End2 == a) {
+			return l
+		}
+	}
+	return nil
+}
+
 // ApplyView resizes the world and sets patch size and wrapping.
 // Turtles and links die and patches are reset, as with resize-world.
 // Patch size must be positive and at most 100.
 func (w *World) ApplyView(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool) error {
-	if err := ValidWorld(minPx, maxPx, minPy, maxPy); err != nil {
+	if w.threeD {
+		if err := ValidWorld3D(minPx, maxPx, minPy, maxPy, w.MinPzcor, w.MaxPzcor); err != nil {
+			return err
+		}
+	} else if err := ValidWorld(minPx, maxPx, minPy, maxPy); err != nil {
 		return err
 	}
 	if patchSize <= 0 || patchSize > 100 {
@@ -302,8 +373,12 @@ func (w *World) unlockPublish() {
 
 // Resize rebuilds the patch grid and removes every turtle and link.
 // Patch variables and colors go back to their defaults. The who counter
-// is left alone, matching clear-turtles rather than clear-all.
+// is left alone; clear-turtles and clear-all are what reset it.
 func (w *World) Resize(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) {
+	if w.threeD {
+		// NetLogo 3D worlds wrap on every axis.
+		wrapX, wrapY = true, true
+	}
 	w.MinPxcor, w.MaxPxcor = minPx, maxPx
 	w.MinPycor, w.MaxPycor = minPy, maxPy
 	w.WrapX, w.WrapY = wrapX, wrapY
@@ -441,6 +516,20 @@ func (w *World) initBreedCalls(p *Program) {
 			w.breedCalls["in-"+name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: -1}
 			w.breedCalls["out-"+name+"-neighbor?"] = breedCallDef{kind: breedCallLinkNeighbor, breed: b.Plural, dir: 1}
 		}
+		if b.Singular != "" {
+			w.breedCalls[b.Singular] = breedCallDef{kind: breedCallLinkSingular, breed: b.Plural, directed: b.Directed}
+			if b.Directed {
+				w.breedCalls["in-"+b.Singular+"-from"] = breedCallDef{kind: breedCallInLinkFrom, breed: b.Plural, directed: true}
+				w.breedCalls["out-"+b.Singular+"-to"] = breedCallDef{kind: breedCallOutLinkTo, breed: b.Plural, directed: true}
+			} else {
+				w.breedCalls[b.Singular+"-with"] = breedCallDef{kind: breedCallLinkWith, breed: b.Plural, directed: false}
+			}
+		}
+		w.breedCalls["my-"+b.Plural] = breedCallDef{kind: breedCallMyLinks, breed: b.Plural, dir: 0}
+		if b.Directed {
+			w.breedCalls["my-in-"+b.Plural] = breedCallDef{kind: breedCallMyLinks, breed: b.Plural, dir: -1}
+			w.breedCalls["my-out-"+b.Plural] = breedCallDef{kind: breedCallMyLinks, breed: b.Plural, dir: 1}
+		}
 	}
 	for _, b := range p.Breeds {
 		if b.Singular != "" {
@@ -566,6 +655,21 @@ func (w *World) wrapCoordY(y float64) (float64, error) {
 // errOutsideWorld is the internal signal that a coordinate left a
 // non-wrapping axis. Commands decide whether that is a runtime error.
 var errOutsideWorld = fmt.Errorf("the turtle cannot move beyond the world's edge")
+
+// errTiedOutside means a tied follower could not follow. fd swallows the
+// root's own boundary and stops; it does not swallow this.
+var errTiedOutside = fmt.Errorf("a tied turtle cannot move beyond the world's edge")
+
+// edgeError is a root turtle leaving the world. Unwrap exposes
+// errOutsideWorld so fd can stop quietly without hiding errTiedOutside.
+type edgeError struct{ msg string }
+
+func (e *edgeError) Error() string { return e.msg }
+func (e *edgeError) Unwrap() error { return errOutsideWorld }
+
+func outsidePoint(x, y float64) error {
+	return &edgeError{msg: fmt.Sprintf("the point [%s %s] is outside of the world", formatNum(x), formatNum(y))}
+}
 
 func (w *World) roundPatch(v float64) int {
 	return int(math.Floor(v + 0.5))
@@ -704,7 +808,11 @@ func (w *World) ClearPatches() {
 	}
 }
 
+// ClearTurtles kills every turtle and link and resets the who counter, so
+// the next turtle created is turtle 0, as NetLogo's clear-turtles does.
+// clear-all calls it. die does not reset the counter.
 func (w *World) ClearTurtles() {
+	w.nextWho = 0
 	for _, t := range w.turtles {
 		t.dead = true
 		t.patch = nil
@@ -856,7 +964,7 @@ func (w *World) TurtlesOfBreed(plural string) *AgentSet {
 			ags = append(ags, t)
 		}
 	}
-	return &AgentSet{Kind: KindTurtle, Breed: plural, Agents: ags}
+	return &AgentSet{Kind: KindTurtle, Breed: plural, Named: true, Agents: ags}
 }
 
 func (w *World) Turtle(who int) *Turtle {
@@ -868,11 +976,15 @@ func (w *World) Turtle(who int) *Turtle {
 }
 
 func (w *World) Patches() *AgentSet {
+	if w.patchSet != nil {
+		return w.patchSet
+	}
 	ags := make([]Agent, len(w.patchOrder))
 	for i, p := range w.patchOrder {
 		ags[i] = p
 	}
-	return &AgentSet{Kind: KindPatch, All: true, Agents: ags}
+	w.patchSet = &AgentSet{Kind: KindPatch, All: true, Agents: ags}
+	return w.patchSet
 }
 
 func (w *World) initTurtleVars(t *Turtle) {
@@ -892,7 +1004,7 @@ func (w *World) initTurtleVars(t *Turtle) {
 }
 
 func (w *World) attach(t *Turtle) {
-	p := w.PatchAt(t.X, t.Y)
+	p := w.PatchAt3(t.X, t.Y, t.Z)
 	t.patch = p
 	if p != nil {
 		p.turtles = append(p.turtles, t)
@@ -919,10 +1031,18 @@ func (w *World) detach(t *Turtle) {
 // CreateTurtle creates one turtle. colorN in 0..13 selects a base hue
 // (5+10*colorN). heading is in degrees. Position is (x, y).
 func (w *World) CreateTurtle(breed string, x, y float64, colorN, heading int) *Turtle {
+	return w.CreateTurtle3(breed, x, y, 0, colorN, heading)
+}
+
+// CreateTurtle3 is CreateTurtle with a z coordinate. Pitch and roll start
+// at 0, as for NetLogo 3D's create-turtles and sprout. z must be 0 in a
+// 2D world.
+func (w *World) CreateTurtle3(breed string, x, y, z float64, colorN, heading int) *Turtle {
 	t := &Turtle{
 		Who:     w.nextWho,
 		X:       x,
 		Y:       y,
+		Z:       z,
 		Heading: float64(heading),
 		Color:   float64(5 + 10*colorN),
 		Shape:   w.defaultShapeFor(breed),
@@ -960,7 +1080,10 @@ func (w *World) Hatch(parent *Turtle, breed string) *Turtle {
 		Who:     w.nextWho,
 		X:       parent.X,
 		Y:       parent.Y,
+		Z:       parent.Z,
 		Heading: parent.Heading,
+		Pitch:   parent.Pitch,
+		Roll:    parent.Roll,
 		Color:   parent.Color,
 		Shape:   parent.Shape,
 		Size:    parent.Size,
@@ -1053,19 +1176,94 @@ func (w *World) Perspective() (string, Agent) {
 
 // MoveTo sets a turtle's position. A wrapping axis wraps. A coordinate
 // outside a non-wrapping axis is a runtime error and the turtle stays put.
+// In a 3D world the turtle keeps its zcor, as setxy does in NetLogo 3D.
 func (w *World) MoveTo(t *Turtle, x, y float64) error {
+	return w.moveToInternal(t, x, y, t.Z, make(map[*Turtle]bool))
+}
+
+// MoveTo3 sets all three coordinates. In a 2D world z is ignored.
+func (w *World) MoveTo3(t *Turtle, x, y, z float64) error {
+	if !w.threeD {
+		z = 0
+	}
+	return w.moveToInternal(t, x, y, z, make(map[*Turtle]bool))
+}
+
+// tiedOther is the turtle that follows root across this link.
+// A directed link follows only from end1 to end2. An undirected link
+// follows in either direction. tie-mode "none" does not follow.
+func tiedOther(root *Turtle, l *Link) *Turtle {
+	if l == nil || l.dead || root == nil || l.TieMode == "none" || l.TieMode == "" {
+		return nil
+	}
+	if l.Directed {
+		if l.End1 == root {
+			return l.End2
+		}
+		return nil
+	}
+	if l.End1 == root {
+		return l.End2
+	}
+	if l.End2 == root {
+		return l.End1
+	}
+	return nil
+}
+
+func tieMoveErr(err error) error {
+	if err == nil || errors.Is(err, errTiedOutside) {
+		return err
+	}
+	if errors.Is(err, errOutsideWorld) {
+		return errTiedOutside
+	}
+	return err
+}
+
+func (w *World) moveToInternal(t *Turtle, x, y, z float64, visited map[*Turtle]bool) error {
+	if visited[t] {
+		return nil
+	}
+	visited[t] = true
+	return w.moveToMarked(t, x, y, z, visited)
+}
+
+// moveToMarked moves t, which is already in visited, and translates turtles
+// tied to it that have not been visited yet. z is used only in a 3D world.
+func (w *World) moveToMarked(t *Turtle, x, y, z float64, visited map[*Turtle]bool) error {
 	nx, errX := w.wrapCoordX(x)
 	ny, errY := w.wrapCoordY(y)
-	if errX != nil || errY != nil {
-		return fmt.Errorf("the point [%s %s] is outside of the world", formatNum(x), formatNum(y))
+	nz, errZ := w.wrapCoordZ(z)
+	if errX != nil || errY != nil || errZ != nil {
+		if w.threeD {
+			return outsidePoint3(x, y, z)
+		}
+		return outsidePoint(x, y)
 	}
+	oldX, oldY, oldZ := t.X, t.Y, t.Z
+	dx := nx - oldX
+	dy := ny - oldY
+	dz := nz - oldZ
+
 	if t.PenDown {
 		w.drawLine(t.X, t.Y, nx, ny, t.Color, t.PenSize)
 	}
 	w.detach(t)
-	t.X, t.Y = nx, ny
+	t.X, t.Y, t.Z = nx, ny, nz
 	w.attach(t)
-	return nil
+
+	var tiedErr error
+	for _, l := range t.links {
+		leaf := tiedOther(t, l)
+		if leaf == nil || leaf.dead || visited[leaf] {
+			continue
+		}
+		if err := w.moveToInternal(leaf, leaf.X+dx, leaf.Y+dy, leaf.Z+dz, visited); err != nil && tiedErr == nil {
+			tiedErr = tieMoveErr(err)
+		}
+	}
+	return tiedErr
 }
 
 // fdInfinitesimal matches NetLogo's Numbers.Infinitesimal. A leftover
@@ -1082,24 +1280,39 @@ func (w *World) Forward(t *Turtle, dist float64) error {
 			return nil
 		}
 		if mag <= 1 {
-			_ = w.Jump(t, dist)
-			return nil
+			return swallowEdge(w.Jump(t, dist))
 		}
 		step := 1.0
 		if dist < 0 {
 			step = -1
 		}
 		if err := w.Jump(t, step); err != nil {
-			return nil
+			return swallowEdge(err)
 		}
 		dist -= step
 	}
+}
+
+// swallowEdge turns the moving turtle's own out-of-world error into a
+// quiet stop. A tied follower that cannot follow is still reported.
+func swallowEdge(err error) error {
+	if err == nil || errors.Is(err, errTiedOutside) {
+		return err
+	}
+	if errors.Is(err, errOutsideWorld) {
+		return nil
+	}
+	return err
 }
 
 // Jump moves the whole distance in one step. If that point is outside a
 // non-wrapping world, the turtle does not move and the error is returned.
 // fd catches the error and stops; the jump command ignores it.
 func (w *World) Jump(t *Turtle, dist float64) error {
+	if w.threeD {
+		dx, dy, dz := orientDelta(t.Heading, t.Pitch, dist)
+		return w.MoveTo3(t, t.X+dx, t.Y+dy, t.Z+dz)
+	}
 	dx, dy := headingDelta(t.Heading, dist)
 	return w.MoveTo(t, t.X+dx, t.Y+dy)
 }
@@ -1113,17 +1326,75 @@ func headingDelta(heading, dist float64) (float64, float64) {
 // CanMove reports whether a single jump of dist would stay in the world.
 // It matches patch-ahead dist != nobody, including a negative distance.
 func (w *World) CanMove(t *Turtle, dist float64) bool {
+	if w.threeD {
+		dx, dy, dz := orientDelta(t.Heading, t.Pitch, dist)
+		return w.PatchAt3(t.X+dx, t.Y+dy, t.Z+dz) != nil
+	}
 	dx, dy := headingDelta(t.Heading, dist)
 	return w.PatchAt(t.X+dx, t.Y+dy) != nil
 }
 
-func (w *World) SetHeading(t *Turtle, h float64) {
-	t.Heading = h
-	w.normalizeHeading(t)
+func (w *World) SetHeading(t *Turtle, h float64) error {
+	delta := h - t.Heading
+	return w.Turn(t, delta)
 }
 
-func (w *World) Turn(t *Turtle, delta float64) {
-	w.SetHeading(t, t.Heading+delta)
+func (w *World) Turn(t *Turtle, delta float64) error {
+	return w.turnInternal(t, delta, make(map[*Turtle]bool))
+}
+
+func (w *World) turnInternal(t *Turtle, delta float64, visited map[*Turtle]bool) error {
+	if visited[t] {
+		return nil
+	}
+	visited[t] = true
+
+	t.Heading += delta
+	w.normalizeHeading(t)
+
+	rad := delta * math.Pi / 180
+	cosA, sinA := math.Cos(rad), math.Sin(rad)
+
+	// Mark every direct follower before moving any of them. A turtle
+	// reached by two ties is then rotated once, and moveToMarked will
+	// not drag it along as someone else's follower.
+	type turned struct {
+		leaf *Turtle
+		mode string
+		x, y float64
+	}
+	var leaves []turned
+	for _, l := range t.links {
+		leaf := tiedOther(t, l)
+		if leaf == nil || leaf.dead || visited[leaf] {
+			continue
+		}
+		visited[leaf] = true
+		relX := leaf.X - t.X
+		relY := leaf.Y - t.Y
+		leaves = append(leaves, turned{
+			leaf: leaf,
+			mode: l.TieMode,
+			x:    t.X + relX*cosA + relY*sinA,
+			y:    t.Y - relX*sinA + relY*cosA,
+		})
+	}
+	var tiedErr error
+	for _, lf := range leaves {
+		err := w.moveToMarked(lf.leaf, lf.x, lf.y, lf.leaf.Z, visited)
+		if err != nil {
+			if tiedErr == nil {
+				tiedErr = tieMoveErr(err)
+			}
+			// A follower that cannot move keeps its heading.
+			continue
+		}
+		if lf.mode == "fixed" {
+			lf.leaf.Heading += delta
+			w.normalizeHeading(lf.leaf)
+		}
+	}
+	return tiedErr
 }
 
 // PatchHere is the patch under a turtle.
@@ -1131,7 +1402,7 @@ func (w *World) PatchHere(t *Turtle) *Patch {
 	if t.patch != nil && !t.patch.dead {
 		return t.patch
 	}
-	return w.PatchAt(t.X, t.Y)
+	return w.PatchAt3(t.X, t.Y, t.Z)
 }
 
 func (w *World) TurtlesHere(p *Patch) []*Turtle {
@@ -1165,6 +1436,14 @@ func (w *World) Neighbors4(p *Patch) []*Patch {
 }
 
 func (w *World) neighbors(p *Patch, four bool) []*Patch {
+	if w.threeD {
+		// neighbors is the 26 surrounding cells. neighbors4 stays the four
+		// side neighbors on the patch's own layer, as in NetLogo 3D.
+		if four {
+			return w.neighborsAt(p, neighborOffs4)
+		}
+		return w.neighborsAt(p, neighborOffs26)
+	}
 	var offs [][2]int
 	if four {
 		offs = [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}}
@@ -1279,7 +1558,7 @@ func (w *World) RandomInt(n int) (int, error) {
 
 func (w *World) RandomFloat(n float64) (float64, error) {
 	if n == 0 {
-		return 0, fmt.Errorf("random-float expected a nonzero number")
+		return 0, nil
 	}
 	if n > 0 {
 		return w.rng.Float64() * n, nil
@@ -1416,6 +1695,96 @@ func (w *World) LinkNeighbors(t *Turtle, dir int) []*Turtle {
 
 // Diffuse shares fraction of a patch variable with the 8 neighbors.
 // Shares that would leave a non-wrapping world are lost.
+func (w *World) patchVarNum(p *Patch, varName string) (float64, error) {
+	switch varName {
+	case "pcolor":
+		return p.PColor, nil
+	case "pxcor":
+		return float64(p.PX), nil
+	case "pycor":
+		return float64(p.PY), nil
+	case "pzcor":
+		if w.threeD {
+			return float64(p.PZ), nil
+		}
+	}
+	v, ok := p.Vars[varName]
+	if !ok {
+		return 0, fmt.Errorf("there is no patch variable called %s", varName)
+	}
+	return v.Num()
+}
+
+// Hill moves turtle to the neighboring patch with the highest (uphill) or
+// lowest (downhill) value of varName, breaking ties randomly. If no neighbor
+// is higher (uphill) or lower (downhill) than the turtle's current patch,
+// the turtle does not move.
+func (w *World) Hill(t *Turtle, varName string, four, down bool) error {
+	curP := w.PatchAt3(t.X, t.Y, t.Z)
+	if curP == nil {
+		return nil
+	}
+	curVal, err := w.patchVarNum(curP, varName)
+	if err != nil {
+		return err
+	}
+	var nbs []*Patch
+	if four {
+		nbs = w.Neighbors4(curP)
+	} else {
+		nbs = w.Neighbors(curP)
+	}
+	if len(nbs) == 0 {
+		return nil
+	}
+	bestVal := curVal
+	var bestPatches []*Patch
+	for _, p := range nbs {
+		val, err := w.patchVarNum(p, varName)
+		if err != nil {
+			return err
+		}
+		if down {
+			if val < bestVal {
+				bestVal = val
+				bestPatches = []*Patch{p}
+			} else if val == bestVal && len(bestPatches) > 0 {
+				bestPatches = append(bestPatches, p)
+			}
+		} else {
+			if val > bestVal {
+				bestVal = val
+				bestPatches = []*Patch{p}
+			} else if val == bestVal && len(bestPatches) > 0 {
+				bestPatches = append(bestPatches, p)
+			}
+		}
+	}
+	if len(bestPatches) == 0 {
+		return nil
+	}
+	var pick *Patch
+	if len(bestPatches) == 1 {
+		pick = bestPatches[0]
+	} else {
+		pick = bestPatches[w.rng.Intn(len(bestPatches))]
+	}
+	if w.threeD {
+		px, py, pz := float64(pick.PX), float64(pick.PY), float64(pick.PZ)
+		if err := w.FaceXYZ(t, px, py, pz, true); err != nil {
+			return err
+		}
+		return w.MoveTo3(t, px, py, pz)
+	}
+	h, err := w.HeadingTowards(t.X, t.Y, float64(pick.PX), float64(pick.PY))
+	if err == nil {
+		if err := w.SetHeading(t, h); err != nil {
+			return err
+		}
+	}
+	return w.MoveTo(t, float64(pick.PX), float64(pick.PY))
+}
+
 func (w *World) Diffuse(varName string, amount float64, four bool) error {
 	if amount < 0 || amount > 1 {
 		return fmt.Errorf("diffuse amount must be between 0 and 1")
@@ -1439,25 +1808,46 @@ func (w *World) Diffuse(varName string, amount float64, four bool) error {
 		}
 		cur[i] = num
 	}
-	shareN := 8
-	if four {
-		shareN = 4
-	}
-	offs := [][2]int{{-1, 1}, {0, 1}, {1, 1}, {-1, 0}, {1, 0}, {-1, -1}, {0, -1}, {1, -1}}
-	if four {
-		offs = [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}}
-	}
-	for i, p := range w.patches {
-		keep := cur[i] * (1 - amount)
-		give := cur[i] * amount / float64(shareN)
-		next[i] += keep
-		for _, o := range offs {
-			np := w.PatchAtPcor(p.PX+o[0], p.PY+o[1])
-			if np == nil {
-				continue
+	if w.threeD {
+		// NetLogo 3D's diffuse shares with all 26 neighbors. diffuse4
+		// shares with the four side neighbors on the same layer.
+		offs := neighborOffs26
+		if four {
+			offs = neighborOffs4
+		}
+		give := amount / float64(len(offs))
+		for i, p := range w.patches {
+			next[i] += cur[i] * (1 - amount)
+			share := cur[i] * give
+			for _, o := range offs {
+				np := w.PatchAtPcor3(p.PX+o[0], p.PY+o[1], p.PZ+o[2])
+				if np == nil {
+					continue
+				}
+				next[w.patchIndex3(np.PX, np.PY, np.PZ)] += share
 			}
-			j := w.patchIndex(np.PX, np.PY)
-			next[j] += give
+		}
+	} else {
+		shareN := 8
+		if four {
+			shareN = 4
+		}
+		offs := [][2]int{{-1, 1}, {0, 1}, {1, 1}, {-1, 0}, {1, 0}, {-1, -1}, {0, -1}, {1, -1}}
+		if four {
+			offs = [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}}
+		}
+		for i, p := range w.patches {
+			keep := cur[i] * (1 - amount)
+			give := cur[i] * amount / float64(shareN)
+			next[i] += keep
+			for _, o := range offs {
+				np := w.PatchAtPcor(p.PX+o[0], p.PY+o[1])
+				if np == nil {
+					continue
+				}
+				j := w.patchIndex(np.PX, np.PY)
+				next[j] += give
+			}
 		}
 	}
 	for i, p := range w.patches {

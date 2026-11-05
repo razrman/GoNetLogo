@@ -54,7 +54,7 @@ type Mutation {
   That directory is MODELS_DIR, or the discovered models directory when the
   variable is unset (the repo, bin/, or a macOS .app next to the repo).
   path is relative to it. Absolute paths and any .. segment are rejected.
-  A .nlogo, .nlogox, or .nlogox3d file is accepted.
+  A .nlogo, .nlogox, .nlogo3d, or .nlogox3d file is accepted.
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
@@ -80,6 +80,10 @@ type Mutation {
   """
   Resize the world and set patch size and wrapping.
   Turtles and links die and patches are reset, as with resize-world.
+  minPzcor and maxPzcor resize the Z axis of a 3D world, the same way
+  resize-world takes six bounds there. Pass both, or omit both to leave
+  Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
+  on a 2D world. A 3D world keeps wrapping in X and Y.
   """
   setWorld(
     sessionId: ID!
@@ -90,6 +94,9 @@ type Mutation {
     patchSize: Float!
     wrapX: Boolean!
     wrapY: Boolean!
+    minPzcor: Int
+    maxPzcor: Int
+    wrapZ: Boolean
   ): Session!
 }
 
@@ -102,6 +109,23 @@ type Session {
   id: ID!
   modelName: String!
   code: String!
+  """
+  Procedure names defined by the compiled model.
+  NetLogo compares these case-insensitively, and the names here are
+  the compiled spelling, which is lowercase.
+  """
+  procedures: [String!]!
+  """
+  Markdown from the model's Info section. Empty when the file has none.
+  """
+  info: String!
+  """
+  Folder containing the loaded model, relative to the models directory.
+  Empty when the file is in that directory's root. Null when the model
+  text was not read from the models directory, so a relative Info image
+  has no folder to resolve against.
+  """
+  modelDir: String
   ticks: Float
   ticksStarted: Boolean!
   """Smoothed ticks per second over about the last second. Zero while stopped."""
@@ -271,9 +295,16 @@ type WorldSettings {
   maxPxcor: Int!
   minPycor: Int!
   maxPycor: Int!
+  """Z bounds. Both 0 for a 2D world."""
+  minPzcor: Int!
+  maxPzcor: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
+  """Z wrapping. False for a 2D world."""
+  wrapZ: Boolean!
+  """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
+  threeD: Boolean!
 }
 
 type World {
@@ -283,9 +314,34 @@ type World {
   maxPycor: Int!
   width: Int!
   height: Int!
+  """
+  Number of patch layers. 1 for a 2D world. A NetLogo 3D world has more,
+  and patchColors is then a top-down projection: each column shows its
+  highest non-black patch.
+  """
+  depth: Int!
+  """Z bounds. Both 0 for a 2D world."""
+  minPzcor: Int!
+  maxPzcor: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
+  """
+  Z wrapping. False for a 2D world. A 3D world starts wrapped; setWorld
+  can change it. X and Y stay wrapped on a 3D world.
+  """
+  wrapZ: Boolean!
+  """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
+  threeD: Boolean!
+  """
+  Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
+  pxcor, pycor, pzcor as little-endian int16, then r, g, b.
+  Patch order (highest layer first). Black patches are omitted.
+  Empty for a 2D world, whose patches are in patchColors.
+  """
+  voxels: String!
+  """The observer camera of a 3D world. Null for a 2D world."""
+  observer: Observer3D
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -387,10 +443,31 @@ type ShapeElement {
   h: Float!
 }
 
+"""
+The NetLogo 3D observer: a camera at (x, y, z) looking at
+(targetX, targetY, targetZ). revision goes up on every observer camera
+command (setxyz, facexyz, face, orbit-*, zoom, reset-perspective) and
+stays put while the model just runs, so a viewer can move its camera only
+when the model asks.
+"""
+type Observer3D {
+  x: Float!
+  y: Float!
+  z: Float!
+  targetX: Float!
+  targetY: Float!
+  targetZ: Float!
+  revision: Int!
+}
+
 type Turtle {
   who: Int!
   x: Float!
   y: Float!
+  """zcor, pitch, and roll. All 0 in a 2D world."""
+  z: Float!
+  pitch: Float!
+  roll: Float!
   heading: Float!
   size: Float!
   shape: String!
@@ -403,8 +480,11 @@ type Turtle {
 type Link {
   x1: Float!
   y1: Float!
+  """End z coordinates. 0 in a 2D world."""
+  z1: Float!
   x2: Float!
   y2: Float!
+  z2: Float!
   hidden: Boolean!
   r: Int!
   g: Int!

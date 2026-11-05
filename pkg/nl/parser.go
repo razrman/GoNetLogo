@@ -7,6 +7,18 @@ import (
 
 // Parse compiles a NetLogo program.
 func Parse(src string) (*Program, error) {
+	return parseDialect(src, false)
+}
+
+// Parse3D compiles a NetLogo 3D program. The 3D dialect adds the 3D
+// primitives and changes the arity of patch, patch-at, turtles-at,
+// <breeds>-at, and resize-world. Command lists parsed later against the
+// returned program use the same dialect.
+func Parse3D(src string) (*Program, error) {
+	return parseDialect(src, true)
+}
+
+func parseDialect(src string, is3D bool) (*Program, error) {
 	toks, err := cleanTokens(src)
 	if err != nil {
 		return nil, err
@@ -15,6 +27,7 @@ func Parse(src string) (*Program, error) {
 		BreedOwn:      map[string][]string{},
 		LinkBreedOwn:  map[string][]string{},
 		InterfaceVars: map[string]bool{},
+		Is3D:          is3D,
 	}}
 	if err := p.parseStructure(); err != nil {
 		return nil, err
@@ -152,6 +165,10 @@ func (p *parser) parseStructure() error {
 				return err
 			}
 			p.prog.LinksOwn = append(p.prog.LinksOwn, names...)
+		case "__includes":
+			// Model compile splices included files in before Parse. Seeing
+			// the directive here means the .nls files were not loaded.
+			return p.errf(t, "__includes was not loaded; included files are read when compiling a model")
 		case "extensions":
 			p.next()
 			names, err := p.parseNameList()
@@ -238,7 +255,11 @@ func (p *parser) installDecls() {
 	for pl, sg := range p.breedPlural {
 		p.extraRep[pl+"-here"] = primSpec{argc: 0}
 		p.extraRep[pl+"-on"] = primSpec{argc: 1, prec: precNormal}
-		p.extraRep[pl+"-at"] = primSpec{argc: 2, prec: precNormal}
+		atArgs := 2
+		if p.prog != nil && p.prog.Is3D {
+			atArgs = 3 // <breeds>-at dx dy dz
+		}
+		p.extraRep[pl+"-at"] = primSpec{argc: atArgs, prec: precNormal}
 		p.extraRep["is-"+sg+"?"] = primSpec{argc: 1, prec: precNormal}
 		p.extraRep[sg] = primSpec{argc: 1, prec: precNormal}
 		p.extraCmd["create-"+pl] = primSpec{argc: 1, optBlock: true}
@@ -254,16 +275,29 @@ func (p *parser) installDecls() {
 			p.extraCmd["create-"+sg+"-from"] = primSpec{argc: 1, optBlock: true}
 			p.extraCmd["create-"+pl+"-to"] = primSpec{argc: 1, optBlock: true}
 			p.extraCmd["create-"+pl+"-from"] = primSpec{argc: 1, optBlock: true}
+			if sg != "" {
+				p.extraRep["in-"+sg+"-from"] = primSpec{argc: 1, prec: precNormal}
+				p.extraRep["out-"+sg+"-to"] = primSpec{argc: 1, prec: precNormal}
+			}
+			p.extraRep["my-in-"+pl] = primSpec{argc: 0}
+			p.extraRep["my-out-"+pl] = primSpec{argc: 0}
 		} else {
 			p.extraCmd["create-"+sg+"-with"] = primSpec{argc: 1, optBlock: true}
 			p.extraCmd["create-"+pl+"-with"] = primSpec{argc: 1, optBlock: true}
+			if sg != "" {
+				p.extraRep[sg+"-with"] = primSpec{argc: 1, prec: precNormal}
+			}
 		}
 		p.extraRep[pl] = primSpec{argc: 0}
-		p.extraRep[sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		p.extraRep["my-"+pl] = primSpec{argc: 0}
+		if sg != "" {
+			p.extraRep[sg] = primSpec{argc: 2, prec: precNormal}
+			p.extraRep[sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+			p.extraRep["in-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+			p.extraRep["out-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
+		}
 		p.extraRep[pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
-		p.extraRep["in-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
 		p.extraRep["in-"+pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
-		p.extraRep["out-"+sg+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
 		p.extraRep["out-"+pl+"-neighbor?"] = primSpec{argc: 1, prec: precNormal}
 	}
 	for pl := range p.breedPlural {
@@ -405,13 +439,20 @@ func (p *parser) parseStatement(variadic bool) (Stmt, error) {
 		return p.parseIf()
 	case "ifelse", "if-else":
 		return p.parseIfelse(variadic)
+	case "carefully":
+		return p.parseCarefully()
 	case "while":
 		return p.parseWhile()
 	case "repeat":
 		return p.parseRepeat()
 	case "loop":
 		return p.parseLoop()
-	case "ask":
+	case "every":
+		return p.parseEvery()
+	// ask-concurrent is sequential. NetLogo 6 removed the old concurrent
+	// scheduler and kept the name as another way to write ask, so models
+	// that still say ask-concurrent run one agent at a time.
+	case "ask", "ask-concurrent":
 		return p.parseAsk()
 	case "foreach":
 		return p.parseForeach(variadic)
@@ -481,6 +522,11 @@ func (p *parser) lookupCmd(name string) (primSpec, bool) {
 	if s, ok := p.extraCmd[name]; ok {
 		return s, true
 	}
+	if p.prog != nil && p.prog.Is3D {
+		if s, ok := commands3D[name]; ok {
+			return s, true
+		}
+	}
 	s, ok := commands[name]
 	return s, ok
 }
@@ -488,6 +534,11 @@ func (p *parser) lookupCmd(name string) (primSpec, bool) {
 func (p *parser) lookupRep(name string) (primSpec, bool) {
 	if s, ok := p.extraRep[name]; ok && (s.argc > 0 || s.variadic) {
 		return s, true
+	}
+	if p.prog != nil && p.prog.Is3D {
+		if s, ok := reporters3D[name]; ok {
+			return s, true
+		}
 	}
 	s, ok := reporters[name]
 	return s, ok
@@ -534,6 +585,18 @@ func (p *parser) parseSet() (Stmt, error) {
 func (p *parser) parseVarNames() ([]string, error) {
 	if p.peek().Kind == TokLBrack {
 		return p.parseNameList()
+	}
+	if p.peek().Kind == TokLParen {
+		p.next()
+		names, err := p.parseVarNames()
+		if err != nil {
+			return nil, err
+		}
+		if p.peek().Kind != TokRParen {
+			return nil, p.errf(p.peek(), "expected )")
+		}
+		p.next()
+		return names, nil
 	}
 	t := p.next()
 	if t.Kind != TokIdent {
@@ -585,7 +648,7 @@ func (p *parser) parseIfelse(variadic bool) (Stmt, error) {
 		if p.peek().Kind == TokRParen || p.peek().Kind == TokEOF {
 			break
 		}
-		if p.peek().Kind == TokLBrack {
+		if p.isElseBlock() {
 			elseB, err := p.expectCmdBlock()
 			if err != nil {
 				return nil, err
@@ -969,6 +1032,24 @@ func (p *parser) parseIdentExpr(t Token, g goal, variadic bool) (Expr, error) {
 	return &identExpr{Name: name, Pos: t.Pos}, nil
 }
 
+func (p *parser) isElseBlock() bool {
+	if p.peek().Kind != TokLBrack {
+		return false
+	}
+	depth := 0
+	for i := p.i; i < len(p.toks); i++ {
+		if p.toks[i].Kind == TokLBrack {
+			depth++
+		} else if p.toks[i].Kind == TokRBrack {
+			depth--
+			if depth == 0 {
+				return i+1 < len(p.toks) && p.toks[i+1].Kind == TokRParen
+			}
+		}
+	}
+	return false
+}
+
 func (p *parser) wantUnaryMinus() bool {
 	// A minus with no left-hand side. Callers in primary position already
 	// imply that. Always allow it; NetLogo is stricter inside non-paren
@@ -982,8 +1063,8 @@ func (p *parser) parseIfelseValueVar() ([]Expr, error) {
 		if p.peek().Kind == TokRParen || p.peek().Kind == TokEOF {
 			break
 		}
-		// A bracket where a condition would start is the else reporter.
-		if p.peek().Kind == TokLBrack {
+		// A bracket where a condition would start is the else reporter if it's the final input.
+		if p.isElseBlock() {
 			e, err := p.parseBracket(goalRepBlock)
 			if err != nil {
 				return nil, err
@@ -1011,8 +1092,8 @@ func (p *parser) parseIfelseValueVar() ([]Expr, error) {
 			return nil, p.errf(p.peek(), "too many arguments")
 		}
 	}
-	if len(args) < 3 || len(args)%2 == 0 {
-		return nil, p.errf(p.peek(), "ifelse-value expected at least 3 inputs")
+	if len(args) < 2 {
+		return nil, p.errf(p.peek(), "ifelse-value expected at least 2 inputs")
 	}
 	return args, nil
 }
@@ -1065,7 +1146,7 @@ func (p *parser) taskName(t Token, g goal) (Expr, bool) {
 			p.next()
 			return reporterTask(name, len(proc.Params), t.Pos), true
 		}
-		if zeroArgReporters[name] {
+		if isZeroArgReporter(name, p.prog != nil && p.prog.Is3D) {
 			p.next()
 			return reporterTask(name, 0, t.Pos), true
 		}
@@ -1162,6 +1243,12 @@ func (p *parser) parseMore(left Expr, minPrec int) (Expr, error) {
 			left = &ofExpr{Block: left, Agents: right, Pos: t.Pos}
 		case "with":
 			left = &withExpr{Agents: left, Block: right, Pos: t.Pos}
+		case "in-cone":
+			angle, err := p.parseExpr(inf.prec, rightGoal, false)
+			if err != nil {
+				return nil, err
+			}
+			left = &inConeExpr{Agents: left, Dist: right, Angle: angle, Pos: t.Pos}
 		default:
 			// with-min, with-max, in-radius, and arithmetic.
 			left = &infixExpr{Op: t.Lit, Left: left, Right: right, Pos: t.Pos}
@@ -1305,6 +1392,32 @@ func (p *parser) parseLambda(pos Pos, params []string, body []Token, arrow Token
 	return &lambdaExpr{Params: params, Rep: e, Pos: pos}, nil
 }
 
+func (p *parser) parseEvery() (Stmt, error) {
+	t := p.next()
+	sec, err := p.parseExpr(precMin, goalAny, false)
+	if err != nil {
+		return nil, err
+	}
+	body, err := p.expectCmdBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &everyStmt{Seconds: sec, Body: body, Pos: t.Pos}, nil
+}
+
+func (p *parser) parseCarefully() (Stmt, error) {
+	t := p.next()
+	body, err := p.expectCmdBlock()
+	if err != nil {
+		return nil, err
+	}
+	handler, err := p.expectCmdBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &carefullyStmt{Body: body, Handler: handler, Pos: t.Pos}, nil
+}
+
 func (p *parser) startsWithCommand() bool {
 	t := p.peek()
 	if t.Kind == TokLParen {
@@ -1318,7 +1431,7 @@ func (p *parser) startsWithCommand() bool {
 	}
 	name := t.Lit
 	switch name {
-	case "let", "set", "if", "ifelse", "if-else", "while", "repeat", "loop", "ask", "foreach",
+	case "let", "set", "if", "ifelse", "if-else", "carefully", "while", "repeat", "loop", "every", "ask", "foreach",
 		"report", "stop", "create-turtles", "crt", "create-ordered-turtles", "cro",
 		"sprout", "hatch":
 		return true
@@ -1427,6 +1540,17 @@ func (p *parser) parseLiteralElem() (Expr, error) {
 			return nil, err
 		}
 		return p.parseLiteralList(open.Pos, inner)
+	case TokLParen:
+		p.next()
+		e, err := p.parseExpr(precMin, goalAny, false)
+		if err != nil {
+			return nil, err
+		}
+		if p.peek().Kind != TokRParen {
+			return nil, p.errf(p.peek(), "expected )")
+		}
+		p.next()
+		return e, nil
 	case TokIdent:
 		if t.Lit == "true" || t.Lit == "false" {
 			p.next()

@@ -152,53 +152,48 @@ export const LibraryQuery = `
   }
 `
 
+const openedModelFields = `
+  id
+  modelName
+  code
+  info
+  modelDir
+  notes
+  procedures
+  widgets { index kind display forever }
+`
+
 export const CreateSession = `
   mutation CreateSession($model: String!) {
-    createSession(model: $model) {
-      id
-      modelName
-      code
-      notes
-      widgets { index kind display forever }
-    }
+    createSession(model: $model) {${openedModelFields}}
   }
 `
 
 export const LoadModel = `
   mutation LoadModel($id: ID!, $model: String!) {
-    loadModel(sessionId: $id, model: $model) {
-      id
-      modelName
-      code
-      notes
-      widgets { index kind display forever }
-    }
+    loadModel(sessionId: $id, model: $model) {${openedModelFields}}
   }
 `
 
 export const LoadModelFile = `
   mutation LoadModelFile($id: ID!, $path: String!) {
-    loadModelFile(sessionId: $id, path: $path) {
-      id
-      modelName
-      code
-      notes
-      widgets { index kind display forever }
-    }
+    loadModelFile(sessionId: $id, path: $path) {${openedModelFields}}
   }
 `
 
 export const LoadModelSource = `
   mutation LoadModelSource($id: ID!, $filename: String!, $source: String!) {
-    loadModelSource(sessionId: $id, filename: $filename, source: $source) {
-      id
-      modelName
-      code
-      notes
-      widgets { index kind display forever }
-    }
+    loadModelSource(sessionId: $id, filename: $filename, source: $source) {${openedModelFields}}
   }
 `
+
+// hasProcedure is true when the compiled procedure list includes name.
+// NetLogo procedure names are case-insensitive. This does not look at source text.
+export function hasProcedure(procedures: readonly string[] | null | undefined, name: string) {
+  const key = name.trim().toLowerCase()
+  if (!key) return false
+  return (procedures ?? []).some((proc) => proc.toLowerCase() === key)
+}
 
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
@@ -277,9 +272,13 @@ export const WorldSettingsQuery = `
       maxPxcor
       minPycor
       maxPycor
+      minPzcor
+      maxPzcor
       patchSize
       wrapX
       wrapY
+      wrapZ
+      threeD
     }
   }
 `
@@ -294,6 +293,9 @@ export const SetWorld = `
     $patchSize: Float!
     $wrapX: Boolean!
     $wrapY: Boolean!
+    $minPzcor: Int
+    $maxPzcor: Int
+    $wrapZ: Boolean
   ) {
     setWorld(
       sessionId: $id
@@ -304,7 +306,10 @@ export const SetWorld = `
       patchSize: $patchSize
       wrapX: $wrapX
       wrapY: $wrapY
-    ) { id }
+      minPzcor: $minPzcor
+      maxPzcor: $maxPzcor
+      wrapZ: $wrapZ
+    ) { id procedures }
   }
 `
 
@@ -359,9 +364,16 @@ export const Frames = `
         maxPycor
         width
         height
+        depth
+        minPzcor
+        maxPzcor
         patchSize
         wrapX
         wrapY
+        wrapZ
+        threeD
+        voxels
+        observer { x y z targetX targetY targetZ revision }
         labelFont
         shapes {
           name
@@ -371,8 +383,8 @@ export const Frames = `
         patchColors
         drawing { pen erase x y x2 y2 heading size shape r g b }
         labels { who px py lx ly text r g b }
-        turtles { who x y heading size shape hidden r g b }
-        links { x1 y1 x2 y2 hidden r g b }
+        turtles { who x y z heading pitch roll size shape hidden r g b }
+        links { x1 y1 z1 x2 y2 z2 hidden r g b }
       }
       plots {
         index

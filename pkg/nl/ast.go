@@ -24,7 +24,9 @@ type Program struct {
 	LinkBreedOwn  map[string][]string
 	Extensions    []string
 	Procedures    []*Procedure
-	procs         map[string]*Procedure
+	// Is3D selects the NetLogo 3D dialect. See Parse3D.
+	Is3D  bool
+	procs map[string]*Procedure
 	// compiled is set once procedure bodies have been turned into closures.
 	compiled bool
 	// noClosure forces the tree walker even if bodies were compiled.
@@ -127,6 +129,15 @@ type ifelseStmt struct {
 func (*ifelseStmt) stmt()     {}
 func (s *ifelseStmt) at() Pos { return s.Pos }
 
+type carefullyStmt struct {
+	Body    []Stmt
+	Handler []Stmt
+	Pos     Pos
+}
+
+func (*carefullyStmt) stmt()     {}
+func (s *carefullyStmt) at() Pos { return s.Pos }
+
 type whileStmt struct {
 	Cond Expr // reporter, evaluated each time (already the inside of the brackets)
 	Body []Stmt
@@ -152,6 +163,15 @@ type loopStmt struct {
 
 func (*loopStmt) stmt()     {}
 func (s *loopStmt) at() Pos { return s.Pos }
+
+type everyStmt struct {
+	Seconds Expr
+	Body    []Stmt
+	Pos     Pos
+}
+
+func (*everyStmt) stmt()     {}
+func (s *everyStmt) at() Pos { return s.Pos }
 
 type askStmt struct {
 	Agents Expr
@@ -280,6 +300,16 @@ type infixExpr struct {
 
 func (*infixExpr) expr()     {}
 func (e *infixExpr) at() Pos { return e.Pos }
+
+type inConeExpr struct {
+	Agents Expr
+	Dist   Expr
+	Angle  Expr
+	Pos    Pos
+}
+
+func (*inConeExpr) expr()     {}
+func (e *inConeExpr) at() Pos { return e.Pos }
 
 type prefixExpr struct {
 	Op    string

@@ -112,6 +112,7 @@ type VM struct {
 	scopePool []*scope
 	tasks     int
 	plots     *plotMgr
+	errMsgs   []string
 
 	// halt is set by the UI. The interpreter polls it between commands.
 	halt atomic.Bool
@@ -129,7 +130,26 @@ type VM struct {
 	// askBuf collects one breed for ask without allocating a fresh agentset.
 	askBuf []Agent
 	// runCache remembers run strings that are not a bare command name.
-	runCache map[string][]Stmt
+	runCache    map[string][]Stmt
+	ModelDir    string
+	files       *fileMgr
+	everyTimers map[everyKey]time.Time
+	// agentFrames counts ask, hatch, and sprout frames that catch die.
+	// diePanic is re-raised only while one of those frames is still on
+	// the stack, so a dead agent stops the rest of its own block. A
+	// top-level Call or ExecuteLine has no such frame and must not panic.
+	agentFrames int
+	// UserFile, UserNewFile, and UserDirectory are optional UI hooks for
+	// the file dialogs. A false ok means the user canceled. Nil hooks
+	// report false, which is headless mode.
+	UserFile      func() (string, bool)
+	UserNewFile   func() (string, bool)
+	UserDirectory func() (string, bool)
+}
+
+type everyKey struct {
+	agent Agent
+	pos   Pos
 }
 
 // NewVM builds a VM for a program. The world is resized only when spec is non-nil.
@@ -339,6 +359,9 @@ func isCommandLine(src string, prog *Program) bool {
 	if _, ok := commands[name]; ok {
 		return true
 	}
+	if is3DCommand(name, prog) {
+		return true
+	}
 	if prog != nil {
 		if pr := prog.Proc(name); pr != nil && !pr.IsReporter {
 			return true
@@ -365,7 +388,12 @@ func (vm *VM) recover(errp *error, stopped *bool) {
 				*stopped = true
 			}
 		case diePanic:
-			// died outside an ask; the agent is already gone
+			// An ask/hatch/sprout frame further up the stack catches this
+			// and moves on to the next agent. Re-raising anywhere else
+			// would crash Call, ExecuteLine, or RunCompiled.
+			if vm.agentFrames > 0 {
+				panic(e)
+			}
 		case reportPanic:
 			*errp = fmt.Errorf("REPORT can only be used inside TO-REPORT")
 		default:
@@ -512,6 +540,27 @@ func (vm *VM) execStmt(s Stmt) {
 		} else {
 			vm.block(s.Else)
 		}
+	case *carefullyStmt:
+		var hasError bool
+		var caught string
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					msg, ok := recoverRT(r)
+					if !ok {
+						panic(r)
+					}
+					hasError = true
+					caught = msg
+				}
+			}()
+			vm.block(s.Body)
+		}()
+		if hasError {
+			vm.errMsgs = append(vm.errMsgs, caught)
+			defer func() { vm.errMsgs = vm.errMsgs[:len(vm.errMsgs)-1] }()
+			vm.block(s.Handler)
+		}
 	case *whileStmt:
 		for {
 			b, err := vm.eval(s.Cond)
@@ -547,6 +596,28 @@ func (vm *VM) execStmt(s Stmt) {
 	case *loopStmt:
 		for {
 			vm.checkpoint()
+			vm.block(s.Body)
+		}
+	case *everyStmt:
+		secV, err := vm.eval(s.Seconds)
+		if err != nil {
+			vm.fail(s.Pos, "%s", err.Error())
+		}
+		sVal, err := secV.Num()
+		if err != nil {
+			vm.fail(s.Pos, "%s", err.Error())
+		}
+		if sVal < 0 {
+			vm.fail(s.Pos, "every expected a non-negative number")
+		}
+		if vm.everyTimers == nil {
+			vm.everyTimers = map[everyKey]time.Time{}
+		}
+		key := everyKey{agent: vm.self, pos: s.Pos}
+		now := time.Now()
+		last, exists := vm.everyTimers[key]
+		if !exists || now.Sub(last).Seconds() >= sVal {
+			vm.everyTimers[key] = now
 			vm.block(s.Body)
 		}
 	case *askStmt:
@@ -658,10 +729,12 @@ func (vm *VM) execAgentBlock(a Agent, body []Stmt) {
 		return
 	}
 	vm.pushAgent(a)
+	vm.agentFrames++
 	saved := vm.scope
 	sc := vm.allocScope(saved)
 	vm.scope = sc
 	defer func() {
+		vm.agentFrames--
 		vm.scope = saved
 		vm.popAgent()
 		vm.freeScope(sc)
@@ -729,7 +802,9 @@ func (vm *VM) execCreate(s *createStmt) {
 		if s.Ordered {
 			t = vm.World.CreateTurtle(s.Breed, 0, 0, 0, 0)
 			t.Color = float64(10*i + 5)
-			vm.World.SetHeading(t, 360*float64(i)/float64(k))
+			if err := vm.World.SetHeading(t, 360*float64(i)/float64(k)); err != nil {
+				vm.fail(s.Pos, "%s", err.Error())
+			}
 		} else {
 			cn := vm.World.rng.Intn(14)
 			h := vm.World.rng.Intn(360)
@@ -759,7 +834,7 @@ func (vm *VM) execSprout(s *sproutStmt) {
 	for i := 0; i < k; i++ {
 		cn := vm.World.rng.Intn(14)
 		h := vm.World.rng.Intn(360)
-		t := vm.World.CreateTurtle(s.Breed, float64(p.PX), float64(p.PY), cn, h)
+		t := vm.World.CreateTurtle3(s.Breed, float64(p.PX), float64(p.PY), float64(p.PZ), cn, h)
 		made = append(made, t)
 	}
 	for _, a := range made {
@@ -927,6 +1002,22 @@ func (vm *VM) execCmd(s *cmdStmt) {
 		}
 		return
 	}
+	if s.Name == "uphill" || s.Name == "uphill4" || s.Name == "downhill" || s.Name == "downhill4" {
+		t, ok := vm.self.(*Turtle)
+		if !ok || t == nil {
+			vm.fail(s.Pos, "%s can only be used by turtles", s.Name)
+		}
+		id, ok := s.Args[0].(*identExpr)
+		if !ok {
+			vm.fail(s.Pos, "%s expected a patch variable", s.Name)
+		}
+		four := strings.HasSuffix(s.Name, "4")
+		down := strings.HasPrefix(s.Name, "down")
+		if err := vm.World.Hill(t, id.Name, four, down); err != nil {
+			vm.fail(s.Pos, "%s", err.Error())
+		}
+		return
+	}
 	spec, _ := commands[s.Name]
 	if spec.optBlock || strings.Contains(s.Name, "-with") || strings.Contains(s.Name, "-to") || strings.Contains(s.Name, "-from") {
 		vm.execMaybeLink(s)
@@ -997,6 +1088,8 @@ func (vm *VM) eval(e Expr) (Value, error) {
 		return vm.evalCall(e)
 	case *infixExpr:
 		return vm.evalInfix(e)
+	case *inConeExpr:
+		return vm.evalInCone(e)
 	case *prefixExpr:
 		r, err := vm.eval(e.Right)
 		if err != nil {
@@ -1039,19 +1132,26 @@ func (vm *VM) eval(e Expr) (Value, error) {
 	}
 }
 
+func sanitizeAgentVal(v Value) Value {
+	if v.K == KindAgent && (v.A == nil || v.A.IsDead()) {
+		return Nobody()
+	}
+	return v
+}
+
 func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 	if vm.scope != nil {
 		if v, ok := vm.scope.get(name); ok {
-			return v, nil
+			return sanitizeAgentVal(v), nil
 		}
 	}
 	if vm.self != nil {
 		if v, ok, err := vm.getAgentVar(name); ok || err != nil {
-			return v, err
+			return sanitizeAgentVal(v), err
 		}
 	}
 	if v, ok := vm.World.Global(name); ok {
-		return v, nil
+		return sanitizeAgentVal(v), nil
 	}
 	if _, ok := vm.World.breeds[name]; ok {
 		return SetVal(vm.World.TurtlesOfBreed(name)), nil
@@ -1080,7 +1180,12 @@ func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 	if name == "nobody" {
 		return Nobody(), nil
 	}
-	if zeroArgReporters[name] {
+	if vm.World != nil && len(vm.World.breedCalls) > 0 {
+		if call, ok := vm.World.breedCalls[name]; ok && call.kind == breedCallMyLinks {
+			return vm.evalBreedCallFast(call, name, nil, pos)
+		}
+	}
+	if isZeroArgReporter(name, vm.World.threeD) {
 		return vm.evalZero(name, pos)
 	}
 	if strings.HasSuffix(name, "-here") {
@@ -1103,7 +1208,7 @@ func (vm *VM) linksOfBreed(plural string) *AgentSet {
 			ags = append(ags, l)
 		}
 	}
-	return &AgentSet{Kind: KindLink, Breed: plural, Agents: ags}
+	return &AgentSet{Kind: KindLink, Breed: plural, Named: true, Agents: ags}
 }
 
 func (vm *VM) breedHere(plural string) *AgentSet {
@@ -1185,25 +1290,60 @@ func (vm *VM) LineUnlocked(src string) (out string, err error) {
 
 func (vm *VM) finishInterrupt(stopped *bool) {
 	if r := recover(); r != nil {
-		if _, ok := r.(interruptPanic); ok {
+		switch r.(type) {
+		case interruptPanic:
 			if stopped != nil {
 				*stopped = true
 			}
 			return
+		case diePanic:
+			// Public entry points never let a dead agent crash the process.
+			return
+		default:
+			panic(r)
 		}
-		panic(r)
 	}
 }
 
 func (vm *VM) finishInterruptErr(errp *error) {
 	if r := recover(); r != nil {
-		if _, ok := r.(interruptPanic); ok {
+		switch r.(type) {
+		case interruptPanic:
 			if errp != nil && *errp == nil {
 				*errp = fmt.Errorf("stopped")
 			}
 			return
+		case diePanic:
+			return
+		default:
+			panic(r)
 		}
-		panic(r)
+	}
+}
+
+// dropEveryTimers forgets every timers for one agent. die and clear-turtles
+// call this so short-lived turtles do not leave the map growing forever.
+func (vm *VM) dropEveryTimers(a Agent) {
+	if vm == nil || vm.everyTimers == nil || a == nil {
+		return
+	}
+	for k := range vm.everyTimers {
+		if k.agent == a {
+			delete(vm.everyTimers, k)
+		}
+	}
+}
+
+// sweepDeadEveryTimers drops timers whose agent has died. Observer timers
+// use a nil agent and stay until the command runs again.
+func (vm *VM) sweepDeadEveryTimers() {
+	if vm == nil || len(vm.everyTimers) == 0 {
+		return
+	}
+	for k := range vm.everyTimers {
+		if k.agent != nil && k.agent.IsDead() {
+			delete(vm.everyTimers, k)
+		}
 	}
 }
 

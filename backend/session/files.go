@@ -148,9 +148,78 @@ func ListFolder(rel string) (LibraryListing, error) {
 	return listing, nil
 }
 
+// modelDirectory is the folder of a path inside the models directory.
+// The models root is an empty string. The path uses forward slashes.
+func modelDirectory(modelPath string) string {
+	slash := strings.Trim(strings.ReplaceAll(strings.TrimSpace(modelPath), "\\", "/"), "/")
+	dir := path.Dir(slash)
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	return dir
+}
+
+// imageTypes are the raster types Info images may use. SVG is omitted
+// because a document served as SVG can run script when opened directly.
+var imageTypes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".bmp":  "image/bmp",
+}
+
+// OpenModelImage opens one image under the models directory.
+// rel is relative to that directory. Absolute paths, "..", and anything
+// that is not a raster image are rejected. The caller closes the file.
+func OpenModelImage(rel string) (*os.File, string, error) {
+	rel = strings.TrimSpace(rel)
+	rel = strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/")
+	if err := rejectModelPath(rel); err != nil {
+		return nil, "", err
+	}
+	ctype, ok := imageTypes[strings.ToLower(filepath.Ext(rel))]
+	if !ok {
+		return nil, "", fmt.Errorf("not an image")
+	}
+	root, err := ModelsDir()
+	if err != nil {
+		return nil, "", err
+	}
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	if !pathInside(root, full) {
+		return nil, "", fmt.Errorf("model path escapes the models directory")
+	}
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return nil, "", fmt.Errorf("unknown image %q", rel)
+	}
+	resolved = filepath.Clean(resolved)
+	if !pathInside(root, resolved) {
+		return nil, "", fmt.Errorf("model path escapes the models directory")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil, "", fmt.Errorf("unknown image %q", rel)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, "", fmt.Errorf("image path is not a file")
+	}
+	const maxImageBytes = 32 << 20
+	if info.Size() > maxImageBytes {
+		return nil, "", fmt.Errorf("image file is too large")
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		return nil, "", fmt.Errorf("unknown image %q", rel)
+	}
+	return f, ctype, nil
+}
+
 func isLibraryModel(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".nlogo", ".nlogox", ".nlogox3d":
+	case ".nlogo", ".nlogox", ".nlogo3d", ".nlogox3d":
 		return true
 	default:
 		return false
@@ -192,7 +261,7 @@ func readModelFile(path string) (string, string, error) {
 		return "", "", fmt.Errorf("model path is not a file")
 	}
 	if !isLibraryModel(filepath.Base(resolved)) {
-		return "", "", fmt.Errorf("model file must be .nlogo, .nlogox, or .nlogox3d")
+		return "", "", fmt.Errorf("model file must be .nlogo, .nlogox, .nlogo3d, or .nlogox3d")
 	}
 	if info.Size() > maxModelBytes {
 		return "", "", fmt.Errorf("model file is too large")

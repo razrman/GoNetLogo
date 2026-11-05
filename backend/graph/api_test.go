@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"gonetlogo/backend/session"
+	"gonetlogo/pkg/nl"
 )
 
 func newClient(t *testing.T) *client.Client {
@@ -467,6 +468,110 @@ func TestSetWorld(t *testing.T) {
 	}
 }
 
+// TestSetWorldZBounds reads and sets min-pzcor and max-pzcor on a 3D world.
+// A 2D world keeps the page's old fields: Z arguments do not add a Z axis.
+func TestSetWorldZBounds(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+
+	type bounds struct {
+		MinPxcor, MaxPxcor  int
+		MinPycor, MaxPycor  int
+		MinPzcor, MaxPzcor  int
+		Depth               int
+		WrapX, WrapY, WrapZ bool
+		ThreeD              bool
+		PatchSize           float64
+	}
+	var flat struct{ WorldSettings bounds }
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) {
+			minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor wrapX wrapY wrapZ threeD
+		}
+	}`, &flat, client.Var("id", s.ID))
+	if flat.WorldSettings.ThreeD || flat.WorldSettings.WrapZ || flat.WorldSettings.MinPzcor != 0 || flat.WorldSettings.MaxPzcor != 0 {
+		t.Fatalf("2D settings %+v", flat.WorldSettings)
+	}
+
+	var ignored struct {
+		SetWorld struct{ World bounds }
+	}
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -5, maxPxcor: 5, minPycor: -5, maxPycor: 5, patchSize: 8, wrapX: false, wrapY: true, minPzcor: -3, maxPzcor: 3, wrapZ: true) {
+			world { minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor depth wrapX wrapY wrapZ threeD patchSize }
+		}
+	}`, &ignored, client.Var("id", s.ID))
+	if got := ignored.SetWorld.World; got.ThreeD || got.WrapZ || got.MinPzcor != 0 || got.MaxPzcor != 0 || got.Depth != 1 || got.MinPxcor != -5 || got.WrapX || !got.WrapY {
+		t.Fatalf("2D setWorld changed Z %+v", got)
+	}
+
+	src := `<?xml version="1.0"?>
+<model version="NetLogo 3D 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+end
+]]></code>
+  <widgets>
+    <view3d minPxcor="-2" maxPxcor="2" minPycor="-2" maxPycor="2" minPzcor="-1" maxPzcor="4" patchSize="9" wrappingAllowedX="true" wrappingAllowedY="true" wrappingAllowedZ="true"/>
+  </widgets>
+</model>`
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { id }
+	}`, &struct{ LoadModelSource struct{ ID string } }{}, client.Var("id", s.ID), client.Var("name", "box.nlogox3d"), client.Var("src", src))
+
+	var loaded struct{ WorldSettings bounds }
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) {
+			minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor wrapX wrapY wrapZ threeD
+		}
+	}`, &loaded, client.Var("id", s.ID))
+	if got := loaded.WorldSettings; !got.ThreeD || !got.WrapZ || got.MinPzcor != -1 || got.MaxPzcor != 4 || got.MinPxcor != -2 {
+		t.Fatalf("3D settings %+v", got)
+	}
+
+	err := c.Post(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -2, maxPxcor: 2, minPycor: -2, maxPycor: 2, patchSize: 9, wrapX: true, wrapY: true, minPzcor: -4) { id }
+	}`, &struct{ SetWorld struct{ ID string } }{}, client.Var("id", s.ID))
+	if err == nil || !strings.Contains(err.Error(), "both") {
+		t.Fatalf("expected both Z bounds, got %v", err)
+	}
+	err = c.Post(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -2, maxPxcor: 2, minPycor: -2, maxPycor: 2, patchSize: 9, wrapX: true, wrapY: true, minPzcor: 1, maxPzcor: 4, wrapZ: true) { id }
+	}`, &struct{ SetWorld struct{ ID string } }{}, client.Var("id", s.ID))
+	if err == nil || !strings.Contains(err.Error(), "origin") {
+		t.Fatalf("expected origin error, got %v", err)
+	}
+
+	var resized struct {
+		SetWorld struct{ World bounds }
+	}
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -1, maxPxcor: 1, minPycor: -1, maxPycor: 1, minPzcor: -4, maxPzcor: 2, patchSize: 10, wrapX: false, wrapY: false, wrapZ: false) {
+			world { minPxcor maxPxcor minPycor maxPycor minPzcor maxPzcor depth wrapX wrapY wrapZ threeD patchSize }
+		}
+	}`, &resized, client.Var("id", s.ID))
+	if got := resized.SetWorld.World; got.MinPzcor != -4 || got.MaxPzcor != 2 || got.Depth != 7 || got.WrapZ || !got.WrapX || !got.WrapY || !got.ThreeD || got.PatchSize != 10 || got.MinPxcor != -1 || got.MaxPxcor != 1 {
+		t.Fatalf("resized 3D world %+v", got)
+	}
+
+	// Omitting Z leaves the axis alone, including wrapping that was turned off.
+	c.MustPost(`mutation ($id: ID!) {
+		setWorld(sessionId: $id, minPxcor: -1, maxPxcor: 3, minPycor: -1, maxPycor: 1, patchSize: 10, wrapX: true, wrapY: true) {
+			world { maxPxcor minPzcor maxPzcor wrapZ threeD depth }
+		}
+	}`, &resized, client.Var("id", s.ID))
+	if got := resized.SetWorld.World; got.MaxPxcor != 3 || got.MinPzcor != -4 || got.MaxPzcor != 2 || got.WrapZ || !got.ThreeD || got.Depth != 7 {
+		t.Fatalf("Z changed when omitted %+v", got)
+	}
+
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) { minPzcor maxPzcor wrapZ threeD }
+	}`, &loaded, client.Var("id", s.ID))
+	if got := loaded.WorldSettings; got.MinPzcor != -4 || got.MaxPzcor != 2 || got.WrapZ || !got.ThreeD {
+		t.Fatalf("settings after resize %+v", got)
+	}
+}
+
 func TestLoadModelSourceAndFile(t *testing.T) {
 	c := newClient(t)
 	s := create(t, c, "fire.nlogo")
@@ -590,6 +695,184 @@ end
 	}{}, client.Var("id", s.ID), client.Var("model", "../fire.nlogo"))
 	if err == nil || !strings.Contains(err.Error(), "unknown model") {
 		t.Fatalf("loadModel traversal: %v", err)
+	}
+}
+
+// TestLoad3DModelProjectsTopDown loads a .nlogox3d source and checks that
+// the frame reports the depth and projects the highest colored patch of
+// each column, while a 2D world keeps depth 1.
+func TestLoad3DModelProjectsTopDown(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	src := `<?xml version="1.0"?>
+<model version="NetLogo 3D 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+  ask patch 0 0 -1 [ set pcolor red ]
+  ask patch 0 0 1 [ set pcolor blue ]
+  ask patch 1 1 -1 [ set pcolor green ]
+  crt 2 [ setxyz 0 0 who ]
+end
+]]></code>
+  <widgets>
+    <view3d minPxcor="-1" maxPxcor="1" minPycor="-1" maxPycor="1" minPzcor="-1" maxPzcor="1" patchSize="9" wrappingAllowedX="true" wrappingAllowedY="true" wrappingAllowedZ="true"/>
+  </widgets>
+</model>`
+	type world struct {
+		Width, Height, Depth int
+		PatchColors          string
+		Turtles              []struct{ Who int }
+	}
+	var loaded struct {
+		LoadModelSource struct{ World world }
+	}
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { world { width height depth } }
+	}`, &loaded, client.Var("id", s.ID), client.Var("name", "cube.nlogox3d"), client.Var("src", src))
+	if w := loaded.LoadModelSource.World; w.Width != 3 || w.Height != 3 || w.Depth != 3 {
+		t.Fatalf("3D world %+v", w)
+	}
+	commandWhenIdle(t, c, s.ID, "setup")
+	var q struct {
+		Session struct{ World world }
+	}
+	c.MustPost(`query ($id: ID!) { session(id: $id) { world { width height depth patchColors turtles { who } } } }`, &q, client.Var("id", s.ID))
+	raw, err := base64.StdEncoding.DecodeString(q.Session.World.PatchColors)
+	if err != nil || len(raw) != 3*3*3 {
+		t.Fatalf("patch colors %d bytes, err %v", len(raw), err)
+	}
+	pixel := func(px, py int) [3]byte {
+		i := ((1-py)*3 + (px + 1)) * 3
+		return [3]byte{raw[i], raw[i+1], raw[i+2]}
+	}
+	blue, green := nl.ColorRGBA(105), nl.ColorRGBA(55)
+	if got := pixel(0, 0); got != [3]byte{blue.R, blue.G, blue.B} {
+		t.Fatalf("center column %v, want blue (the highest patch)", got)
+	}
+	if got := pixel(1, 1); got != [3]byte{green.R, green.G, green.B} {
+		t.Fatalf("corner column %v, want green", got)
+	}
+	if got := pixel(-1, -1); got != [3]byte{0, 0, 0} {
+		t.Fatalf("empty column %v, want black", got)
+	}
+	// Higher turtles come later so they paint on top.
+	ts := q.Session.World.Turtles
+	if len(ts) != 2 || ts[0].Who != 0 || ts[1].Who != 1 {
+		t.Fatalf("turtle order %+v", ts)
+	}
+	commandWhenIdle(t, c, s.ID, "ask turtle 0 [ set zcor 1 ] ask turtle 1 [ set zcor -1 ]")
+	c.MustPost(`query ($id: ID!) { session(id: $id) { world { turtles { who } } } }`, &q, client.Var("id", s.ID))
+	if ts := q.Session.World.Turtles; len(ts) != 2 || ts[0].Who != 1 {
+		t.Fatalf("turtle order after moving %+v", ts)
+	}
+
+	s2 := create(t, c, "fire.nlogo")
+	c.MustPost(`query ($id: ID!) { session(id: $id) { world { depth } } }`, &q, client.Var("id", s2.ID))
+	if q.Session.World.Depth != 1 {
+		t.Fatalf("2D depth %d", q.Session.World.Depth)
+	}
+}
+
+// TestFrame3DFields checks the data the 3D view draws from: packed
+// voxels, turtle z and orientation, link z, and the observer pose.
+func TestFrame3DFields(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	src := `<?xml version="1.0"?>
+<model version="NetLogo 3D 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+  ask patch 1 -1 2 [ set pcolor red ]
+  ask patch -2 0 -1 [ set pcolor rgb 1 2 3 ]
+  crt 2 [ setxyz who 0 (who * 2 - 1) set heading 90 set pitch 30 set roll 45 ]
+  ask turtle 0 [ create-link-with turtle 1 ]
+end
+]]></code>
+  <widgets>
+    <view3d minPxcor="-2" maxPxcor="2" minPycor="-2" maxPycor="2" minPzcor="-1" maxPzcor="3" patchSize="9" wrappingAllowedX="true" wrappingAllowedY="true" wrappingAllowedZ="true"/>
+  </widgets>
+</model>`
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { modelName }
+	}`, &struct{ LoadModelSource struct{ ModelName string } }{}, client.Var("id", s.ID), client.Var("name", "frame.nlogox3d"), client.Var("src", src))
+	commandWhenIdle(t, c, s.ID, "setup")
+
+	type observer struct {
+		X, Y, Z                   float64
+		TargetX, TargetY, TargetZ float64
+		Revision                  int
+	}
+	type world struct {
+		Depth, MinPzcor, MaxPzcor int
+		WrapZ                     bool
+		Voxels                    string
+		Observer                  *observer
+		Turtles                   []struct {
+			Who                           int
+			X, Y, Z, Heading, Pitch, Roll float64
+		}
+		Links []struct{ X1, Y1, Z1, X2, Y2, Z2 float64 }
+	}
+	var q struct {
+		Session struct{ World world }
+	}
+	const query = `query ($id: ID!) { session(id: $id) { world {
+		depth minPzcor maxPzcor wrapZ voxels
+		observer { x y z targetX targetY targetZ revision }
+		turtles { who x y z heading pitch roll }
+		links { x1 y1 z1 x2 y2 z2 }
+	} } }`
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	w := q.Session.World
+	if w.Depth != 5 || w.MinPzcor != -1 || w.MaxPzcor != 3 || !w.WrapZ {
+		t.Fatalf("3D bounds %+v", w)
+	}
+	raw, err := base64.StdEncoding.DecodeString(w.Voxels)
+	if err != nil || len(raw) != 2*9 {
+		t.Fatalf("voxels %d bytes, err %v", len(raw), err)
+	}
+	type voxel struct{ x, y, z, r, g, b int }
+	read := func(i int) voxel {
+		v := raw[i*9:]
+		i16 := func(o int) int { return int(int16(uint16(v[o]) | uint16(v[o+1])<<8)) }
+		return voxel{i16(0), i16(2), i16(4), int(v[6]), int(v[7]), int(v[8])}
+	}
+	red := nl.ColorRGBA(15)
+	// Highest layer first.
+	if got := read(0); got != (voxel{1, -1, 2, int(red.R), int(red.G), int(red.B)}) {
+		t.Fatalf("voxel 0 %+v", got)
+	}
+	if got := read(1); got != (voxel{-2, 0, -1, 1, 2, 3}) {
+		t.Fatalf("voxel 1 %+v (negative coordinates and RGB colors)", got)
+	}
+	if len(w.Turtles) != 2 {
+		t.Fatalf("turtles %+v", w.Turtles)
+	}
+	for _, tt := range w.Turtles {
+		if tt.Z != float64(tt.Who*2-1) || tt.Heading != 90 || tt.Pitch != 30 || tt.Roll != 45 {
+			t.Fatalf("turtle %+v", tt)
+		}
+	}
+	if len(w.Links) != 1 || w.Links[0].Z1 != -1 || w.Links[0].Z2 != 1 || w.Links[0].X2 != 1 {
+		t.Fatalf("links %+v", w.Links)
+	}
+	if o := w.Observer; o == nil || o.Revision != 0 || o.Z != 7.5 || o.TargetZ != 1 {
+		t.Fatalf("home observer %+v", o)
+	}
+
+	commandWhenIdle(t, c, s.ID, "orbit-down 90 zoom 1")
+	c.MustPost(query, &q, client.Var("id", s.ID))
+	if o := q.Session.World.Observer; o == nil || o.Revision != 2 || o.Y >= 0 || o.Z != 1 {
+		t.Fatalf("observer after orbit %+v", o)
+	}
+
+	// A 2D world keeps the 3D fields empty.
+	s2 := create(t, c, "fire.nlogo")
+	q.Session.World = world{}
+	c.MustPost(query, &q, client.Var("id", s2.ID))
+	w = q.Session.World
+	if w.Depth != 1 || w.MinPzcor != 0 || w.MaxPzcor != 0 || w.WrapZ || w.Voxels != "" || w.Observer != nil {
+		t.Fatalf("2D world 3D fields %+v", w)
 	}
 }
 
@@ -894,6 +1177,78 @@ func commandWhenIdle(t *testing.T, c *client.Client, id, text string) {
 			t.Fatalf("%s: %s", text, last)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestSessionInfo(t *testing.T) {
+	c := newClient(t)
+	var created struct {
+		CreateSession struct {
+			ID       string
+			Info     string
+			ModelDir *string
+		}
+	}
+	c.MustPost(`mutation ($m: String!) {
+		createSession(model: $m) { id info modelDir }
+	}`, &created, client.Var("m", "fire.nlogo"))
+	if !strings.Contains(created.CreateSession.Info, "orthogonal neighbor") {
+		t.Fatalf("fire info %q", created.CreateSession.Info)
+	}
+	if created.CreateSession.ModelDir == nil || *created.CreateSession.ModelDir != "" {
+		t.Fatalf("embedded model dir %#v, want the models root", created.CreateSession.ModelDir)
+	}
+
+	nlogox := `<?xml version="1.0"?>
+<model version="NetLogo 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+end
+]]></code>
+  <info><![CDATA[## WHAT IS IT?
+
+A .nlogox info paragraph.
+]]></info>
+</model>`
+	var loaded struct {
+		LoadModelSource struct {
+			Info     string
+			ModelDir *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { info modelDir }
+	}`, &loaded, client.Var("id", created.CreateSession.ID), client.Var("name", "pack.nlogox"), client.Var("src", nlogox))
+	if !strings.Contains(loaded.LoadModelSource.Info, "A .nlogox info paragraph.") {
+		t.Fatalf("nlogox info %q", loaded.LoadModelSource.Info)
+	}
+	if loaded.LoadModelSource.ModelDir != nil {
+		t.Fatalf("uploaded model dir %#v, want null", *loaded.LoadModelSource.ModelDir)
+	}
+
+	dir := t.TempDir()
+	t.Setenv("MODELS_DIR", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "biology"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nlogo := "to setup\n  clear-all\nend\n@#$#@#$#@\n@#$#@#$#@\nFrom the .nlogo file.\n@#$#@#$#@\n"
+	if err := os.WriteFile(filepath.Join(dir, "biology", "pack.nlogo"), []byte(nlogo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var fromFile struct {
+		LoadModelFile struct {
+			Info     string
+			ModelDir *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $path: String!) {
+		loadModelFile(sessionId: $id, path: $path) { info modelDir }
+	}`, &fromFile, client.Var("id", created.CreateSession.ID), client.Var("path", "biology/pack.nlogo"))
+	if !strings.Contains(fromFile.LoadModelFile.Info, "From the .nlogo file.") {
+		t.Fatalf("file info %q", fromFile.LoadModelFile.Info)
+	}
+	if fromFile.LoadModelFile.ModelDir == nil || *fromFile.LoadModelFile.ModelDir != "biology" {
+		t.Fatalf("model dir %#v", fromFile.LoadModelFile.ModelDir)
 	}
 }
 

@@ -22,14 +22,15 @@ type ownSlot struct {
 }
 
 type compiler struct {
-	prog          *Program
-	globals       map[string]int
-	globalName    []string
-	turtle        map[string]ownSlot
-	patch         map[string]ownSlot
-	breeds        map[string]bool
-	breedSingular map[string]string
-	linkBreeds    map[string]bool
+	prog              *Program
+	globals           map[string]int
+	globalName        []string
+	turtle            map[string]ownSlot
+	patch             map[string]ownSlot
+	breeds            map[string]bool
+	breedSingular     map[string]string
+	linkBreeds        map[string]bool
+	linkBreedSingular map[string]string
 }
 
 func (vm *VM) ensureCompiled() {
@@ -57,13 +58,14 @@ func compileProgram(prog *Program) {
 
 func newCompiler(prog *Program) *compiler {
 	c := &compiler{
-		prog:       prog,
-		globals:    map[string]int{},
-		turtle:     map[string]ownSlot{},
-		patch:      map[string]ownSlot{},
-		breeds:        map[string]bool{},
-		breedSingular: map[string]string{},
-		linkBreeds:    map[string]bool{},
+		prog:              prog,
+		globals:           map[string]int{},
+		turtle:            map[string]ownSlot{},
+		patch:             map[string]ownSlot{},
+		breeds:            map[string]bool{},
+		breedSingular:     map[string]string{},
+		linkBreeds:        map[string]bool{},
+		linkBreedSingular: map[string]string{},
 	}
 	addGlobal := func(name string) {
 		if _, ok := c.globals[name]; ok {
@@ -98,6 +100,7 @@ func newCompiler(prog *Program) *compiler {
 	}
 	for _, b := range prog.LinkBreeds {
 		c.linkBreeds[b.Plural] = true
+		c.linkBreedSingular[b.Singular] = b.Plural
 	}
 	return c
 }
@@ -261,6 +264,31 @@ func (c *compiler) compileStmt(s Stmt, locals map[string]bool) cmdFn {
 				thn(vm)
 			} else {
 				els(vm)
+			}
+		}
+	case *carefullyStmt:
+		body := c.compileBlock(s.Body, locals)
+		handler := c.compileBlock(s.Handler, locals)
+		return func(vm *VM) {
+			var hasError bool
+			var caught string
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						msg, ok := recoverRT(r)
+						if !ok {
+							panic(r)
+						}
+						hasError = true
+						caught = msg
+					}
+				}()
+				body(vm)
+			}()
+			if hasError {
+				vm.errMsgs = append(vm.errMsgs, caught)
+				defer func() { vm.errMsgs = vm.errMsgs[:len(vm.errMsgs)-1] }()
+				handler(vm)
 			}
 		}
 	case *whileStmt:
@@ -533,11 +561,13 @@ func (vm *VM) runAgent(a Agent, body cmdFn, child bool) {
 		return
 	}
 	vm.pushAgent(a)
+	vm.agentFrames++
 	saved := vm.scope
 	if child {
 		vm.scope = &scope{vars: map[string]Value{}, parent: saved}
 	}
 	defer func() {
+		vm.agentFrames--
 		vm.scope = saved
 		vm.popAgent()
 	}()
@@ -571,7 +601,7 @@ func (c *compiler) compileCmd(s *cmdStmt, locals map[string]bool) cmdFn {
 			}
 		}
 	}
-	if s.Name == "diffuse" || s.Name == "diffuse4" {
+	if s.Name == "diffuse" || s.Name == "diffuse4" || s.Name == "uphill" || s.Name == "uphill4" || s.Name == "downhill" || s.Name == "downhill4" {
 		return func(vm *VM) { vm.execCmd(s) }
 	}
 	spec, known := commands[s.Name]
@@ -592,7 +622,9 @@ func (c *compiler) compileCmd(s *cmdStmt, locals map[string]bool) cmdFn {
 				n = -n
 			}
 			// Same helper as the tree walker: fd/bk stop at the edge, jump stays put.
-			vm.moveTurtle(vm.requireTurtle(pos), n, name == "jump")
+			if err := vm.moveTurtle(vm.requireTurtle(pos), n, name == "jump"); err != nil {
+				vm.fail(pos, "%s", err.Error())
+			}
 		}
 	case "rt", "right", "lt", "left":
 		arg := c.compileExpr(s.Args[0], locals)
@@ -605,7 +637,9 @@ func (c *compiler) compileCmd(s *cmdStmt, locals map[string]bool) cmdFn {
 			if err != nil {
 				vm.fail(pos, "%s", err.Error())
 			}
-			vm.World.Turn(vm.requireTurtle(pos), sign*n)
+			if err := vm.turn(vm.requireTurtle(pos), sign*n); err != nil {
+				vm.fail(pos, "%s", err.Error())
+			}
 		}
 	case "die":
 		return func(vm *VM) {
@@ -665,6 +699,15 @@ func (c *compiler) compileExpr(e Expr, locals map[string]bool) repFn {
 		return c.compileCall(e, locals)
 	case *infixExpr:
 		return c.compileInfix(e, locals)
+	case *inConeExpr:
+		pos := e.Pos
+		return func(vm *VM) Value {
+			v, err := vm.evalInCone(e)
+			if err != nil {
+				vm.fail(pos, "%s", err.Error())
+			}
+			return v
+		}
 	case *prefixExpr:
 		right := c.compileExpr(e.Right, locals)
 		pos := e.Pos
@@ -837,7 +880,7 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 			return v
 		}
 	}
-	if strings.HasSuffix(e.Name, "-on") || strings.HasSuffix(e.Name, "-at") || strings.HasPrefix(e.Name, "is-") || strings.HasSuffix(e.Name, "-neighbor?") || c.breedSingular[e.Name] != "" {
+	if strings.HasSuffix(e.Name, "-on") || strings.HasSuffix(e.Name, "-at") || strings.HasPrefix(e.Name, "is-") || strings.HasSuffix(e.Name, "-neighbor?") || c.breedSingular[e.Name] != "" || c.linkBreedSingular[e.Name] != "" {
 		return func(vm *VM) Value {
 			v, err := vm.eval(e)
 			if err != nil {
@@ -1037,7 +1080,7 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 		return func(vm *VM) Value {
 			if t, ok := vm.self.(*Turtle); ok {
 				if v, ok := t.Vars[key]; ok {
-					return v
+					return sanitizeAgentVal(v)
 				}
 			}
 			return mustIdent(vm, name, pos)
@@ -1130,7 +1173,10 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 			return func(vm *VM) Value { return SetVal(vm.breedHere(br)) }
 		}
 	}
-	if zeroArgReporters[name] {
+	if strings.HasPrefix(name, "my-") {
+		return func(vm *VM) Value { return mustIdent(vm, name, pos) }
+	}
+	if isZeroArgReporter(name, c.prog.Is3D) {
 		return func(vm *VM) Value {
 			v, err := vm.evalZero(name, pos)
 			if err != nil {
@@ -1199,6 +1245,9 @@ func (c *compiler) sealStmt(s Stmt, locals map[string]bool) {
 		c.sealExpr(s.Cond, locals)
 		c.sealLambdas(s.Then, locals)
 		c.sealLambdas(s.Else, locals)
+	case *carefullyStmt:
+		c.sealLambdas(s.Body, locals)
+		c.sealLambdas(s.Handler, locals)
 	case *whileStmt:
 		c.sealExpr(s.Cond, locals)
 		c.sealLambdas(s.Body, locals)
@@ -1245,6 +1294,10 @@ func (c *compiler) sealExpr(e Expr, locals map[string]bool) {
 	case *infixExpr:
 		c.sealExpr(e.Left, locals)
 		c.sealExpr(e.Right, locals)
+	case *inConeExpr:
+		c.sealExpr(e.Agents, locals)
+		c.sealExpr(e.Dist, locals)
+		c.sealExpr(e.Angle, locals)
 	case *prefixExpr:
 		c.sealExpr(e.Right, locals)
 	case *lambdaExpr:

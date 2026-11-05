@@ -23,7 +23,7 @@ func TestWalkLibrary(t *testing.T) {
 			nlogo++
 		case ".nlogox":
 			nlogox++
-		case ".nlogox3d":
+		case ".nlogox3d", ".nlogo3d":
 			n3d++
 		default:
 			t.Errorf("unexpected model extension: %s", path)
@@ -72,6 +72,37 @@ func TestFireRuns(t *testing.T) {
 	}
 }
 
+// TestLife3DRuns checks that a bundled NetLogo 3D model gets a 3D world
+// and runs setup and go through the checker.
+func TestLife3DRuns(t *testing.T) {
+	root := modelsRoot(t)
+	path := filepath.Join(root, "library", "3D", "Sample Models", "Life 3D.nlogox3d")
+	res := Check(path, Options{Timeout: 20 * time.Second, Ticks: 2, Seed: 1})
+	if !res.CompileOK || res.Setup != "ok" || (res.Go != "ok" && res.Go != "stopped") {
+		t.Fatalf("stage %s setup %s go %s: %s", res.Stage, res.Setup, res.Go, res.Error)
+	}
+	if res.WorldD != 9 {
+		t.Fatalf("world depth %d, want 9", res.WorldD)
+	}
+}
+
+func TestClassic3DModelRuns(t *testing.T) {
+	view := strings.Join([]string{"GRAPHICS-WINDOW", "0", "0", "100", "100", "-1", "-1", "12.0", "1", "10", "1", "1", "1", "0", "1", "1", "1",
+		"-2", "2", "-2", "2", "-3", "3", "1", "1", "1", "ticks", "30.0"}, "\n")
+	src := "to setup ca crt 5 [ setxyz random-xcor random-ycor random-zcor tilt-up 30 ] reset-ticks end\n" +
+		"to go ask turtles [ fd 1 roll-right 5 ] tick end\n" +
+		"@#$#@#$#@\n" + view + "\n@#$#@#$#@\n@#$#@#$#@\n@#$#@#$#@\nNetLogo 3D 6.4.0\n@#$#@#$#@\n"
+	path := writeModel(t, "m.nlogo3d", src)
+	res := Check(path, Options{Timeout: 10 * time.Second, Ticks: 2, Seed: 1})
+	if res.Setup != "ok" || res.Go != "ok" || res.WorldD != 7 {
+		t.Fatalf("stage %s setup %s go %s depth %d: %s", res.Stage, res.Setup, res.Go, res.WorldD, res.Error)
+	}
+	files, err := Walk(path)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("walk .nlogo3d: %v %v", files, err)
+	}
+}
+
 func TestMissingCommand(t *testing.T) {
 	path := writeModel(t, "bad.nlogo", "to setup\n  no-such-command\nend\n")
 	res := Check(path, Options{SkipRun: true})
@@ -112,8 +143,25 @@ func TestIncludesDirective(t *testing.T) {
 	if res.CompileOK || !res.Includes {
 		t.Fatalf("includes %+v", res)
 	}
-	if !strings.Contains(Signature(res), "__includes") {
+	if !strings.Contains(strings.ToLower(res.Error), "__includes") {
 		t.Fatalf("signature %s err %s", Signature(res), res.Error)
+	}
+}
+
+func TestIncludesLoaded(t *testing.T) {
+	dir := t.TempDir()
+	nls := "to helper\nend\n"
+	if err := os.WriteFile(filepath.Join(dir, "actions.nls"), []byte(nls), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "__includes [ \"actions.nls\" ]\nto setup\n  helper\nend\n"
+	path := filepath.Join(dir, "inc.nlogo")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := Check(path, Options{SkipRun: true})
+	if !res.CompileOK {
+		t.Fatalf("stage %s: %s", res.Stage, res.Error)
 	}
 }
 

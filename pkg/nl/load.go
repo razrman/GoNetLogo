@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -16,12 +17,28 @@ const sectionSep = "@#$#@#$#@"
 type ViewSpec struct {
 	MinPxcor, MaxPxcor int
 	MinPycor, MaxPycor int
+	// MinPzcor and MaxPzcor are the Z bounds of a 3D view. A 2D view
+	// leaves them at 0.
+	MinPzcor, MaxPzcor int
 	WrapX, WrapY       bool
-	PatchSize          float64
+	// WrapZ is the file's Z wrapping flag. NetLogo 3D worlds always wrap,
+	// so the world ignores it; it is kept for display.
+	WrapZ     bool
+	PatchSize float64
 	// FontSize is the label point size drawn at PatchSize. Zero means
 	// NetLogo's default of 10.
 	FontSize int
 	Set      bool
+	// Is3D marks a NetLogo 3D view (view3d in .nlogox3d, or a .nlogo3d file).
+	Is3D bool
+}
+
+// Depth is the number of patch layers. It is 1 for a 2D view.
+func (v ViewSpec) Depth() int {
+	if !v.Is3D {
+		return 1
+	}
+	return v.MaxPzcor - v.MinPzcor + 1
 }
 
 // DefaultView is NetLogo's default world: -16..16, wrapping, patch size 13.
@@ -73,11 +90,24 @@ type FileModel struct {
 	// Shapes is the turtle shape library from the file. Nil when the
 	// file has no shapes section; the world then keeps DefaultShapes.
 	Shapes *ShapeList
+	// Info is the model's Info tab as Markdown. Empty when the file
+	// has no info section or the section is blank.
+	Info string
 	// Notes lists widgets this loader does not run.
 	Notes []string
+	Path  string
+	// Is3D selects NetLogo 3D: the code compiles in the 3D dialect and the
+	// world gets a Z axis.
+	Is3D bool
 }
 
-// LoadFile reads a .nlogo or .nlogox model.
+// Is3DModelFile reports whether a file name has a NetLogo 3D extension.
+func Is3DModelFile(name string) bool {
+	ext := modelExt(name)
+	return ext == ".nlogo3d" || ext == ".nlogox3d"
+}
+
+// LoadFile reads a .nlogo, .nlogox, .nlogo3d, or .nlogox3d model.
 func LoadFile(path string) (*FileModel, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -87,6 +117,7 @@ func LoadFile(path string) (*FileModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.Path = path
 	return m, nil
 }
 
@@ -94,20 +125,36 @@ func LoadFile(path string) (*FileModel, error) {
 // The text decides when it is clearly one format. The filename extension is
 // the tie-breaker, and it also selects a parser when the text has neither
 // the classic section separator nor an XML model tag.
+//
+// A .nlogo3d or .nlogox3d extension, a view3d element, or a "NetLogo 3D"
+// version string makes the model 3D.
 func ParseModel(name, content string) (*FileModel, error) {
+	m, err := parseModelFormat(name, content)
+	if err != nil {
+		return nil, err
+	}
+	if Is3DModelFile(name) || m.View.Is3D {
+		m.Is3D = true
+		m.View.Is3D = true
+	}
+	return m, nil
+}
+
+func parseModelFormat(name, content string) (*FileModel, error) {
 	trim := strings.TrimSpace(content)
 	ext := modelExt(name)
+	xmlExt := ext == ".nlogox" || ext == ".nlogox3d"
 	hasSep := strings.Contains(content, sectionSep)
 	looksXML := strings.HasPrefix(trim, "<?xml") || strings.HasPrefix(trim, "<model") || strings.Contains(trim, "<model ")
 	// A .nlogox file whose code happens to contain the section separator
 	// stays XML. Any other file with the separator is the classic text format.
-	if hasSep && !(looksXML && ext == ".nlogox") {
+	if hasSep && !(looksXML && xmlExt) {
 		return parseNLogo(name, content)
 	}
-	if looksXML || ext == ".nlogox" {
+	if looksXML || xmlExt {
 		return parseNLogoX(name, content)
 	}
-	if ext == ".nlogo" {
+	if ext == ".nlogo" || ext == ".nlogo3d" {
 		return parseNLogo(name, content)
 	}
 	return &FileModel{Name: name, Code: content, View: DefaultView()}, nil
@@ -135,6 +182,13 @@ func parseNLogo(name, content string) (*FileModel, error) {
 		widgets = parts[1]
 	}
 	m := &FileModel{Name: name, Code: code, View: DefaultView()}
+	// Sections, in order: code, widgets, info, turtle shapes, version.
+	// Info is the Markdown after the second separator.
+	if len(parts) > 2 {
+		m.Info = cleanInfo(parts[2])
+	}
+	// Section 4 is the version line, "NetLogo 3D 6.4.0" for a 3D model.
+	m.Is3D = Is3DModelFile(name) || (len(parts) > 4 && strings.Contains(parts[4], "NetLogo 3D"))
 	if strings.TrimSpace(widgets) != "" {
 		if err := parseWidgetSection(m, widgets); err != nil {
 			return nil, err
@@ -188,6 +242,9 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 		v, err := parseViewLines(lines)
 		if err != nil {
 			return err
+		}
+		if m.Is3D {
+			parseView3DLines(&v, lines)
 		}
 		m.View = v
 	case "BUTTON":
@@ -262,6 +319,21 @@ func parseViewLines(lines []string) (ViewSpec, error) {
 		return ViewSpec{}, fmt.Errorf("view has an empty world")
 	}
 	return v, nil
+}
+
+// parseView3DLines reads the Z bounds of a classic .nlogo3d view. NetLogo
+// 3D writes min-pzcor and max-pzcor right after max-pycor, on lines 21
+// and 22, where the 2D format has the update mode and tick counter flag.
+// Bounds that do not contain the origin fall back to a single layer.
+func parseView3DLines(v *ViewSpec, lines []string) {
+	v.Is3D = true
+	v.WrapX, v.WrapY, v.WrapZ = true, true, true
+	minZ, errMin := strconv.Atoi(lineAt(lines, 21))
+	maxZ, errMax := strconv.Atoi(lineAt(lines, 22))
+	if errMin != nil || errMax != nil || minZ > 0 || maxZ < 0 {
+		minZ, maxZ = 0, 0
+	}
+	v.MinPzcor, v.MaxPzcor = minZ, maxZ
 }
 
 func parseButtonLines(lines []string) (Widget, error) {
@@ -466,6 +538,16 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 				return nil, err
 			}
 			m.Code = text
+		case "info":
+			text, err := readElementText(dec, se.Name.Local)
+			if err != nil {
+				return nil, err
+			}
+			m.Info = cleanInfo(text)
+		case "model":
+			if strings.Contains(attr(se, "version"), "NetLogo 3D") {
+				m.Is3D = true
+			}
 		case "view", "view3d":
 			m.View = viewFromXML(se)
 			if err := dec.Skip(); err != nil {
@@ -546,7 +628,7 @@ func viewFromXML(se xml.StartElement) ViewSpec {
 	if ps <= 0 {
 		ps = 13
 	}
-	return ViewSpec{
+	v := ViewSpec{
 		MinPxcor:  atoi(attr(se, "minPxcor")),
 		MaxPxcor:  atoi(attr(se, "maxPxcor")),
 		MinPycor:  atoi(attr(se, "minPycor")),
@@ -557,6 +639,13 @@ func viewFromXML(se xml.StartElement) ViewSpec {
 		FontSize:  atoi(attr(se, "fontSize")),
 		Set:       true,
 	}
+	if se.Name.Local == "view3d" {
+		v.Is3D = true
+		v.MinPzcor = atoi(attr(se, "minPzcor"))
+		v.MaxPzcor = atoi(attr(se, "maxPzcor"))
+		v.WrapZ = attr(se, "wrappingAllowedZ") == "true"
+	}
+	return v
 }
 
 func buttonFromXML(se xml.StartElement, source string) Widget {
@@ -1056,12 +1145,61 @@ func attr(se xml.StartElement, name string) string {
 	return ""
 }
 
+// readElementText reads until the matching end tag. Character data,
+// including a CDATA section, is kept as written so Markdown such as
+// <sub> survives. Nested elements contribute their text only.
+func readElementText(dec *xml.Decoder, end string) (string, error) {
+	var b strings.Builder
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", err
+		}
+		switch t := tok.(type) {
+		case xml.CharData:
+			b.Write(t)
+		case xml.StartElement:
+			inner, err := readElementText(dec, t.Name.Local)
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(inner)
+		case xml.EndElement:
+			if t.Name.Local == end {
+				return b.String(), nil
+			}
+		}
+	}
+}
+
+func cleanInfo(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.TrimSpace(s)
+}
+
 // --- compile and apply ---
 
 // Compile parses the code and marks widget variables as interface globals,
 // so clear-all leaves sliders and switches alone.
 func (m *FileModel) Compile() (*Program, error) {
-	prog, err := Parse(m.Code)
+	code := m.Code
+	if strings.Contains(code, "__includes") {
+		dir := ""
+		if m.Path != "" {
+			dir = filepath.Dir(m.Path)
+		}
+		expanded, err := expandIncludes(code, dir, map[string]bool{})
+		if err != nil {
+			return nil, err
+		}
+		code = expanded
+	}
+	parse := Parse
+	if m.Is3D {
+		parse = Parse3D
+	}
+	prog, err := parse(code)
 	if err != nil {
 		return nil, err
 	}
@@ -1090,7 +1228,15 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 	if v.MaxPxcor < v.MinPxcor || v.MaxPycor < v.MinPycor {
 		return nil, fmt.Errorf("the world is empty")
 	}
-	w := NewWorld(v.MinPxcor, v.MaxPxcor, v.MinPycor, v.MaxPycor, v.WrapX, v.WrapY)
+	var w *World
+	if m.Is3D {
+		if err := ValidWorld3D(v.MinPxcor, v.MaxPxcor, v.MinPycor, v.MaxPycor, v.MinPzcor, v.MaxPzcor); err != nil {
+			return nil, err
+		}
+		w = NewWorld3D(v.MinPxcor, v.MaxPxcor, v.MinPycor, v.MaxPycor, v.MinPzcor, v.MaxPzcor)
+	} else {
+		w = NewWorld(v.MinPxcor, v.MaxPxcor, v.MinPycor, v.MaxPycor, v.WrapX, v.WrapY)
+	}
 	if v.PatchSize > 0 {
 		w.PatchSize = v.PatchSize
 	}
@@ -1104,6 +1250,9 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 		w.Seed(seed)
 	}
 	vm := NewVM(prog, w)
+	if m.Path != "" {
+		vm.ModelDir = filepath.Dir(m.Path)
+	}
 	m.Apply(vm)
 	return vm, nil
 }

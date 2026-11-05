@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -25,6 +25,7 @@ import {
   Step,
   Stop,
   WorldSettingsQuery,
+  hasProcedure,
   isDisconnectError,
   onConnection,
   reportDisconnect,
@@ -32,8 +33,13 @@ import {
   type LibraryListing,
 } from './api'
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
+import { InfoView } from './InfoTab'
 import { LibraryBrowser } from './LibraryBrowser'
 import { WorldCanvas } from './WorldCanvas'
+
+// three.js is only needed for 3D worlds, so it loads in its own chunk the
+// first time one is shown. 2D models never fetch it.
+const WorldView3D = lazy(() => import('./WorldView3D'))
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
 
@@ -69,6 +75,8 @@ export function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('fire.nlogo')
   const [code, setCode] = useState('')
+  const [info, setInfo] = useState('')
+  const [modelDir, setModelDir] = useState<string | null>(null)
   const [notes, setNotes] = useState<string[]>([])
   const [frame, setFrame] = useState<Frame | null>(null)
   const [tab, setTab] = useState<MainTab>('interface')
@@ -104,6 +112,11 @@ export function App() {
   const [libraryError, setLibraryError] = useState<string | null>(null)
   const [libraryLoading, setLibraryLoading] = useState(false)
 
+  const modelTitle = interfaceModelTitle(modelName)
+  useEffect(() => {
+    document.title = `${modelTitle} - GoNetLogo`
+  }, [modelTitle])
+
   useEffect(() => onConnection(setOnline), [])
   useEffect(() => {
     if (models.error) reportDisconnect(models.error.message)
@@ -130,10 +143,11 @@ export function App() {
       setSessionId(info.id)
       setModelName(info.modelName)
       setCode(info.code)
+      setInfo(info.info ?? '')
+      setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
       await speedMut({ id: info.id, speed: 30 })
-      const setup = await setupMut({ id: info.id })
-      if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+      await autoSetup(info.id, info.procedures)
       const go = await goMut({ id: info.id })
       if (go.error && !reportDisconnect(go.error.message)) setBanner(go.error.message)
       else setActive(foreverIndex(info.widgets))
@@ -167,12 +181,13 @@ export function App() {
     const info = res.data.loadModel
     setModelName(info.modelName)
     setCode(info.code)
+    setInfo(info.info ?? '')
+    setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
-    const setup = await setupMut({ id: sessionId })
-    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+    await autoSetup(sessionId, info.procedures)
   }
 
   async function onSetup() {
@@ -238,12 +253,13 @@ export function App() {
     const info = res.data.loadModelSource
     setModelName(info.modelName)
     setCode(info.code)
+    setInfo(info.info ?? '')
+    setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
-    const setup = await setupMut({ id: sessionId })
-    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+    await autoSetup(sessionId, info.procedures)
   }
 
   async function onPickFile(file: File | undefined) {
@@ -252,8 +268,8 @@ export function App() {
       setBanner('The session is still opening')
       return
     }
-    if (!/\.nlogo(x3d|x)?$/i.test(file.name)) {
-      setCompileError(`Open a .nlogo, .nlogox, or .nlogox3d file. ${file.name} is not one of those.`)
+    if (!/\.nlogo(x3d|x|3d)?$/i.test(file.name)) {
+      setCompileError(`Open a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file. ${file.name} is not one of those.`)
       return
     }
     let text: string
@@ -305,6 +321,8 @@ export function App() {
   function applyOpenedModel(info: SessionInfo) {
     setModelName(info.modelName)
     setCode(info.code)
+    setInfo(info.info ?? '')
+    setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setCompileError(null)
     setActive(null)
@@ -316,6 +334,7 @@ export function App() {
   async function openLibraryFile(entry: LibraryEntry) {
     if (!sessionId) return
     setLibraryError(null)
+    setBanner(null)
     const res = await loadModelFile({ id: sessionId, path: entry.path })
     if (res.error || !res.data) {
       const message = (res.error?.message ?? 'Could not open that model').replace(/^\[GraphQL\]\s*/i, '').trim()
@@ -326,8 +345,7 @@ export function App() {
     }
     const info = res.data.loadModelFile
     applyOpenedModel(info)
-    const setup = await setupMut({ id: sessionId })
-    if (setup.error && !reportDisconnect(setup.error.message)) setBanner(setup.error.message)
+    await autoSetup(sessionId, info.procedures)
   }
 
   async function onCommand(event: FormEvent) {
@@ -350,9 +368,14 @@ export function App() {
       if (stopped.error) return stopped.error.message
       setActive(null)
     }
-    let message = await sendWorld(sessionId, next, setWorldMut)
-    if (message) return message
-    const setup = await setupMut({ id: sessionId })
+    const applied = await sendWorld(sessionId, next, setWorldMut)
+    if (applied.message) return applied.message
+    return autoSetup(sessionId, applied.procedures)
+  }
+
+  async function autoSetup(id: string, procedures: readonly string[] | undefined): Promise<string | null> {
+    if (!hasProcedure(procedures, 'setup')) return null
+    const setup = await setupMut({ id })
     if (reportDisconnect(setup.error?.message)) return 'Server disconnected. Reconnecting…'
     if (setup.error) {
       setBanner(setup.error.message)
@@ -423,7 +446,7 @@ export function App() {
             {modelOptions.length === 0 && <option value="">Loading models…</option>}
             {modelOptions.map((name) => (
               <option key={name} value={name}>
-                {name.replace(/\.nlogox?$/i, '')}
+                {name.replace(/\.nlogo(x3d|x|3d)?$/i, '')}
               </option>
             ))}
             </select>
@@ -439,7 +462,7 @@ export function App() {
           <input
             ref={fileRef}
             type="file"
-            accept=".nlogo,.nlogox,.nlogox3d"
+            accept=".nlogo,.nlogox,.nlogo3d,.nlogox3d"
             aria-label="Open model file"
             hidden
             onChange={(e) => {
@@ -551,6 +574,16 @@ export function App() {
               </button>
             </div>
           </section>
+        ) : tab === 'info' ? (
+          <section className="info-panel" aria-label="Model info">
+            <MainTabs tab={tab} onChange={requestTab} />
+            <InfoView
+              key={`${modelName}\0${modelDir ?? ''}`}
+              markdown={info}
+              modelDir={modelDir}
+              loading={booting && info === ''}
+            />
+          </section>
         ) : tab === 'world' ? (
           <section className="world-panel" aria-label="World settings">
             <MainTabs tab={tab} onChange={requestTab} />
@@ -601,18 +634,27 @@ export function App() {
                 void onPickFile(e.dataTransfer.files?.[0])
               }}
             >
-              <MainTabs tab={tab} onChange={requestTab} />
+              <div className="view-bar">
+                <MainTabs tab={tab} onChange={requestTab} />
+                <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                  {modelTitle}
+                </h1>
+              </div>
               <div className="canvas-wrap">
                 {booting && !frame ? (
                   <div className="loading">Opening the forest fire…</div>
+                ) : frame && (frame.world.depth ?? 1) > 1 ? (
+                  <Suspense fallback={<WorldCanvas world={frame.world} />}>
+                    <WorldView3D world={frame.world} />
+                  </Suspense>
                 ) : (
                   <WorldCanvas world={frame?.world ?? null} />
                 )}
-                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, or .nlogox3d file</div>}
+                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
               </div>
               <div className="view-meta">
                 {frame
-                  ? `${frame.world.width} × ${frame.world.height} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
+                  ? `${frame.world.width} × ${frame.world.height}${(frame.world.depth ?? 1) > 1 ? ` × ${frame.world.depth}` : ''} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
                   : modelName}
               </div>
             </section>
@@ -712,7 +754,16 @@ export function App() {
   )
 }
 
-type MainTab = 'interface' | 'world' | 'code'
+// interfaceModelTitle is the name NetLogo puts in the window title:
+// the file name without its extension. A missing name, or a file
+// named Untitled, is a blank model.
+function interfaceModelTitle(modelName: string): string {
+  const base = modelName.replace(/\.nlogo(?:x3d|x|3d)?$/i, '').trim()
+  if (base === '' || /^untitled$/i.test(base)) return 'Untitled'
+  return base
+}
+
+type MainTab = 'interface' | 'world' | 'info' | 'code'
 
 function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) => void }) {
   return (
@@ -722,6 +773,9 @@ function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) =
       </button>
       <button type="button" className={tab === 'world' ? 'on' : undefined} onClick={() => onChange('world')}>
         World
+      </button>
+      <button type="button" className={tab === 'info' ? 'on' : undefined} onClick={() => onChange('info')}>
+        Info
       </button>
       <button type="button" className={tab === 'code' ? 'on' : undefined} onClick={() => onChange('code')}>
         Code
@@ -792,19 +846,23 @@ function WorldSettingsForm({
   onDirtyChange: (dirty: boolean) => void
   registerApply: (apply: (() => Promise<boolean>) | null) => void
 }) {
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<WorldDraft>({
     minPxcor: '0',
     maxPxcor: '99',
     minPycor: '0',
     maxPycor: '99',
+    minPzcor: '0',
+    maxPzcor: '0',
     patchSize: '12',
     wrapX: true,
     wrapY: true,
+    wrapZ: false,
   })
   const [error, setError] = useState<string | null>(null)
   const [synced, setSynced] = useState(false)
+  const showZ = world?.threeD === true
   const signature = world
-    ? `${world.minPxcor},${world.maxPxcor},${world.minPycor},${world.maxPycor},${world.patchSize},${world.wrapX},${world.wrapY}`
+    ? `${world.minPxcor},${world.maxPxcor},${world.minPycor},${world.maxPycor},${world.minPzcor ?? 0},${world.maxPzcor ?? 0},${world.patchSize},${world.wrapX},${world.wrapY},${world.wrapZ ?? false},${world.threeD ?? false}`
     : ''
 
   useEffect(() => {
@@ -814,9 +872,12 @@ function WorldSettingsForm({
       maxPxcor: String(world.maxPxcor),
       minPycor: String(world.minPycor),
       maxPycor: String(world.maxPycor),
+      minPzcor: String(world.minPzcor ?? 0),
+      maxPzcor: String(world.maxPzcor ?? 0),
       patchSize: String(world.patchSize),
       wrapX: world.wrapX,
       wrapY: world.wrapY,
+      wrapZ: world.wrapZ ?? false,
     })
     setError(null)
     setSynced(true)
@@ -829,7 +890,7 @@ function WorldSettingsForm({
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function submitDraft() {
-    const parsed = parseWorldDraft(draft)
+    const parsed = parseWorldDraft(draft, showZ)
     if (typeof parsed === 'string') {
       setError(parsed)
       return false
@@ -843,7 +904,7 @@ function WorldSettingsForm({
   useEffect(() => {
     registerApply(submitDraft)
     return () => registerApply(null)
-  }, [registerApply, draft, onApply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [registerApply, draft, showZ, onApply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function apply(event: FormEvent) {
     event.preventDefault()
@@ -863,6 +924,13 @@ function WorldSettingsForm({
         <span className="axis">pycor</span>
         <input aria-label="min pycor" size={4} inputMode="numeric" value={draft.minPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPycor: e.target.value })} />
         <input aria-label="max pycor" size={4} inputMode="numeric" value={draft.maxPycor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPycor: e.target.value })} />
+        {showZ && (
+          <>
+            <span className="axis">pzcor</span>
+            <input aria-label="min pzcor" size={4} inputMode="numeric" value={draft.minPzcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, minPzcor: e.target.value })} />
+            <input aria-label="max pzcor" size={4} inputMode="numeric" value={draft.maxPzcor} disabled={disabled} onChange={(e) => setDraft({ ...draft, maxPzcor: e.target.value })} />
+          </>
+        )}
       </div>
       <div className="extras">
         <label className="patch">
@@ -877,6 +945,12 @@ function WorldSettingsForm({
           <input type="checkbox" aria-label="wrap y" checked={draft.wrapY} disabled={disabled} onChange={(e) => setDraft({ ...draft, wrapY: e.target.checked })} />
           wrap y
         </label>
+        {showZ && (
+          <label className="check">
+            <input type="checkbox" aria-label="wrap z" checked={draft.wrapZ} disabled={disabled} onChange={(e) => setDraft({ ...draft, wrapZ: e.target.checked })} />
+            wrap z
+          </label>
+        )}
       </div>
       <button className="iface" type="submit" disabled={disabled}>Apply</button>
       {error && <p className="err">{error}</p>}
@@ -889,13 +963,16 @@ type WorldDraft = {
   maxPxcor: string
   minPycor: string
   maxPycor: string
+  minPzcor: string
+  maxPzcor: string
   patchSize: string
   wrapX: boolean
   wrapY: boolean
+  wrapZ: boolean
 }
 
 function worldDraftDirty(draft: WorldDraft, world: WorldView) {
-  return (
+  const xy =
     !sameNumber(draft.minPxcor, world.minPxcor) ||
     !sameNumber(draft.maxPxcor, world.maxPxcor) ||
     !sameNumber(draft.minPycor, world.minPycor) ||
@@ -903,6 +980,12 @@ function worldDraftDirty(draft: WorldDraft, world: WorldView) {
     !sameNumber(draft.patchSize, world.patchSize) ||
     draft.wrapX !== world.wrapX ||
     draft.wrapY !== world.wrapY
+  if (world.threeD !== true) return xy
+  return (
+    xy ||
+    !sameNumber(draft.minPzcor, world.minPzcor ?? 0) ||
+    !sameNumber(draft.maxPzcor, world.maxPzcor ?? 0) ||
+    draft.wrapZ !== (world.wrapZ ?? false)
   )
 }
 
@@ -913,45 +996,76 @@ function sameNumber(raw: string, live: number) {
   return Number.isFinite(n) && n === live
 }
 
-function parseWorldDraft(draft: WorldDraft): WorldView | string {
+function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string {
   const minPxcor = Number(draft.minPxcor)
   const maxPxcor = Number(draft.maxPxcor)
   const minPycor = Number(draft.minPycor)
   const maxPycor = Number(draft.maxPycor)
   const patchSize = Number(draft.patchSize)
-  if (![minPxcor, maxPxcor, minPycor, maxPycor].every((n) => Number.isInteger(n))) {
+  const coords = [minPxcor, maxPxcor, minPycor, maxPycor]
+  let minPzcor = 0
+  let maxPzcor = 0
+  if (threeD) {
+    minPzcor = Number(draft.minPzcor)
+    maxPzcor = Number(draft.maxPzcor)
+    coords.push(minPzcor, maxPzcor)
+  }
+  if (!coords.every((n) => Number.isInteger(n))) {
     return 'Coordinates must be integers.'
   }
-  if (minPxcor > 0 || maxPxcor < 0 || minPycor > 0 || maxPycor < 0) {
-    return 'The world must contain the origin (0, 0).'
+  const missesOrigin =
+    minPxcor > 0 || maxPxcor < 0 || minPycor > 0 || maxPycor < 0 || (threeD && (minPzcor > 0 || maxPzcor < 0))
+  if (missesOrigin) {
+    return threeD ? 'The world must contain the origin (0, 0, 0).' : 'The world must contain the origin (0, 0).'
   }
   if (!(patchSize > 0) || patchSize > 100) {
     return 'Patch size must be greater than 0 and at most 100.'
   }
-  return { minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY }
+  const next: WorldView = { minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY }
+  if (!threeD) return next
+  return { ...next, minPzcor, maxPzcor, wrapZ: draft.wrapZ, threeD: true }
 }
+
+type WorldApply = { message: string | null; procedures: string[] }
 
 function sendWorld(
   sessionId: string,
   next: WorldView,
-  setWorldMut: (vars: WorldView & { id: string }) => Promise<{ error?: { message: string } }>,
-) {
+  setWorldMut: (
+    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ'> & {
+      id: string
+      minPzcor: number | null
+      maxPzcor: number | null
+      wrapZ: boolean | null
+    },
+  ) => Promise<{
+    error?: { message: string }
+    data?: { setWorld: { procedures?: string[] } }
+  }>,
+): Promise<WorldApply> {
   return retryWhileRunning(async () => {
-    const res = await setWorldMut({ id: sessionId, ...next })
-    return res.error?.message
+    const res = await setWorldMut({
+      id: sessionId,
+      ...next,
+      minPzcor: next.threeD ? (next.minPzcor ?? 0) : null,
+      maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
+      wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
+    })
+    if (res.error?.message) return { message: res.error.message, procedures: [] }
+    return { message: null, procedures: res.data?.setWorld.procedures ?? [] }
   })
 }
 
-async function retryWhileRunning(run: () => Promise<string | undefined>) {
-  let message: string | null = null
+async function retryWhileRunning(run: () => Promise<WorldApply>): Promise<WorldApply> {
+  let last: WorldApply = { message: null, procedures: [] }
   for (let attempt = 0; attempt < 10; attempt++) {
-    const err = await run()
-    if (reportDisconnect(err)) return 'Server disconnected. Reconnecting…'
-    message = err ?? null
-    if (!message || !/model is running|running a command/i.test(message)) return message
+    const got = await run()
+    if (reportDisconnect(got.message)) return { message: 'Server disconnected. Reconnecting…', procedures: [] }
+    last = got
+    if (!got.message || !/model is running|running a command/i.test(got.message)) return got
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
-  return message
+  return last
 }
 
 function dragHasFiles(event: DragEvent) {
@@ -972,7 +1086,7 @@ function presentCompileError(message: string, source: string, filename?: string)
 function codeLines(filename: string, source: string) {
   let code = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const lower = filename.toLowerCase()
-  const xml = lower.endsWith('.nlogox') || /^\s*<\?xml/.test(code) || /^\s*<model[\s>]/.test(code)
+  const xml = lower.endsWith('.nlogox') || lower.endsWith('.nlogox3d') || /^\s*<\?xml/.test(code) || /^\s*<model[\s>]/.test(code)
   if (xml) {
     const found = code.match(/<code[^>]*>([\s\S]*?)<\/code>/i)
     if (found) {
