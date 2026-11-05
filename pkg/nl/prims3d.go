@@ -158,7 +158,7 @@ func (vm *VM) primCmd3D(name string, args []Value, pos Pos) (handled bool, err e
 		}
 		if vm.self == nil {
 			// The observer form moves the camera.
-			w.obsX, w.obsY, w.obsZ = n[0], n[1], n[2]
+			w.ObserverSetXYZ(n[0], n[1], n[2])
 			return true, nil
 		}
 		return true, w.MoveTo3(vm.requireTurtle(pos), n[0], n[1], n[2])
@@ -168,16 +168,19 @@ func (vm *VM) primCmd3D(name string, args []Value, pos Pos) (handled bool, err e
 			return true, err
 		}
 		if vm.self == nil {
-			// Observer camera orientation is not modeled; see orbit-*.
+			// The observer form points the camera.
+			w.ObserverFaceXYZ(n[0], n[1], n[2])
 			return true, nil
 		}
 		return true, w.FaceXYZ(vm.requireTurtle(pos), n[0], n[1], n[2], true)
 	case "face":
 		if vm.self == nil {
-			// The observer form points the camera, which is not modeled.
-			if args[0].K != KindAgent || args[0].A == nil || args[0].A.IsDead() {
+			// The observer form points the camera at the agent.
+			x, y, z, err := vm.agentPoint3(args[0])
+			if err != nil {
 				return true, fmt.Errorf("face expected an agent")
 			}
+			w.ObserverFaceXYZ(x, y, z)
 			return true, nil
 		}
 		t := vm.requireTurtle(pos)
@@ -188,7 +191,7 @@ func (vm *VM) primCmd3D(name string, args []Value, pos Pos) (handled bool, err e
 		return true, w.FaceXYZ(t, x, y, z, true)
 	case "home":
 		if vm.self == nil {
-			w.homeObserver()
+			w.ObserverReset()
 			return true, nil
 		}
 		return true, w.MoveTo3(vm.requireTurtle(pos), 0, 0, 0)
@@ -239,12 +242,24 @@ func (vm *VM) primCmd3D(name string, args []Value, pos Pos) (handled bool, err e
 		w.RollRight(vm.requireTurtle(pos), n)
 		return true, nil
 	case "orbit-up", "orbit-down", "orbit-left", "orbit-right", "zoom":
-		// Camera-only observer commands. GoNetLogo does not model the 3D
-		// camera orientation, and a headless run has no view, so these
-		// check their input and do nothing.
+		// Observer camera commands. They move the camera pose that the
+		// web 3D view follows; a headless run only records it.
 		vm.requireObserver(pos, name)
-		if _, err := args[0].Num(); err != nil {
+		n, err := args[0].Num()
+		if err != nil {
 			return true, fmt.Errorf("%s expected a number", name)
+		}
+		switch name {
+		case "orbit-up":
+			w.ObserverOrbit(0, n)
+		case "orbit-down":
+			w.ObserverOrbit(0, -n)
+		case "orbit-right":
+			w.ObserverOrbit(n, 0)
+		case "orbit-left":
+			w.ObserverOrbit(-n, 0)
+		default:
+			w.ObserverZoom(n)
 		}
 		return true, nil
 	case "load-shapes-3d":
@@ -273,7 +288,7 @@ func (vm *VM) primCmd3D(name string, args []Value, pos Pos) (handled bool, err e
 	case "reset-perspective", "rp":
 		// NetLogo 3D's reset-perspective also sends the camera home. The
 		// 2D path then clears watch/follow/ride.
-		w.homeObserver()
+		w.ObserverReset()
 		return false, nil
 	}
 	return false, nil

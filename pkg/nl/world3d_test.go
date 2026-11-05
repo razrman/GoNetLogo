@@ -264,7 +264,17 @@ to-report approx [ x ] report precision x 6 end
 		{"pzcor of patches", ``, `count patches with [pzcor = 3]`, "49"},
 		{"patch var by turtle", `crt 1 [ setxyz 0 0 2 set heat 5 ]`, `[heat] of patch 0 0 2`, "5"},
 		{"resize-world 6 args", `resize-world -1 1 -1 1 0 2`, `(list world-width world-depth count patches min-pzcor)`, "[3 3 27 0]"},
-		{"observer camera", `setxyz 1 2 3 orbit-up 10 orbit-right 5 zoom 2`, `(list __oxcor __oycor __ozcor)`, "[1 2 3]"},
+		{"observer setxyz", `setxyz 1 2 3`, `(list __oxcor __oycor __ozcor)`, "[1 2 3]"},
+		// From straight above at 10.5, orbit-down 90 lands south of the
+		// target, level with it; orbit-right 90 then swings it east.
+		{"observer orbit-down", `reset-perspective orbit-down 90`, `map approx (list __oxcor __oycor __ozcor)`, "[0 -10.5 0]"},
+		{"observer orbit-right", `reset-perspective orbit-down 90 orbit-right 90`, `map approx (list __oxcor __oycor __ozcor)`, "[10.5 0 0]"},
+		{"observer orbit-left and up", `reset-perspective orbit-down 90 orbit-left 90 orbit-up 45`, `map approx (list __oxcor __oycor __ozcor)`, "[-7.424621 0 7.424621]"},
+		{"observer orbit stops overhead", `reset-perspective orbit-up 30`, `map approx (list __oxcor __oycor __ozcor)`, "[0 0 10.5]"},
+		{"observer zoom", `reset-perspective zoom 4 zoom -1`, `map approx (list __oxcor __oycor __ozcor)`, "[0 0 7.5]"},
+		{"observer zoom stops at target", `reset-perspective zoom 100`, `map approx (list __oxcor __oycor __ozcor)`, "[0 0 0.01]"},
+		{"observer facexyz keeps position", `setxyz 0 -10 0 facexyz 0 0 5 orbit-up 0`, `map approx (list __oxcor __oycor __ozcor)`, "[0 -10 0]"},
+		{"observer face then orbit", `crt 1 [ setxyz 2 0 0 ] setxyz 2 -5 0 face turtle 0 orbit-right 180`, `map approx (list __oxcor __oycor __ozcor)`, "[2 5 0]"},
 		{"reset-perspective homes the camera", `setxyz 1 2 3 reset-perspective`, `(list __oxcor __oycor __ozcor)`, "[0 0 10.5]"},
 		{"diffuse keeps total", `ask patch 0 0 0 [ set heat 26 ] diffuse heat 1`, `(list sum [heat] of patches [heat] of patch 1 1 1 [heat] of patch 0 0 0)`, "[26 1 0]"},
 		{"uphill in 3D", `ask patch 0 0 1 [ set heat 9 ] crt 1 [ uphill heat ]`, `[(list zcor pitch)] of turtle 0`, "[1 90]"},
@@ -463,6 +473,36 @@ func TestLoad3DModels(t *testing.T) {
 	}
 	if m.Is3D || m.View.Is3D || m.View.Depth() != 1 {
 		t.Fatalf("2D model read as 3D: %+v", m.View)
+	}
+}
+
+func TestVoxelsAndObserverPose(t *testing.T) {
+	w := NewWorld3D(-1, 1, -1, 1, -1, 1)
+	if len(w.Voxels()) != 0 {
+		t.Fatalf("a black world has no voxels")
+	}
+	w.GetPatch3(1, 0, -1).PColor = 15
+	w.GetPatch3(-1, 1, 1).PColor = 55
+	vs := w.Voxels()
+	// Patch order: highest layer first.
+	if len(vs) != 2 || vs[0].Z != 1 || vs[0].X != -1 || vs[1].Z != -1 || vs[1].C != ColorRGBA(15) {
+		t.Fatalf("voxels %+v", vs)
+	}
+	if NewWorld(-1, 1, -1, 1, true, true).Voxels() != nil {
+		t.Fatalf("a 2D world has no voxels")
+	}
+	o := w.Observer()
+	if o.Revision != 0 || o.Z != 4.5 || o.TZ != 0 {
+		t.Fatalf("home pose %+v", o)
+	}
+	w.ObserverOrbit(0, -45)
+	w.ObserverZoom(1)
+	if o2 := w.Observer(); o2.Revision != 2 {
+		t.Fatalf("revision %d, want 2", o2.Revision)
+	}
+	w.Resize3(-2, 2, -2, 2, -2, 2)
+	if o3 := w.Observer(); o3.Revision != 2 || o3.Z != 7.5 {
+		t.Fatalf("resize homes without a camera command: %+v", o3)
 	}
 }
 

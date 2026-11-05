@@ -37,10 +37,14 @@ type World struct {
 	// threeD marks a NetLogo 3D world. 3D-only primitives check it, and
 	// the 2D code paths are taken whenever it is false.
 	threeD bool
-	// obsX, obsY, obsZ are the 3D observer camera position set by the
-	// observer forms of setxyz. Nothing renders it; it backs __oxcor etc.
-	obsX, obsY, obsZ float64
-	patches          []*Patch
+	// The 3D observer camera: position, target, spherical pose around the
+	// target, and a revision bumped by every observer camera command. See
+	// world3d.go.
+	obsX, obsY, obsZ        float64
+	obsTX, obsTY, obsTZ     float64
+	obsDist, obsAz, obsElev float64
+	obsRev                  uint64
+	patches                 []*Patch
 	// patchOrder is NetLogo's patch iteration order: top to bottom, left to right.
 	patchOrder []*Patch
 	// patchSet is the cached canonical patches agentset. Patches are not

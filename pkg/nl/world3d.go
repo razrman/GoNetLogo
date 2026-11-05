@@ -419,18 +419,160 @@ func (w *World) RandomPzcor() int {
 
 // --- observer camera ---
 
+// The 3D observer is a camera that looks at a target point. Its position
+// is kept as spherical coordinates around the target: distance, azimuth
+// (degrees counterclockwise from +x, as seen from above), and elevation
+// (degrees above the xy plane). Keeping the azimuth separately means a
+// camera straight above the target still knows which way to come down
+// when orbited.
+//
+// setxyz moves the camera and keeps the target. facexyz and face move the
+// target and keep the camera. orbit-* swing the camera around the target,
+// zoom moves it toward the target, and reset-perspective sends it home.
+// Every one of those bumps obsRev, which tells a viewer the model moved
+// the camera on purpose.
+
+// Observer3D is the observer camera pose of a 3D world.
+type Observer3D struct {
+	X, Y, Z    float64 // camera position
+	TX, TY, TZ float64 // the point it faces
+	// Revision counts observer camera commands. It does not change when
+	// the model only runs, so a viewer can follow camera commands without
+	// fighting the user's own orbiting.
+	Revision uint64
+}
+
 // homeObserver puts the 3D observer camera where NetLogo 3D's
-// reset-perspective does: above the center of the world, far enough out
-// to see all of it. Only __oxcor, __oycor, and __ozcor read it.
+// reset-perspective does: straight above the center of the world, far
+// enough out to see all of it (ozcor is 1.5 times the longest side).
 func (w *World) homeObserver() {
-	w.obsX = float64(w.MinPxcor) + float64(w.MaxPxcor-w.MinPxcor)/2
-	w.obsY = float64(w.MinPycor) + float64(w.MaxPycor-w.MinPycor)/2
+	w.obsTX = float64(w.MinPxcor) + float64(w.MaxPxcor-w.MinPxcor)/2
+	w.obsTY = float64(w.MinPycor) + float64(w.MaxPycor-w.MinPycor)/2
+	w.obsTZ = float64(w.MinPzcor) + float64(w.MaxPzcor-w.MinPzcor)/2
 	side := math.Max(float64(w.width), math.Max(float64(w.height), float64(w.depth)))
-	w.obsZ = side * 1.5
+	w.obsDist = side*1.5 - w.obsTZ
+	w.obsAz = 270 // orbiting down from the top ends up south of the world
+	w.obsElev = 90
+	w.placeObserver()
+}
+
+// placeObserver recomputes the camera position from the target and the
+// spherical coordinates.
+func (w *World) placeObserver() {
+	sa, ca := sincosDeg(w.obsAz)
+	se, ce := sincosDeg(w.obsElev)
+	w.obsX = w.obsTX + w.obsDist*ce*ca
+	w.obsY = w.obsTY + w.obsDist*ce*sa
+	w.obsZ = w.obsTZ + w.obsDist*se
+}
+
+// sincosDeg is sin and cos of an angle in degrees, exact at multiples of
+// 90 so a camera straight above the target reports the target's x and y.
+func sincosDeg(d float64) (float64, float64) {
+	switch normDeg(d) {
+	case 0:
+		return 0, 1
+	case 90:
+		return 1, 0
+	case 180:
+		return 0, -1
+	case 270:
+		return -1, 0
+	}
+	return math.Sincos(d * math.Pi / 180)
+}
+
+// aimObserver recomputes the spherical coordinates from the camera
+// position and target. A camera on the target keeps its old angles.
+func (w *World) aimObserver() {
+	dx, dy, dz := w.obsX-w.obsTX, w.obsY-w.obsTY, w.obsZ-w.obsTZ
+	d := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	if d < 1e-9 {
+		w.obsDist = 0
+		return
+	}
+	w.obsDist = d
+	w.obsElev = math.Asin(math.Max(-1, math.Min(1, dz/d))) * 180 / math.Pi
+	if math.Hypot(dx, dy) > 1e-9 {
+		w.obsAz = normDeg(math.Atan2(dy, dx) * 180 / math.Pi)
+	}
+}
+
+// ObserverSetXYZ is observer setxyz: move the camera, keep facing the
+// same point.
+func (w *World) ObserverSetXYZ(x, y, z float64) {
+	w.obsX, w.obsY, w.obsZ = x, y, z
+	w.aimObserver()
+	w.obsRev++
+}
+
+// ObserverFaceXYZ is observer facexyz and face: keep the camera where it
+// is and look at the point.
+func (w *World) ObserverFaceXYZ(x, y, z float64) {
+	w.obsTX, w.obsTY, w.obsTZ = x, y, z
+	w.aimObserver()
+	w.obsRev++
+}
+
+// ObserverOrbit swings the camera around its target. right turns it
+// counterclockwise seen from above (the camera moves to its right); up
+// raises it. Elevation stops at straight above or straight below, as
+// NetLogo's orbit does not flip the camera over.
+func (w *World) ObserverOrbit(right, up float64) {
+	w.obsAz = normDeg(w.obsAz + right)
+	w.obsElev = math.Max(-90, math.Min(90, w.obsElev+up))
+	w.placeObserver()
+	w.obsRev++
+}
+
+// ObserverZoom moves the camera toward its target by d (away when d is
+// negative). It never passes the target.
+func (w *World) ObserverZoom(d float64) {
+	w.obsDist = math.Max(0.01, w.obsDist-d)
+	w.placeObserver()
+	w.obsRev++
+}
+
+// ObserverReset is reset-perspective's camera part.
+func (w *World) ObserverReset() {
+	w.homeObserver()
+	w.obsRev++
 }
 
 // ObserverXYZ is the observer camera position in a 3D world.
 func (w *World) ObserverXYZ() (float64, float64, float64) { return w.obsX, w.obsY, w.obsZ }
+
+// Observer is the observer camera pose of a 3D world.
+func (w *World) Observer() Observer3D {
+	return Observer3D{
+		X: w.obsX, Y: w.obsY, Z: w.obsZ,
+		TX: w.obsTX, TY: w.obsTY, TZ: w.obsTZ,
+		Revision: w.obsRev,
+	}
+}
+
+// Voxel is one non-black patch of a 3D world, for a 3D viewer.
+type Voxel struct {
+	X, Y, Z int
+	C       color.RGBA
+}
+
+// Voxels lists the patches of a 3D world whose color is not black, in
+// patch order. A 2D world reports nil; its patches are sent as an image.
+func (w *World) Voxels() []Voxel {
+	if !w.threeD {
+		return nil
+	}
+	var out []Voxel
+	for _, p := range w.patchOrder {
+		c := patchRGBA(p)
+		if c.R == 0 && c.G == 0 && c.B == 0 {
+			continue
+		}
+		out = append(out, Voxel{X: p.PX, Y: p.PY, Z: p.PZ, C: c})
+	}
+	return out
+}
 
 // --- projection for flat views ---
 
