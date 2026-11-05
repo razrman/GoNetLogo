@@ -203,7 +203,14 @@ type Session struct {
 	// Procedure names defined by the compiled model.
 	// NetLogo compares these case-insensitively, and the names here are
 	// the compiled spelling, which is lowercase.
-	Procedures   []string `json:"procedures"`
+	Procedures []string `json:"procedures"`
+	// Markdown from the model's Info section. Empty when the file has none.
+	Info string `json:"info"`
+	// Folder containing the loaded model, relative to the models directory.
+	// Empty when the file is in that directory's root. Null when the model
+	// text was not read from the models directory, so a relative Info image
+	// has no folder to resolve against.
+	ModelDir     *string  `json:"modelDir,omitempty"`
 	Ticks        *float64 `json:"ticks,omitempty"`
 	TicksStarted bool     `json:"ticksStarted"`
 	// Smoothed ticks per second over about the last second. Zero while stopped.

@@ -90,6 +90,9 @@ type FileModel struct {
 	// Shapes is the turtle shape library from the file. Nil when the
 	// file has no shapes section; the world then keeps DefaultShapes.
 	Shapes *ShapeList
+	// Info is the model's Info tab as Markdown. Empty when the file
+	// has no info section or the section is blank.
+	Info string
 	// Notes lists widgets this loader does not run.
 	Notes []string
 	Path  string
@@ -179,6 +182,11 @@ func parseNLogo(name, content string) (*FileModel, error) {
 		widgets = parts[1]
 	}
 	m := &FileModel{Name: name, Code: code, View: DefaultView()}
+	// Sections, in order: code, widgets, info, turtle shapes, version.
+	// Info is the Markdown after the second separator.
+	if len(parts) > 2 {
+		m.Info = cleanInfo(parts[2])
+	}
 	// Section 4 is the version line, "NetLogo 3D 6.4.0" for a 3D model.
 	m.Is3D = Is3DModelFile(name) || (len(parts) > 4 && strings.Contains(parts[4], "NetLogo 3D"))
 	if strings.TrimSpace(widgets) != "" {
@@ -530,6 +538,12 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 				return nil, err
 			}
 			m.Code = text
+		case "info":
+			text, err := readElementText(dec, se.Name.Local)
+			if err != nil {
+				return nil, err
+			}
+			m.Info = cleanInfo(text)
 		case "model":
 			if strings.Contains(attr(se, "version"), "NetLogo 3D") {
 				m.Is3D = true
@@ -1129,6 +1143,39 @@ func attr(se xml.StartElement, name string) string {
 		}
 	}
 	return ""
+}
+
+// readElementText reads until the matching end tag. Character data,
+// including a CDATA section, is kept as written so Markdown such as
+// <sub> survives. Nested elements contribute their text only.
+func readElementText(dec *xml.Decoder, end string) (string, error) {
+	var b strings.Builder
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", err
+		}
+		switch t := tok.(type) {
+		case xml.CharData:
+			b.Write(t)
+		case xml.StartElement:
+			inner, err := readElementText(dec, t.Name.Local)
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(inner)
+		case xml.EndElement:
+			if t.Name.Local == end {
+				return b.String(), nil
+			}
+		}
+	}
+}
+
+func cleanInfo(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.TrimSpace(s)
 }
 
 // --- compile and apply ---

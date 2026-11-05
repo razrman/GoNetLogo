@@ -66,7 +66,8 @@ func (st *Store) Create(modelName string) (*Session, error) {
 		return nil, err
 	}
 	s := newSession()
-	if err := s.useModel(name, content); err != nil {
+	root := ""
+	if err := s.useModelFrom(name, content, &root); err != nil {
 		slog.Warn("session create failed", "session", s.id, "model", name, "err", err)
 		s.Close()
 		return nil, err
@@ -109,6 +110,10 @@ type Session struct {
 	id        string
 	modelName string
 	model     *nl.FileModel
+	// modelDir is the loaded file's folder relative to the models
+	// directory. Nil when the text was not read from that directory.
+	// A pointer to an empty string is the models root.
+	modelDir  *string
 	vm        *nl.VM
 	buttons   map[int][]nl.Stmt
 	running   int
@@ -385,6 +390,13 @@ func (s *Session) Subscribe() (wake <-chan struct{}, cancel func()) {
 }
 
 func (s *Session) useModel(name, content string) error {
+	return s.useModelFrom(name, content, nil)
+}
+
+// useModelFrom installs a parsed model. modelDir is the folder relative
+// to the models directory, copied so the caller can reuse its variable.
+// nil clears it: the text did not come from that directory.
+func (s *Session) useModelFrom(name, content string, modelDir *string) error {
 	n := len(content)
 	m, err := nl.ParseModel(name, content)
 	if err != nil {
@@ -405,6 +417,12 @@ func (s *Session) useModel(name, content string) error {
 	s.log = nil
 	s.logMu.Unlock()
 	s.installLocked(name, m, vm)
+	if modelDir == nil {
+		s.modelDir = nil
+	} else {
+		dir := *modelDir
+		s.modelDir = &dir
+	}
 	s.broadcastLocked()
 	return nil
 }
@@ -472,7 +490,8 @@ func (s *Session) LoadModel(modelName string) error {
 		slog.Warn("model load failed", "session", s.id, "model", modelName, "err", err)
 		return err
 	}
-	return s.useModel(name, content)
+	root := ""
+	return s.useModelFrom(name, content, &root)
 }
 
 // LoadModelSource replaces the program with the contents of a .nlogo or
@@ -489,7 +508,7 @@ func (s *Session) LoadModelSource(filename, source string) error {
 		slog.Warn("model load failed", "session", s.id, "model", filename, "bytes", len(source), "err", err)
 		return err
 	}
-	return s.useModel(modelDisplayName(filename), source)
+	return s.useModelFrom(modelDisplayName(filename), source, nil)
 }
 
 // LoadModelFile reads one model from the server models directory
@@ -500,7 +519,8 @@ func (s *Session) LoadModelFile(path string) error {
 		slog.Warn("model load failed", "session", s.id, "model", path, "err", err)
 		return err
 	}
-	return s.useModel(name, content)
+	dir := modelDirectory(path)
+	return s.useModelFrom(name, content, &dir)
 }
 
 // SetCode recompiles the editor buffer. A failed compile keeps the
@@ -1263,10 +1283,15 @@ func (s *Session) sessionLocked() *model.Session {
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
+		out.Info = s.model.Info
 		out.Notes = append([]string(nil), s.model.Notes...)
 		if out.Notes == nil {
 			out.Notes = []string{}
 		}
+	}
+	if s.modelDir != nil {
+		dir := *s.modelDir
+		out.ModelDir = &dir
 	}
 	s.fillRunStats(out)
 	var started bool

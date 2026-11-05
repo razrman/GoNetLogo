@@ -156,6 +156,8 @@ const openedModelFields = `
   id
   modelName
   code
+  info
+  modelDir
   notes
   procedures
   widgets { index kind display forever }
