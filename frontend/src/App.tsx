@@ -108,6 +108,11 @@ export function App() {
   const [libraryError, setLibraryError] = useState<string | null>(null)
   const [libraryLoading, setLibraryLoading] = useState(false)
 
+  const modelTitle = interfaceModelTitle(modelName)
+  useEffect(() => {
+    document.title = `${modelTitle} - GoNetLogo`
+  }, [modelTitle])
+
   useEffect(() => onConnection(setOnline), [])
   useEffect(() => {
     if (models.error) reportDisconnect(models.error.message)
@@ -605,7 +610,12 @@ export function App() {
                 void onPickFile(e.dataTransfer.files?.[0])
               }}
             >
-              <MainTabs tab={tab} onChange={requestTab} />
+              <div className="view-bar">
+                <MainTabs tab={tab} onChange={requestTab} />
+                <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                  {modelTitle}
+                </h1>
+              </div>
               <div className="canvas-wrap">
                 {booting && !frame ? (
                   <div className="loading">Opening the forest fire…</div>
@@ -718,6 +728,15 @@ export function App() {
       )}
     </div>
   )
+}
+
+// interfaceModelTitle is the name NetLogo puts in the window title:
+// the file name without its extension. A missing name, or a file
+// named Untitled, is a blank model.
+function interfaceModelTitle(modelName: string): string {
+  const base = modelName.replace(/\.nlogo(?:x3d|x|3d)?$/i, '').trim()
+  if (base === '' || /^untitled$/i.test(base)) return 'Untitled'
+  return base
 }
 
 type MainTab = 'interface' | 'world' | 'code'
