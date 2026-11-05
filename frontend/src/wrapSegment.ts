@@ -25,6 +25,19 @@ export type Vec3 = { x: number; y: number; z: number }
 
 export type Segment = { a: Vec3; b: Vec3 }
 
+export type Vec2 = { x: number; y: number }
+
+export type WrapBounds2D = {
+  x: AxisBounds
+  y: AxisBounds
+}
+
+export type Segment2D = { a: Vec2; b: Vec2 }
+
+// A 2D link has no Z motion. This axis never wraps, so the 3D split
+// leaves it alone.
+const flatZ: AxisBounds = { min: 0, max: 1, wrap: false }
+
 const axes = ['x', 'y', 'z'] as const
 type Axis = (typeof axes)[number]
 
@@ -118,4 +131,19 @@ export function wrapSegments(a: Vec3, b: Vec3, bounds: WrapBounds): Segment[] {
   if (!samePoint(start, b)) segments.push({ a: start, b: { ...b } })
   if (segments.length === 0) return [{ a: { ...a }, b: { ...b } }]
   return segments
+}
+
+// wrapSegments2D is wrapSegments for a flat link. The pieces are in
+// order from end 1 to end 2, so an arrowhead on the last point sits
+// on end 2.
+export function wrapSegments2D(a: Vec2, b: Vec2, bounds: WrapBounds2D): Segment2D[] {
+  const segs = wrapSegments(
+    { x: a.x, y: a.y, z: 0 },
+    { x: b.x, y: b.y, z: 0 },
+    { x: bounds.x, y: bounds.y, z: flatZ },
+  )
+  return segs.map((s) => ({
+    a: { x: s.a.x, y: s.a.y },
+    b: { x: s.b.x, y: s.b.y },
+  }))
 }
