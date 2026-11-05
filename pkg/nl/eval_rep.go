@@ -195,10 +195,17 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 	case "file-read-line":
 		return vm.fileReadLine()
 	case "file-read-characters":
-		// reads n characters from file
-		return Str(""), nil
-	case "user-file", "user-new-file", "user-directory":
-		return Bool(false), nil
+		n, err := asInt(args[0], "file-read-characters")
+		if err != nil {
+			return Value{}, err
+		}
+		return vm.fileReadChars(n)
+	case "user-file":
+		return vm.userPick(vm.UserFile)
+	case "user-new-file":
+		return vm.userPick(vm.UserNewFile)
+	case "user-directory":
+		return vm.userPick(vm.UserDirectory)
 	case "one-of":
 		return vm.oneOf(args[0])
 	case "n-of":
@@ -1340,6 +1347,16 @@ func (vm *VM) asAgentset(v Value) (*AgentSet, error) {
 func (vm *VM) oneOf(v Value) (Value, error) {
 	switch v.K {
 	case KindAgentset:
+		if v.Set == nil || len(v.Set.Agents) == 0 {
+			return Nobody(), nil
+		}
+		// The canonical patch set never contains dead agents, and Patches
+		// caches it. Indexing it keeps one-of patches O(1). Rock Paper
+		// Scissors asks one random patch per event, once per patch per tick.
+		if v.Set.All && v.Set.Kind == KindPatch {
+			ags := v.Set.Agents
+			return AgentVal(ags[vm.World.rng.Intn(len(ags))]), nil
+		}
 		live := v.Set.Alive()
 		if len(live) == 0 {
 			return Nobody(), nil
@@ -1354,7 +1371,6 @@ func (vm *VM) oneOf(v Value) (Value, error) {
 		return Value{}, fmt.Errorf("one-of expected a list or agentset")
 	}
 }
-
 
 func (vm *VM) randomPoisson(lam float64) float64 {
 	if lam == 0 {
@@ -2398,8 +2414,7 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		vm.World.SetHeading(t, n)
-		return true, nil
+		return true, vm.World.SetHeading(t, n)
 	case "xcor":
 		n, err := v.Num()
 		if err != nil {

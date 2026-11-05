@@ -153,18 +153,9 @@ func (p *parser) parseStructure() error {
 			}
 			p.prog.LinksOwn = append(p.prog.LinksOwn, names...)
 		case "__includes":
-			p.next()
-			if p.peek().Kind != TokLBrack {
-				return p.errf(p.peek(), "expected [")
-			}
-			p.next()
-			for p.peek().Kind != TokRBrack {
-				if p.peek().Kind == TokEOF {
-					return p.errf(p.peek(), "expected ]")
-				}
-				p.next()
-			}
-			p.next()
+			// Model compile splices included files in before Parse. Seeing
+			// the directive here means the .nls files were not loaded.
+			return p.errf(t, "__includes was not loaded; included files are read when compiling a model")
 		case "extensions":
 			p.next()
 			names, err := p.parseNameList()
@@ -441,6 +432,9 @@ func (p *parser) parseStatement(variadic bool) (Stmt, error) {
 		return p.parseLoop()
 	case "every":
 		return p.parseEvery()
+	// ask-concurrent is sequential. NetLogo 6 removed the old concurrent
+	// scheduler and kept the name as another way to write ask, so models
+	// that still say ask-concurrent run one agent at a time.
 	case "ask", "ask-concurrent":
 		return p.parseAsk()
 	case "foreach":

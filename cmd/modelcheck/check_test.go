@@ -109,8 +109,28 @@ func TestExtensionColon(t *testing.T) {
 func TestIncludesDirective(t *testing.T) {
 	path := writeModel(t, "inc.nlogo", "__includes [ \"actions.nls\" ]\nto setup\nend\n")
 	res := Check(path, Options{SkipRun: true})
-	if !res.CompileOK || !res.Includes {
+	if res.CompileOK || !res.Includes {
 		t.Fatalf("includes %+v", res)
+	}
+	if !strings.Contains(strings.ToLower(res.Error), "__includes") {
+		t.Fatalf("signature %s err %s", Signature(res), res.Error)
+	}
+}
+
+func TestIncludesLoaded(t *testing.T) {
+	dir := t.TempDir()
+	nls := "to helper\nend\n"
+	if err := os.WriteFile(filepath.Join(dir, "actions.nls"), []byte(nls), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "__includes [ \"actions.nls\" ]\nto setup\n  helper\nend\n"
+	path := filepath.Join(dir, "inc.nlogo")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := Check(path, Options{SkipRun: true})
+	if !res.CompileOK {
+		t.Fatalf("stage %s: %s", res.Stage, res.Error)
 	}
 }
 

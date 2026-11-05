@@ -6,16 +6,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 )
 
 type fileHandle struct {
-	path     string
-	f        *os.File
-	writing  bool
-	reader   *bufio.Reader
-	atEnd    bool
+	path    string
+	f       *os.File
+	writing bool
+	reader  *bufio.Reader
+	atEnd   bool
 }
 
 type fileMgr struct {
@@ -214,95 +215,223 @@ func (vm *VM) fileReadLine() (Value, error) {
 	return Str(line), nil
 }
 
-func (vm *VM) fileRead() (Value, error) {
+func (vm *VM) readingHandle() (*fileHandle, error) {
 	mgr := vm.fileMgr()
 	if mgr.current == nil {
-		return Value{}, fmt.Errorf("no open file")
+		return nil, fmt.Errorf("no open file")
 	}
 	h := mgr.current
 	if h.reader == nil {
 		h.reader = bufio.NewReader(h.f)
 	}
+	return h, nil
+}
+
+// fileRead reads one NetLogo constant: a number, string, boolean, nobody,
+// or a list of those. It does not evaluate reporters or read globals.
+func (vm *VM) fileRead() (Value, error) {
+	h, err := vm.readingHandle()
+	if err != nil {
+		return Value{}, err
+	}
+	v, err := readFileValue(h)
+	if err == io.EOF {
+		h.atEnd = true
+		return Value{}, fmt.Errorf("end of file reached")
+	}
+	return v, err
+}
+
+func (vm *VM) fileReadChars(n int) (Value, error) {
+	if n < 0 {
+		return Value{}, fmt.Errorf("file-read-characters expected a non-negative number")
+	}
+	h, err := vm.readingHandle()
+	if err != nil {
+		return Value{}, err
+	}
+	if n == 0 {
+		return Str(""), nil
+	}
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		r, _, err := h.reader.ReadRune()
+		if err != nil {
+			h.atEnd = true
+			if err == io.EOF {
+				return Value{}, fmt.Errorf("end of file reached")
+			}
+			return Value{}, err
+		}
+		b.WriteRune(r)
+	}
+	return Str(b.String()), nil
+}
+
+func (vm *VM) userPick(fn func() (string, bool)) (Value, error) {
+	if fn == nil {
+		return Bool(false), nil
+	}
+	path, ok := fn()
+	if !ok || path == "" {
+		return Bool(false), nil
+	}
+	return Str(path), nil
+}
+
+func readFileValue(h *fileHandle) (Value, error) {
+	if err := skipFileSpace(h); err != nil {
+		return Value{}, err
+	}
+	r, _, err := h.reader.ReadRune()
+	if err != nil {
+		return Value{}, err
+	}
+	switch r {
+	case '[':
+		return readFileList(h)
+	case '"':
+		return readFileString(h)
+	case ']', '(', ')', '{', '}':
+		return Value{}, fmt.Errorf("file-read expected a constant, got %q", string(r))
+	default:
+		if err := h.reader.UnreadRune(); err != nil {
+			return Value{}, err
+		}
+		tok, err := readFileToken(h)
+		if err != nil {
+			return Value{}, err
+		}
+		return parseFileAtom(tok)
+	}
+}
+
+func readFileList(h *fileHandle) (Value, error) {
+	var items []Value
+	for {
+		if err := skipFileSpace(h); err != nil {
+			if err == io.EOF {
+				h.atEnd = true
+				return Value{}, fmt.Errorf("unexpected end of file reading list")
+			}
+			return Value{}, err
+		}
+		r, _, err := h.reader.ReadRune()
+		if err != nil {
+			h.atEnd = true
+			return Value{}, fmt.Errorf("unexpected end of file reading list")
+		}
+		if r == ']' {
+			if items == nil {
+				items = []Value{}
+			}
+			return List(items...), nil
+		}
+		if err := h.reader.UnreadRune(); err != nil {
+			return Value{}, err
+		}
+		v, err := readFileValue(h)
+		if err != nil {
+			if err == io.EOF {
+				h.atEnd = true
+				return Value{}, fmt.Errorf("unexpected end of file reading list")
+			}
+			return Value{}, err
+		}
+		items = append(items, v)
+	}
+}
+
+func readFileString(h *fileHandle) (Value, error) {
+	var b strings.Builder
 	for {
 		r, _, err := h.reader.ReadRune()
 		if err != nil {
 			h.atEnd = true
-			return Value{}, fmt.Errorf("end of file reached")
+			return Value{}, fmt.Errorf("unexpected end of file reading string")
 		}
-		if !unicode.IsSpace(r) {
-			_ = h.reader.UnreadRune()
-			break
+		if r == '"' {
+			return Str(b.String()), nil
 		}
-	}
-	r, _, err := h.reader.ReadRune()
-	if err != nil {
-		h.atEnd = true
-		return Value{}, fmt.Errorf("end of file reached")
-	}
-	if r == '[' {
-		depth := 1
-		var buf strings.Builder
-		buf.WriteRune(r)
-		for depth > 0 {
-			ch, _, err := h.reader.ReadRune()
-			if err != nil {
-				h.atEnd = true
-				return Value{}, fmt.Errorf("unexpected end of file reading list")
-			}
-			buf.WriteRune(ch)
-			if ch == '[' {
-				depth++
-			} else if ch == ']' {
-				depth--
-			}
-		}
-		expr, err := ParseReporter(buf.String(), vm.Prog)
-		if err != nil {
-			return Value{}, err
-		}
-		return vm.eval(expr)
-	} else if r == '"' {
-		var buf strings.Builder
-		buf.WriteRune(r)
-		for {
-			ch, _, err := h.reader.ReadRune()
+		if r == '\\' {
+			esc, _, err := h.reader.ReadRune()
 			if err != nil {
 				h.atEnd = true
 				return Value{}, fmt.Errorf("unexpected end of file reading string")
 			}
-			buf.WriteRune(ch)
-			if ch == '"' {
-				break
+			switch esc {
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
+			case 'r':
+				b.WriteByte('\r')
+			case '\\', '"':
+				b.WriteRune(esc)
+			default:
+				return Value{}, fmt.Errorf("file-read found an illegal character after a backslash")
 			}
+			continue
 		}
-		expr, err := ParseReporter(buf.String(), vm.Prog)
+		if r == '\n' {
+			return Value{}, fmt.Errorf("file-read reached the end of the line before a closing quote")
+		}
+		b.WriteRune(r)
+	}
+}
+
+func readFileToken(h *fileHandle) (string, error) {
+	var b strings.Builder
+	for {
+		r, _, err := h.reader.ReadRune()
 		if err != nil {
-			return Value{}, err
-		}
-		return vm.eval(expr)
-	} else {
-		var buf strings.Builder
-		buf.WriteRune(r)
-		for {
-			ch, _, err := h.reader.ReadRune()
-			if err != nil {
-				if err == io.EOF {
-					h.atEnd = true
-					break
+			if err == io.EOF {
+				h.atEnd = true
+				if b.Len() == 0 {
+					return "", err
 				}
-				return Value{}, err
+				return b.String(), nil
 			}
-			if unicode.IsSpace(ch) || ch == '[' || ch == ']' || ch == '"' {
-				_ = h.reader.UnreadRune()
-				break
-			}
-			buf.WriteRune(ch)
+			return "", err
 		}
-		tokStr := buf.String()
-		expr, err := ParseReporter(tokStr, vm.Prog)
+		if unicode.IsSpace(r) || r == '[' || r == ']' || r == '"' {
+			if err := h.reader.UnreadRune(); err != nil {
+				return "", err
+			}
+			break
+		}
+		b.WriteRune(r)
+	}
+	if b.Len() == 0 {
+		return "", fmt.Errorf("file-read expected a constant")
+	}
+	return b.String(), nil
+}
+
+func parseFileAtom(tok string) (Value, error) {
+	switch strings.ToLower(tok) {
+	case "true":
+		return Bool(true), nil
+	case "false":
+		return Bool(false), nil
+	case "nobody":
+		return Nobody(), nil
+	}
+	n, err := strconv.ParseFloat(tok, 64)
+	if err != nil {
+		return Value{}, fmt.Errorf("file-read expected a constant, got %s", tok)
+	}
+	return Num(n), nil
+}
+
+func skipFileSpace(h *fileHandle) error {
+	for {
+		r, _, err := h.reader.ReadRune()
 		if err != nil {
-			return Value{}, err
+			return err
 		}
-		return vm.eval(expr)
+		if !unicode.IsSpace(r) {
+			return h.reader.UnreadRune()
+		}
 	}
 }

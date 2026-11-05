@@ -1,6 +1,7 @@
 package nl
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"math"
@@ -28,6 +29,9 @@ type World struct {
 	patches       []*Patch
 	// patchOrder is NetLogo's patch iteration order: top to bottom, left to right.
 	patchOrder []*Patch
+	// patchSet is the cached canonical patches agentset. Patches are not
+	// created or destroyed except by resize, so one-of patches can index it.
+	patchSet *AgentSet
 
 	turtles map[int]*Turtle
 	whoSeq  []int // ascending who, including dead slots compacted lazily
@@ -225,6 +229,7 @@ func NewWorld(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) *World {
 }
 
 func (w *World) recreatePatches() {
+	w.patchSet = nil
 	w.width = w.MaxPxcor - w.MinPxcor + 1
 	w.height = w.MaxPycor - w.MinPycor + 1
 	if w.width < 1 || w.height < 1 {
@@ -603,6 +608,21 @@ func (w *World) wrapCoordY(y float64) (float64, error) {
 // non-wrapping axis. Commands decide whether that is a runtime error.
 var errOutsideWorld = fmt.Errorf("the turtle cannot move beyond the world's edge")
 
+// errTiedOutside means a tied follower could not follow. fd swallows the
+// root's own boundary and stops; it does not swallow this.
+var errTiedOutside = fmt.Errorf("a tied turtle cannot move beyond the world's edge")
+
+// edgeError is a root turtle leaving the world. Unwrap exposes
+// errOutsideWorld so fd can stop quietly without hiding errTiedOutside.
+type edgeError struct{ msg string }
+
+func (e *edgeError) Error() string { return e.msg }
+func (e *edgeError) Unwrap() error { return errOutsideWorld }
+
+func outsidePoint(x, y float64) error {
+	return &edgeError{msg: fmt.Sprintf("the point [%s %s] is outside of the world", formatNum(x), formatNum(y))}
+}
+
 func (w *World) roundPatch(v float64) int {
 	return int(math.Floor(v + 0.5))
 }
@@ -892,7 +912,7 @@ func (w *World) TurtlesOfBreed(plural string) *AgentSet {
 			ags = append(ags, t)
 		}
 	}
-	return &AgentSet{Kind: KindTurtle, Breed: plural, Agents: ags}
+	return &AgentSet{Kind: KindTurtle, Breed: plural, Named: true, Agents: ags}
 }
 
 func (w *World) Turtle(who int) *Turtle {
@@ -904,11 +924,15 @@ func (w *World) Turtle(who int) *Turtle {
 }
 
 func (w *World) Patches() *AgentSet {
+	if w.patchSet != nil {
+		return w.patchSet
+	}
 	ags := make([]Agent, len(w.patchOrder))
 	for i, p := range w.patchOrder {
 		ags[i] = p
 	}
-	return &AgentSet{Kind: KindPatch, All: true, Agents: ags}
+	w.patchSet = &AgentSet{Kind: KindPatch, All: true, Agents: ags}
+	return w.patchSet
 }
 
 func (w *World) initTurtleVars(t *Turtle) {
@@ -1093,16 +1117,53 @@ func (w *World) MoveTo(t *Turtle, x, y float64) error {
 	return w.moveToInternal(t, x, y, make(map[*Turtle]bool))
 }
 
+// tiedOther is the turtle that follows root across this link.
+// A directed link follows only from end1 to end2. An undirected link
+// follows in either direction. tie-mode "none" does not follow.
+func tiedOther(root *Turtle, l *Link) *Turtle {
+	if l == nil || l.dead || root == nil || l.TieMode == "none" || l.TieMode == "" {
+		return nil
+	}
+	if l.Directed {
+		if l.End1 == root {
+			return l.End2
+		}
+		return nil
+	}
+	if l.End1 == root {
+		return l.End2
+	}
+	if l.End2 == root {
+		return l.End1
+	}
+	return nil
+}
+
+func tieMoveErr(err error) error {
+	if err == nil || errors.Is(err, errTiedOutside) {
+		return err
+	}
+	if errors.Is(err, errOutsideWorld) {
+		return errTiedOutside
+	}
+	return err
+}
+
 func (w *World) moveToInternal(t *Turtle, x, y float64, visited map[*Turtle]bool) error {
 	if visited[t] {
 		return nil
 	}
 	visited[t] = true
+	return w.moveToMarked(t, x, y, visited)
+}
 
+// moveToMarked moves t, which is already in visited, and translates turtles
+// tied to it that have not been visited yet.
+func (w *World) moveToMarked(t *Turtle, x, y float64, visited map[*Turtle]bool) error {
 	nx, errX := w.wrapCoordX(x)
 	ny, errY := w.wrapCoordY(y)
 	if errX != nil || errY != nil {
-		return fmt.Errorf("the point [%s %s] is outside of the world", formatNum(x), formatNum(y))
+		return outsidePoint(x, y)
 	}
 	oldX, oldY := t.X, t.Y
 	dx := nx - oldX
@@ -1115,27 +1176,17 @@ func (w *World) moveToInternal(t *Turtle, x, y float64, visited map[*Turtle]bool
 	t.X, t.Y = nx, ny
 	w.attach(t)
 
+	var tiedErr error
 	for _, l := range t.links {
-		if l == nil || l.dead || l.TieMode == "none" || l.TieMode == "" {
+		leaf := tiedOther(t, l)
+		if leaf == nil || leaf.dead || visited[leaf] {
 			continue
 		}
-		var leaf *Turtle
-		if l.Directed {
-			if l.End1 == t {
-				leaf = l.End2
-			}
-		} else {
-			if l.End1 == t {
-				leaf = l.End2
-			} else if l.End2 == t {
-				leaf = l.End1
-			}
-		}
-		if leaf != nil && !leaf.dead && !visited[leaf] {
-			_ = w.moveToInternal(leaf, leaf.X+dx, leaf.Y+dy, visited)
+		if err := w.moveToInternal(leaf, leaf.X+dx, leaf.Y+dy, visited); err != nil && tiedErr == nil {
+			tiedErr = tieMoveErr(err)
 		}
 	}
-	return nil
+	return tiedErr
 }
 
 // fdInfinitesimal matches NetLogo's Numbers.Infinitesimal. A leftover
@@ -1152,18 +1203,29 @@ func (w *World) Forward(t *Turtle, dist float64) error {
 			return nil
 		}
 		if mag <= 1 {
-			_ = w.Jump(t, dist)
-			return nil
+			return swallowEdge(w.Jump(t, dist))
 		}
 		step := 1.0
 		if dist < 0 {
 			step = -1
 		}
 		if err := w.Jump(t, step); err != nil {
-			return nil
+			return swallowEdge(err)
 		}
 		dist -= step
 	}
+}
+
+// swallowEdge turns the moving turtle's own out-of-world error into a
+// quiet stop. A tied follower that cannot follow is still reported.
+func swallowEdge(err error) error {
+	if err == nil || errors.Is(err, errTiedOutside) {
+		return err
+	}
+	if errors.Is(err, errOutsideWorld) {
+		return nil
+	}
+	return err
 }
 
 // Jump moves the whole distance in one step. If that point is outside a
@@ -1187,18 +1249,18 @@ func (w *World) CanMove(t *Turtle, dist float64) bool {
 	return w.PatchAt(t.X+dx, t.Y+dy) != nil
 }
 
-func (w *World) SetHeading(t *Turtle, h float64) {
+func (w *World) SetHeading(t *Turtle, h float64) error {
 	delta := h - t.Heading
-	w.Turn(t, delta)
+	return w.Turn(t, delta)
 }
 
-func (w *World) Turn(t *Turtle, delta float64) {
-	w.turnInternal(t, delta, make(map[*Turtle]bool))
+func (w *World) Turn(t *Turtle, delta float64) error {
+	return w.turnInternal(t, delta, make(map[*Turtle]bool))
 }
 
-func (w *World) turnInternal(t *Turtle, delta float64, visited map[*Turtle]bool) {
+func (w *World) turnInternal(t *Turtle, delta float64, visited map[*Turtle]bool) error {
 	if visited[t] {
-		return
+		return nil
 	}
 	visited[t] = true
 
@@ -1208,34 +1270,46 @@ func (w *World) turnInternal(t *Turtle, delta float64, visited map[*Turtle]bool)
 	rad := delta * math.Pi / 180
 	cosA, sinA := math.Cos(rad), math.Sin(rad)
 
+	// Mark every direct follower before moving any of them. A turtle
+	// reached by two ties is then rotated once, and moveToMarked will
+	// not drag it along as someone else's follower.
+	type turned struct {
+		leaf *Turtle
+		mode string
+		x, y float64
+	}
+	var leaves []turned
 	for _, l := range t.links {
-		if l == nil || l.dead || l.TieMode == "none" || l.TieMode == "" {
+		leaf := tiedOther(t, l)
+		if leaf == nil || leaf.dead || visited[leaf] {
 			continue
 		}
-		var leaf *Turtle
-		if l.Directed {
-			if l.End1 == t {
-				leaf = l.End2
+		visited[leaf] = true
+		relX := leaf.X - t.X
+		relY := leaf.Y - t.Y
+		leaves = append(leaves, turned{
+			leaf: leaf,
+			mode: l.TieMode,
+			x:    t.X + relX*cosA + relY*sinA,
+			y:    t.Y - relX*sinA + relY*cosA,
+		})
+	}
+	var tiedErr error
+	for _, lf := range leaves {
+		err := w.moveToMarked(lf.leaf, lf.x, lf.y, visited)
+		if err != nil {
+			if tiedErr == nil {
+				tiedErr = tieMoveErr(err)
 			}
-		} else {
-			if l.End1 == t {
-				leaf = l.End2
-			} else if l.End2 == t {
-				leaf = l.End1
-			}
+			// A follower that cannot move keeps its heading.
+			continue
 		}
-		if leaf != nil && !leaf.dead && !visited[leaf] {
-			relX := leaf.X - t.X
-			relY := leaf.Y - t.Y
-			newRelX := relX*cosA + relY*sinA
-			newRelY := -relX*sinA + relY*cosA
-			_ = w.moveToInternal(leaf, t.X+newRelX, t.Y+newRelY, visited)
-			delete(visited, leaf)
-			if l.TieMode == "fixed" {
-				w.turnInternal(leaf, delta, visited)
-			}
+		if lf.mode == "fixed" {
+			lf.leaf.Heading += delta
+			w.normalizeHeading(lf.leaf)
 		}
 	}
+	return tiedErr
 }
 
 // PatchHere is the patch under a turtle.
@@ -1600,10 +1674,11 @@ func (w *World) Hill(t *Turtle, varName string, four, down bool) error {
 	}
 	h, err := w.HeadingTowards(t.X, t.Y, float64(pick.PX), float64(pick.PY))
 	if err == nil {
-		w.SetHeading(t, h)
+		if err := w.SetHeading(t, h); err != nil {
+			return err
+		}
 	}
-	w.MoveTo(t, float64(pick.PX), float64(pick.PY))
-	return nil
+	return w.MoveTo(t, float64(pick.PX), float64(pick.PY))
 }
 
 func (w *World) Diffuse(varName string, amount float64, four bool) error {

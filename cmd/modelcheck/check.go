@@ -266,30 +266,50 @@ func findSetupAction(prog *nl.Program, widgets []nl.Widget) string {
 	if p != nil && !p.IsReporter && len(p.Params) == 0 {
 		return "setup"
 	}
+	best := ""
+	bestScore := 0
 	for _, w := range widgets {
 		if w.Kind != "button" {
 			continue
 		}
 		src := strings.TrimSpace(w.Source)
-		if src == "" {
-			continue
+		score := setupButtonScore(prog, src, w.Display)
+		if score > bestScore {
+			best = src
+			bestScore = score
 		}
-		fields := strings.Fields(src)
-		if len(fields) == 0 {
-			continue
-		}
-		firstWord := strings.ToLower(fields[0])
-		if firstWord == "setup" || strings.HasPrefix(firstWord, "setup-") || strings.HasPrefix(firstWord, "setup_") {
-			return src
-		}
-		if strings.Contains(strings.ToLower(w.Display), "setup") {
-			return src
-		}
+	}
+	if best != "" {
+		return best
 	}
 	if p != nil && !p.IsReporter {
 		return "setup"
 	}
 	return ""
+}
+
+// setupButtonScore ranks a button as setup. The command has to start
+// with setup, or the display has to be exactly "setup". A display that
+// merely contains that substring is not enough.
+func setupButtonScore(prog *nl.Program, src, display string) int {
+	fields := strings.Fields(src)
+	if len(fields) == 0 {
+		return 0
+	}
+	first := strings.ToLower(fields[0])
+	sourceSetup := first == "setup" || strings.HasPrefix(first, "setup-") || strings.HasPrefix(first, "setup_")
+	exactDisplay := strings.EqualFold(strings.TrimSpace(display), "setup")
+	score := 0
+	if sourceSetup {
+		score = 3
+		if len(fields) == 1 && isCommand(prog, first) {
+			score = 4
+		}
+	}
+	if exactDisplay && score < 2 {
+		score = 2
+	}
+	return score
 }
 
 func findGoAction(prog *nl.Program, widgets []nl.Widget) string {

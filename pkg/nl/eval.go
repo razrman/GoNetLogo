@@ -130,10 +130,21 @@ type VM struct {
 	// askBuf collects one breed for ask without allocating a fresh agentset.
 	askBuf []Agent
 	// runCache remembers run strings that are not a bare command name.
-	runCache map[string][]Stmt
-	ModelDir string
-	files    *fileMgr
+	runCache    map[string][]Stmt
+	ModelDir    string
+	files       *fileMgr
 	everyTimers map[everyKey]time.Time
+	// agentFrames counts ask, hatch, and sprout frames that catch die.
+	// diePanic is re-raised only while one of those frames is still on
+	// the stack, so a dead agent stops the rest of its own block. A
+	// top-level Call or ExecuteLine has no such frame and must not panic.
+	agentFrames int
+	// UserFile, UserNewFile, and UserDirectory are optional UI hooks for
+	// the file dialogs. A false ok means the user canceled. Nil hooks
+	// report false, which is headless mode.
+	UserFile      func() (string, bool)
+	UserNewFile   func() (string, bool)
+	UserDirectory func() (string, bool)
 }
 
 type everyKey struct {
@@ -374,7 +385,10 @@ func (vm *VM) recover(errp *error, stopped *bool) {
 				*stopped = true
 			}
 		case diePanic:
-			if vm.self != nil {
+			// An ask/hatch/sprout frame further up the stack catches this
+			// and moves on to the next agent. Re-raising anywhere else
+			// would crash Call, ExecuteLine, or RunCompiled.
+			if vm.agentFrames > 0 {
 				panic(e)
 			}
 		case reportPanic:
@@ -712,10 +726,12 @@ func (vm *VM) execAgentBlock(a Agent, body []Stmt) {
 		return
 	}
 	vm.pushAgent(a)
+	vm.agentFrames++
 	saved := vm.scope
 	sc := vm.allocScope(saved)
 	vm.scope = sc
 	defer func() {
+		vm.agentFrames--
 		vm.scope = saved
 		vm.popAgent()
 		vm.freeScope(sc)
@@ -783,7 +799,9 @@ func (vm *VM) execCreate(s *createStmt) {
 		if s.Ordered {
 			t = vm.World.CreateTurtle(s.Breed, 0, 0, 0, 0)
 			t.Color = float64(10*i + 5)
-			vm.World.SetHeading(t, 360*float64(i)/float64(k))
+			if err := vm.World.SetHeading(t, 360*float64(i)/float64(k)); err != nil {
+				vm.fail(s.Pos, "%s", err.Error())
+			}
 		} else {
 			cn := vm.World.rng.Intn(14)
 			h := vm.World.rng.Intn(360)
@@ -1187,7 +1205,7 @@ func (vm *VM) linksOfBreed(plural string) *AgentSet {
 			ags = append(ags, l)
 		}
 	}
-	return &AgentSet{Kind: KindLink, Breed: plural, Agents: ags}
+	return &AgentSet{Kind: KindLink, Breed: plural, Named: true, Agents: ags}
 }
 
 func (vm *VM) breedHere(plural string) *AgentSet {
@@ -1269,25 +1287,60 @@ func (vm *VM) LineUnlocked(src string) (out string, err error) {
 
 func (vm *VM) finishInterrupt(stopped *bool) {
 	if r := recover(); r != nil {
-		if _, ok := r.(interruptPanic); ok {
+		switch r.(type) {
+		case interruptPanic:
 			if stopped != nil {
 				*stopped = true
 			}
 			return
+		case diePanic:
+			// Public entry points never let a dead agent crash the process.
+			return
+		default:
+			panic(r)
 		}
-		panic(r)
 	}
 }
 
 func (vm *VM) finishInterruptErr(errp *error) {
 	if r := recover(); r != nil {
-		if _, ok := r.(interruptPanic); ok {
+		switch r.(type) {
+		case interruptPanic:
 			if errp != nil && *errp == nil {
 				*errp = fmt.Errorf("stopped")
 			}
 			return
+		case diePanic:
+			return
+		default:
+			panic(r)
 		}
-		panic(r)
+	}
+}
+
+// dropEveryTimers forgets every timers for one agent. die and clear-turtles
+// call this so short-lived turtles do not leave the map growing forever.
+func (vm *VM) dropEveryTimers(a Agent) {
+	if vm == nil || vm.everyTimers == nil || a == nil {
+		return
+	}
+	for k := range vm.everyTimers {
+		if k.agent == a {
+			delete(vm.everyTimers, k)
+		}
+	}
+}
+
+// sweepDeadEveryTimers drops timers whose agent has died. Observer timers
+// use a nil agent and stay until the command runs again.
+func (vm *VM) sweepDeadEveryTimers() {
+	if vm == nil || len(vm.everyTimers) == 0 {
+		return
+	}
+	for k := range vm.everyTimers {
+		if k.agent != nil && k.agent.IsDead() {
+			delete(vm.everyTimers, k)
+		}
 	}
 }
 

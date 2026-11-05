@@ -254,9 +254,13 @@ func escapeString(s string) string {
 // returned by those reporters. NetLogo forbids a turtle from asking that
 // exact agentset.
 type AgentSet struct {
-	Kind   AgentKind
-	Breed  string // empty means all of that kind; otherwise the breed plural
-	All    bool
+	Kind  AgentKind
+	Breed string // empty means all of that kind; otherwise the breed plural
+	All   bool
+	// Named is set only on the full breed agentset (the value of wolves).
+	// A filtered subset keeps Breed for breed-of tests but prints as an
+	// agentset of N agents, which is what NetLogo shows.
+	Named  bool
 	Agents []Agent
 }
 
@@ -297,7 +301,7 @@ func (s *AgentSet) String() string {
 			return "links"
 		}
 	}
-	if s.Breed != "" {
+	if s.Named && s.Breed != "" {
 		return s.Breed
 	}
 	kind := "agents"

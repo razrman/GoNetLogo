@@ -58,20 +58,21 @@ func asInt(v Value, what string) (int, error) {
 // moveTurtle is the shared fd/bk/jump implementation. jumpAll moves the
 // whole distance and stays put when that would leave the world. Otherwise
 // the turtle walks in unit steps and stops at the last legal position.
-func (vm *VM) moveTurtle(t *Turtle, dist float64, jumpAll bool) {
+func (vm *VM) moveTurtle(t *Turtle, dist float64, jumpAll bool) error {
 	if jumpAll {
-		_ = vm.World.Jump(t, dist)
-		return
+		// jump stays put when the whole step would leave the world.
+		// A tied turtle that cannot follow is still an error.
+		return swallowEdge(vm.World.Jump(t, dist))
 	}
-	_ = vm.World.Forward(t, dist)
+	return vm.World.Forward(t, dist)
 }
 
-func (vm *VM) facePoint(t *Turtle, x, y float64) {
+func (vm *VM) facePoint(t *Turtle, x, y float64) error {
 	h, err := vm.World.HeadingTowards(t.X, t.Y, x, y)
 	if err != nil {
-		return
+		return nil
 	}
-	vm.World.SetHeading(t, h)
+	return vm.World.SetHeading(t, h)
 }
 
 func (vm *VM) moveToAgent(target Value, pos Pos) error {
@@ -100,9 +101,11 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		w.ClearAll()
 		vm.clearOutput()
 		vm.clearAllPlots()
+		vm.sweepDeadEveryTimers()
 	case "clear-turtles", "ct":
 		vm.requireObserver(pos, "clear-turtles")
 		w.ClearTurtles()
+		vm.sweepDeadEveryTimers()
 	case "clear-patches", "cp":
 		vm.requireObserver(pos, "clear-patches")
 		w.ClearPatches()
@@ -112,6 +115,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "clear-links":
 		vm.requireObserver(pos, "clear-links")
 		w.ClearLinks()
+		vm.sweepDeadEveryTimers()
 	case "clear-ticks":
 		vm.requireObserver(pos, "clear-ticks")
 		w.ClearTicks()
@@ -221,25 +225,26 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 			return fmt.Errorf("patches cannot die")
 		}
 		w.Die(vm.self)
+		vm.dropEveryTimers(vm.self)
 		panic(diePanic{})
 	case "fd", "forward":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		vm.moveTurtle(vm.requireTurtle(pos), n, false)
+		return vm.moveTurtle(vm.requireTurtle(pos), n, false)
 	case "bk", "back":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		vm.moveTurtle(vm.requireTurtle(pos), -n, false)
+		return vm.moveTurtle(vm.requireTurtle(pos), -n, false)
 	case "jump":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		vm.moveTurtle(vm.requireTurtle(pos), n, true)
+		return vm.moveTurtle(vm.requireTurtle(pos), n, true)
 	case "move-to":
 		return vm.moveToAgent(args[0], pos)
 	case "rt", "right":
@@ -247,13 +252,13 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		w.Turn(vm.requireTurtle(pos), n)
+		return w.Turn(vm.requireTurtle(pos), n)
 	case "lt", "left":
 		n, err := args[0].Num()
 		if err != nil {
 			return err
 		}
-		w.Turn(vm.requireTurtle(pos), -n)
+		return w.Turn(vm.requireTurtle(pos), -n)
 	case "setxy":
 		x, err := args[0].Num()
 		if err != nil {
@@ -272,7 +277,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		vm.facePoint(t, x, y)
+		return vm.facePoint(t, x, y)
 	case "facexy":
 		t := vm.requireTurtle(pos)
 		x, err := args[0].Num()
@@ -283,7 +288,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		vm.facePoint(t, x, y)
+		return vm.facePoint(t, x, y)
 	case "pen-down", "pd", "pendown":
 		vm.requireTurtle(pos).PenDown = true
 	case "pen-up", "pu", "penup":
@@ -339,7 +344,7 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "file-write":
 		return vm.fileWrite(args[0])
 	case "import-world", "export-world", "import-pcolors", "import-pcolors-rgb":
-		return nil
+		return fmt.Errorf("%s is not supported yet", name)
 	case "tie":
 		l, ok := vm.self.(*Link)
 		if !ok || l == nil {
@@ -603,7 +608,6 @@ func (vm *VM) cachedCommands(src string) ([]Stmt, error) {
 	return stmts, nil
 }
 
-
 func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstVal Value) error {
 	var nodes []*Turtle
 	switch nodesVal.K {
@@ -715,27 +719,36 @@ func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstV
 		fy[t2] -= springForce * (dy / d)
 	}
 
-	minX := float64(vm.World.MinPxcor) - 0.5
-	maxX := float64(vm.World.MaxPxcor) + 0.5
-	minY := float64(vm.World.MinPycor) - 0.5
-	maxY := float64(vm.World.MaxPycor) + 0.5
-
 	for _, t := range nodes {
-		newX := t.X + fx[t]*0.1
-		newY := t.Y + fy[t]*0.1
-		if newX < minX {
-			newX = minX
-		} else if newX > maxX {
-			newX = maxX
+		newX := clampInside(t.X+fx[t]*0.1, vm.World.MinPxcor, vm.World.MaxPxcor, vm.World.WrapX)
+		newY := clampInside(t.Y+fy[t]*0.1, vm.World.MinPycor, vm.World.MaxPycor, vm.World.WrapY)
+		if err := vm.World.MoveTo(t, newX, newY); err != nil {
+			return err
 		}
-		if newY < minY {
-			newY = minY
-		} else if newY > maxY {
-			newY = maxY
-		}
-		_ = vm.World.MoveTo(t, newX, newY)
 	}
 	return nil
+}
+
+// clampInside keeps a coordinate inside a non-wrapping axis. The legal
+// interval is [minPcor-0.5, maxPcor+0.5). maxPcor+0.5 itself is outside,
+// and MoveTo would reject it and leave the turtle unmoved.
+func clampInside(x float64, minP, maxP int, wrap bool) float64 {
+	if wrap {
+		return x
+	}
+	min := float64(minP) - 0.5
+	max := float64(maxP) + 0.5
+	if x < min {
+		return min
+	}
+	if x >= max {
+		const eps = 1e-9
+		if max-eps > min {
+			return max - eps
+		}
+		return min
+	}
+	return x
 }
 
 func (vm *VM) layoutCircle(agents, radius Value) error {
@@ -743,6 +756,8 @@ func (vm *VM) layoutCircle(agents, radius Value) error {
 	if agents.K == KindAgentset && agents.Set != nil {
 		live = agents.Set.Alive()
 	} else if agents.K == KindList {
+		// sort of an agentset is a list. NetLogo's layout-circle accepts
+		// that list, and several Models Library files pass it.
 		for _, v := range agents.L {
 			if v.K == KindAgent && v.A != nil && !v.A.IsDead() {
 				live = append(live, v.A)
@@ -769,7 +784,9 @@ func (vm *VM) layoutCircle(agents, radius Value) error {
 		if err := vm.World.MoveTo(t, r*math.Sin(rad), r*math.Cos(rad)); err != nil {
 			return err
 		}
-		vm.World.SetHeading(t, h)
+		if err := vm.World.SetHeading(t, h); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -847,6 +864,7 @@ func (vm *VM) createLinks(name string, args []Value, block []Stmt, pos Pos) {
 		if err != nil {
 			vm.fail(pos, "%s", err.Error())
 		}
+		// NetLogo leaves an existing link alone and does not run the block.
 		if !created {
 			continue
 		}
@@ -1031,10 +1049,14 @@ func (vm *VM) evalZero(name string, pos Pos) (Value, error) {
 		}
 		return Num(h), nil
 	case "shapes":
-		names := []string{"default", "circle", "square", "triangle", "arrow", "person", "car", "line", "pentagon", "star"}
-		vals := make([]Value, len(names))
-		for i, n := range names {
-			vals[i] = Str(n)
+		lib := w.Shapes
+		if lib == nil || lib.Len() == 0 {
+			lib = DefaultShapes()
+		}
+		all := lib.All()
+		vals := make([]Value, len(all))
+		for i, sh := range all {
+			vals[i] = Str(sh.Name)
 		}
 		return List(vals...), nil
 	case "no-turtles":
@@ -1205,6 +1227,7 @@ func (vm *VM) evalAgentBlockRep(c *callExpr) (Value, error) {
 
 	targetExpr := c.Args[0]
 	block := c.Args[1]
+	// sort-on is [reporter] agentset, the reverse of with and n-of.
 	if c.Name == "sort-on" {
 		targetExpr = c.Args[1]
 		block = c.Args[0]
