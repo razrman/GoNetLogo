@@ -20,6 +20,11 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+      // Info images live next to the model, under the API's models directory.
+      '/model-asset': {
+        target: 'http://127.0.0.1:43131',
+        changeOrigin: true,
+      },
     },
   },
   preview: {

@@ -158,6 +158,8 @@ export const CreateSession = `
       id
       modelName
       code
+      info
+      modelDir
       notes
       widgets { index kind display forever }
     }
@@ -170,6 +172,8 @@ export const LoadModel = `
       id
       modelName
       code
+      info
+      modelDir
       notes
       widgets { index kind display forever }
     }
@@ -182,6 +186,8 @@ export const LoadModelFile = `
       id
       modelName
       code
+      info
+      modelDir
       notes
       widgets { index kind display forever }
     }
@@ -194,6 +200,8 @@ export const LoadModelSource = `
       id
       modelName
       code
+      info
+      modelDir
       notes
       widgets { index kind display forever }
     }

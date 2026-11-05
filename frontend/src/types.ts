@@ -212,6 +212,8 @@ export type SessionInfo = {
   id: string
   modelName: string
   code: string
+  info: string
+  modelDir: string | null
   notes: string[]
   widgets: { index: number; kind: string; display: string; forever: boolean }[]
 }

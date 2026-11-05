@@ -324,3 +324,48 @@ func TestListFolderLibraryAndTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenModelImage(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MODELS_DIR", dir)
+	sub := filepath.Join(dir, "Sample Models")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "pic.png"), []byte("png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "page.html"), []byte("<script>alert(1)</script>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, ctype, err := OpenModelImage("Sample Models/pic.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if ctype != "image/png" {
+		t.Fatalf("content type %q", ctype)
+	}
+	body, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "png-bytes" {
+		t.Fatalf("body %q", body)
+	}
+	for _, rel := range []string{"../pic.png", "page.html", "/etc/passwd", "Sample Models/../../page.html", "note.svg"} {
+		if _, _, err := OpenModelImage(rel); err == nil {
+			t.Errorf("opened %q", rel)
+		}
+	}
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.png"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.png"), filepath.Join(dir, "secret.png")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OpenModelImage("secret.png"); err == nil {
+		t.Fatal("symlink outside the models directory was opened")
+	}
+}

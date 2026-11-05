@@ -1180,6 +1180,78 @@ func commandWhenIdle(t *testing.T, c *client.Client, id, text string) {
 	}
 }
 
+func TestSessionInfo(t *testing.T) {
+	c := newClient(t)
+	var created struct {
+		CreateSession struct {
+			ID       string
+			Info     string
+			ModelDir *string
+		}
+	}
+	c.MustPost(`mutation ($m: String!) {
+		createSession(model: $m) { id info modelDir }
+	}`, &created, client.Var("m", "fire.nlogo"))
+	if !strings.Contains(created.CreateSession.Info, "orthogonal neighbor") {
+		t.Fatalf("fire info %q", created.CreateSession.Info)
+	}
+	if created.CreateSession.ModelDir == nil || *created.CreateSession.ModelDir != "" {
+		t.Fatalf("embedded model dir %#v, want the models root", created.CreateSession.ModelDir)
+	}
+
+	nlogox := `<?xml version="1.0"?>
+<model version="NetLogo 7.0.0">
+  <code><![CDATA[to setup
+  clear-all
+end
+]]></code>
+  <info><![CDATA[## WHAT IS IT?
+
+A .nlogox info paragraph.
+]]></info>
+</model>`
+	var loaded struct {
+		LoadModelSource struct {
+			Info     string
+			ModelDir *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $name: String!, $src: String!) {
+		loadModelSource(sessionId: $id, filename: $name, source: $src) { info modelDir }
+	}`, &loaded, client.Var("id", created.CreateSession.ID), client.Var("name", "pack.nlogox"), client.Var("src", nlogox))
+	if !strings.Contains(loaded.LoadModelSource.Info, "A .nlogox info paragraph.") {
+		t.Fatalf("nlogox info %q", loaded.LoadModelSource.Info)
+	}
+	if loaded.LoadModelSource.ModelDir != nil {
+		t.Fatalf("uploaded model dir %#v, want null", *loaded.LoadModelSource.ModelDir)
+	}
+
+	dir := t.TempDir()
+	t.Setenv("MODELS_DIR", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "biology"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nlogo := "to setup\n  clear-all\nend\n@#$#@#$#@\n@#$#@#$#@\nFrom the .nlogo file.\n@#$#@#$#@\n"
+	if err := os.WriteFile(filepath.Join(dir, "biology", "pack.nlogo"), []byte(nlogo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var fromFile struct {
+		LoadModelFile struct {
+			Info     string
+			ModelDir *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $path: String!) {
+		loadModelFile(sessionId: $id, path: $path) { info modelDir }
+	}`, &fromFile, client.Var("id", created.CreateSession.ID), client.Var("path", "biology/pack.nlogo"))
+	if !strings.Contains(fromFile.LoadModelFile.Info, "From the .nlogo file.") {
+		t.Fatalf("file info %q", fromFile.LoadModelFile.Info)
+	}
+	if fromFile.LoadModelFile.ModelDir == nil || *fromFile.LoadModelFile.ModelDir != "biology" {
+		t.Fatalf("model dir %#v", fromFile.LoadModelFile.ModelDir)
+	}
+}
+
 func setup(t *testing.T, c *client.Client, id string) created {
 	t.Helper()
 	var resp struct {
