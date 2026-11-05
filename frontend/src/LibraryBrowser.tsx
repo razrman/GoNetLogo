@@ -61,7 +61,7 @@ export function LibraryBrowser({
                 type="button"
                 onClick={() => (entry.directory ? onOpen(entry.path) : onFile(entry))}
               >
-                {entry.directory ? `${entry.name}/` : entry.name.replace(/\.nlogox3d$|\.nlogox$|\.nlogo$/i, '')}
+                {entry.directory ? `${entry.name}/` : entry.name.replace(/\.nlogox3d$|\.nlogo3d$|\.nlogox$|\.nlogo$/i, '')}
               </button>
             </li>
           ))}

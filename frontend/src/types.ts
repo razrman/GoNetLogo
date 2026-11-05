@@ -105,6 +105,9 @@ export type TurtleShape = {
 export type World = WorldView & {
   width: number
   height: number
+  // Patch layers: 1 for a 2D world. A 3D world arrives as a top-down
+  // projection, with turtles ordered low to high.
+  depth?: number
   labelFont: number
   shapes: TurtleShape[]
   patchColors: string

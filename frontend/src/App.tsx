@@ -252,8 +252,8 @@ export function App() {
       setBanner('The session is still opening')
       return
     }
-    if (!/\.nlogo(x3d|x)?$/i.test(file.name)) {
-      setCompileError(`Open a .nlogo, .nlogox, or .nlogox3d file. ${file.name} is not one of those.`)
+    if (!/\.nlogo(x3d|x|3d)?$/i.test(file.name)) {
+      setCompileError(`Open a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file. ${file.name} is not one of those.`)
       return
     }
     let text: string
@@ -423,7 +423,7 @@ export function App() {
             {modelOptions.length === 0 && <option value="">Loading models…</option>}
             {modelOptions.map((name) => (
               <option key={name} value={name}>
-                {name.replace(/\.nlogox?$/i, '')}
+                {name.replace(/\.nlogo(x3d|x|3d)?$/i, '')}
               </option>
             ))}
             </select>
@@ -439,7 +439,7 @@ export function App() {
           <input
             ref={fileRef}
             type="file"
-            accept=".nlogo,.nlogox,.nlogox3d"
+            accept=".nlogo,.nlogox,.nlogo3d,.nlogox3d"
             aria-label="Open model file"
             hidden
             onChange={(e) => {
@@ -608,7 +608,7 @@ export function App() {
                 ) : (
                   <WorldCanvas world={frame?.world ?? null} />
                 )}
-                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, or .nlogox3d file</div>}
+                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
               </div>
               <div className="view-meta">
                 {frame
@@ -972,7 +972,7 @@ function presentCompileError(message: string, source: string, filename?: string)
 function codeLines(filename: string, source: string) {
   let code = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const lower = filename.toLowerCase()
-  const xml = lower.endsWith('.nlogox') || /^\s*<\?xml/.test(code) || /^\s*<model[\s>]/.test(code)
+  const xml = lower.endsWith('.nlogox') || lower.endsWith('.nlogox3d') || /^\s*<\?xml/.test(code) || /^\s*<model[\s>]/.test(code)
   if (xml) {
     const found = code.match(/<code[^>]*>([\s\S]*?)<\/code>/i)
     if (found) {

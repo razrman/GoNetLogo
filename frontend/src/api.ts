@@ -359,6 +359,7 @@ export const Frames = `
         maxPycor
         width
         height
+        depth
         patchSize
         wrapX
         wrapY
