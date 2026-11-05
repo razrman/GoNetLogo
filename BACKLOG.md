@@ -21,15 +21,24 @@ Ideas parked for later. Not scheduled for work yet.
 
 This is a first milestone of the language, plus a GraphQL client. The rest of NetLogo is large; this is the order to take it:
 
-1. **Plots and drawing.** Time-series plots, pen mode at a finer resolution than one sample per patch, and mouse reporters (`mouse-down?`, `mouse-xcor`) so models can draw on the view. Plots (#12) and pixel-resolution pen strokes are in; the drawing layer keeps at most 8192 marks (#16). Still missing: the mouse reporters (`mouse-down?`, `mouse-xcor`).
-2. **NetLogo's RNG.** The Mersenne Twister NetLogo uses, so a seed matches an upstream run. Needed before any experiment tool is meaningful.
-3. **The long tail of primitives.** `carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`, `inspect`, output-widget commands, and file primitives (`file-open`, `file-read`). Output-widget commands are in (#9): `output-print`, `output-show`, `output-type`, `output-write`, `clear-output`. Still missing: `carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`, `inspect`, and the file primitives (`file-open`, `file-read`).
-4. **BehaviorSpace.** Parameter sweeps over the existing sliders, writing a table. Depends on the RNG if results are meant to match NetLogo.
-5. **Extensions.** Honor the `extensions` declaration and load a small Go extension API. `nw`, `gis`, `table`, `array`, `matrix`, and `bitmap` are the ones models hit first.
-6. **The rest of the interface.** A real Info tab, an output widget separate from the command center, a plot widget, the command-center history, and an agent inspector. An output widget (#9), a plot widget (#12), and a World tab on the web UI and the desktop window (#20) are in. The tabs are Interface, World, and Code. Still missing: a real Info tab, command-center history, and an agent inspector.
+1. ~~**Plots and drawing.** Time-series plots, pen mode at a finer resolution than one sample per patch~~ (done: plots #12, pixel-resolution pen strokes; the drawing layer keeps at most 8192 marks, #16). Still missing: mouse reporters. `mouse-down?` and `mouse-inside?` always return false and `mouse-xcor`/`mouse-ycor` always return 0 (stubs), so models cannot draw on the view yet.
+2. **NetLogo's RNG.** The Mersenne Twister NetLogo uses, so a seed matches an upstream run. Today the engine uses Go `math/rand`. Needed before any experiment tool is meaningful.
+3. **The long tail of primitives.** ~~`carefully`, `error`, `uphill`, tie and untie, `layout-spring`, `follow`, `watch`~~ (done, #31), ~~output-widget commands~~ (done, #9: `output-print`, `output-show`, `output-type`, `output-write`, `clear-output`), and ~~file primitives (`file-open`, `file-read`)~~ (done, #31). Still missing: `inspect` and `stop-inspecting` are accepted but do nothing. Known bug: in a chain of fixed ties, grandchildren do not orbit with the root.
+4. **BehaviorSpace.** Parameter sweeps over the existing sliders, writing a table. Depends on the RNG if results are meant to match NetLogo. Only the `behaviorspace-run-number` reporter exists today.
+5. **Extensions.** Honor the `extensions` declaration and load a small Go extension API. The declaration is parsed but nothing is loaded. Census on main (7e42f44): 74 of the 83 models that fail to compile declare an extension. Most used by failing models: `sr` 15 (15 use only `sr`), `resource` 12, `sound` 9 (8 sole), `import-a` 8, `palette` 7 (7 sole), `ls` 7 (6 sole), `time` 5, `csv` 4, `gis` 4.
+6. **The rest of the interface.** ~~A real Info tab~~ (done, #35), ~~an output widget separate from the command center~~ (done, #9), ~~a plot widget~~ (done, #12), the command-center history, and an agent inspector. A World tab is in on the web UI and the desktop window (#20). The tabs are now Interface, World, Info, and Code. Still missing: command-center history and an agent inspector.
 7. **System Dynamics.** The stock-and-flow diagram and its generated code.
 8. **HubNet.** Participatory simulations. A large protocol; not required for single-player models.
-9. **3D.** `turtles3d`, `pzcor`, and a second view. The world type would grow a Z axis; the renderer would need a new backend.
+9. ~~**3D.** `turtles3d`, `pzcor`, and a second view. The world type would grow a Z axis; the renderer would need a new backend.~~ (done, #32: Z axis, 3D primitives, .nlogo3d/.nlogox3d loading, three.js orbit view in the web UI; `pzcor` on the World page, #33). Still missing in 3D: `follow`, `ride`, and `watch` do not move the 3D camera; patches are drawn as opaque cubes; no turtle shapes, labels, or pen trails.
 10. **LevelSpace, the controlling API, and the profiler.** Embedding one model in another, driving a model from outside the process, and primitive-level timing.
 
-Also not in this milestone: NetLogo 3D worlds, the shape editor, bitmap import, and the full widget geometry of the Interface tab (widgets here are a column, not a free-form canvas).
+Also not in this milestone: ~~NetLogo 3D worlds~~ (done, #32), the shape editor, bitmap import, and the full widget geometry of the Interface tab (widgets here are a column, not a free-form canvas).
+
+Other known bugs: "Wolf Sheep Predation - Micro-Sims Cognitive Model" fails in `go` with "line 1: expected a reporter".
+
+## Suggested next
+
+1. NetLogo's RNG (Mersenne Twister). Enables seed-for-seed comparison with real NetLogo and makes BehaviorSpace results meaningful.
+2. Extensions, starting with the top ones from the census (`sr`, `sound`, `palette`, `ls`).
+3. One batched small-fixes PR: mouse reporters, a basic inspector, 3D camera for `follow`/`ride`/`watch`, the Micro-Sims error, and gofmt of `pkg/nl/plot_test.go`.
+4. Session limit (sessions never end; each tab leaks a running session), before the login and admin work.
