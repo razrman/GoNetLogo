@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -34,6 +34,10 @@ import {
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
 import { LibraryBrowser } from './LibraryBrowser'
 import { WorldCanvas } from './WorldCanvas'
+
+// three.js is only needed for 3D worlds, so it loads in its own chunk the
+// first time one is shown. 2D models never fetch it.
+const WorldView3D = lazy(() => import('./WorldView3D'))
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
 
@@ -252,8 +256,8 @@ export function App() {
       setBanner('The session is still opening')
       return
     }
-    if (!/\.nlogo(x3d|x)?$/i.test(file.name)) {
-      setCompileError(`Open a .nlogo, .nlogox, or .nlogox3d file. ${file.name} is not one of those.`)
+    if (!/\.nlogo(x3d|x|3d)?$/i.test(file.name)) {
+      setCompileError(`Open a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file. ${file.name} is not one of those.`)
       return
     }
     let text: string
@@ -423,7 +427,7 @@ export function App() {
             {modelOptions.length === 0 && <option value="">Loading models…</option>}
             {modelOptions.map((name) => (
               <option key={name} value={name}>
-                {name.replace(/\.nlogox?$/i, '')}
+                {name.replace(/\.nlogo(x3d|x|3d)?$/i, '')}
               </option>
             ))}
             </select>
@@ -439,7 +443,7 @@ export function App() {
           <input
             ref={fileRef}
             type="file"
-            accept=".nlogo,.nlogox,.nlogox3d"
+            accept=".nlogo,.nlogox,.nlogo3d,.nlogox3d"
             aria-label="Open model file"
             hidden
             onChange={(e) => {
@@ -605,14 +609,18 @@ export function App() {
               <div className="canvas-wrap">
                 {booting && !frame ? (
                   <div className="loading">Opening the forest fire…</div>
+                ) : frame && (frame.world.depth ?? 1) > 1 ? (
+                  <Suspense fallback={<WorldCanvas world={frame.world} />}>
+                    <WorldView3D world={frame.world} />
+                  </Suspense>
                 ) : (
                   <WorldCanvas world={frame?.world ?? null} />
                 )}
-                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, or .nlogox3d file</div>}
+                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
               </div>
               <div className="view-meta">
                 {frame
-                  ? `${frame.world.width} × ${frame.world.height} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
+                  ? `${frame.world.width} × ${frame.world.height}${(frame.world.depth ?? 1) > 1 ? ` × ${frame.world.depth}` : ''} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
                   : modelName}
               </div>
             </section>
@@ -972,7 +980,7 @@ function presentCompileError(message: string, source: string, filename?: string)
 function codeLines(filename: string, source: string) {
   let code = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const lower = filename.toLowerCase()
-  const xml = lower.endsWith('.nlogox') || /^\s*<\?xml/.test(code) || /^\s*<model[\s>]/.test(code)
+  const xml = lower.endsWith('.nlogox') || lower.endsWith('.nlogox3d') || /^\s*<\?xml/.test(code) || /^\s*<model[\s>]/.test(code)
   if (xml) {
     const found = code.match(/<code[^>]*>([\s\S]*?)<\/code>/i)
     if (found) {

@@ -637,7 +637,7 @@ func (c *compiler) compileCmd(s *cmdStmt, locals map[string]bool) cmdFn {
 			if err != nil {
 				vm.fail(pos, "%s", err.Error())
 			}
-			if err := vm.World.Turn(vm.requireTurtle(pos), sign*n); err != nil {
+			if err := vm.turn(vm.requireTurtle(pos), sign*n); err != nil {
 				vm.fail(pos, "%s", err.Error())
 			}
 		}
@@ -1176,7 +1176,7 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 	if strings.HasPrefix(name, "my-") {
 		return func(vm *VM) Value { return mustIdent(vm, name, pos) }
 	}
-	if zeroArgReporters[name] {
+	if isZeroArgReporter(name, c.prog.Is3D) {
 		return func(vm *VM) Value {
 			v, err := vm.evalZero(name, pos)
 			if err != nil {

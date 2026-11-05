@@ -9,6 +9,7 @@ package session
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -1388,19 +1389,41 @@ func worldLocked(w *nl.World) model.World {
 		MaxPycor:    w.MaxPycor,
 		Width:       w.Width(),
 		Height:      w.Height(),
+		Depth:       w.Depth(),
+		MinPzcor:    w.MinPzcor,
+		MaxPzcor:    w.MaxPzcor,
 		PatchSize:   w.PatchSize,
 		WrapX:       w.WrapX,
 		WrapY:       w.WrapY,
+		WrapZ:       w.Is3D() && w.WrapZ,
 		LabelFont:   labelFontOf(w),
 		Shapes:      shapeViews(w),
 		PatchColors: patchColors(w),
+		Voxels:      voxels(w),
 		Turtles:     []model.Turtle{},
 		Links:       []model.Link{},
 		Drawing:     drawingMarks(w),
 		Labels:      viewLabels(w),
 	}
+	if w.Is3D() {
+		o := w.Observer()
+		out.Observer = &model.Observer3d{
+			X: o.X, Y: o.Y, Z: o.Z,
+			TargetX: o.TX, TargetY: o.TY, TargetZ: o.TZ,
+			Revision: int(o.Revision),
+		}
+	}
 	if turtles := w.Turtles(); turtles != nil {
-		for _, a := range turtles.Alive() {
+		alive := turtles.Alive()
+		if w.Is3D() {
+			// Top-down view of a 3D world: paint low turtles first so the
+			// highest one on a column ends up on top.
+			alive = append([]nl.Agent(nil), alive...)
+			sort.SliceStable(alive, func(i, j int) bool {
+				return alive[i].(*nl.Turtle).Z < alive[j].(*nl.Turtle).Z
+			})
+		}
+		for _, a := range alive {
 			t, ok := a.(*nl.Turtle)
 			if !ok {
 				continue
@@ -1415,7 +1438,8 @@ func worldLocked(w *nl.World) model.World {
 				size = 1
 			}
 			out.Turtles = append(out.Turtles, model.Turtle{
-				Who: t.Who, X: t.X, Y: t.Y, Heading: t.Heading,
+				Who: t.Who, X: t.X, Y: t.Y, Z: t.Z, Heading: t.Heading,
+				Pitch: t.Pitch, Roll: t.Roll,
 				Size: size, Shape: shape, Hidden: t.Hidden, R: r, G: g, B: b,
 			})
 		}
@@ -1428,7 +1452,8 @@ func worldLocked(w *nl.World) model.World {
 			}
 			r, g, b := colorOf(false, color.RGBA{}, l.Color)
 			out.Links = append(out.Links, model.Link{
-				X1: l.End1.X, Y1: l.End1.Y, X2: l.End2.X, Y2: l.End2.Y,
+				X1: l.End1.X, Y1: l.End1.Y, Z1: l.End1.Z,
+				X2: l.End2.X, Y2: l.End2.Y, Z2: l.End2.Z,
 				Hidden: l.Hidden, R: r, G: g, B: b,
 			})
 		}
@@ -1436,8 +1461,41 @@ func worldLocked(w *nl.World) model.World {
 	return out
 }
 
+// voxelBytes is the size of one packed voxel: three int16 coordinates and
+// an RGB color.
+const voxelBytes = 9
+
+// voxels packs the non-black patches of a 3D world for the 3D view:
+// pxcor, pycor, pzcor as little-endian int16, then r, g, b. A world is
+// at most nl.MaxWorldSide patches on a side, so coordinates fit in int16.
+// A 2D world sends an empty string; its patches are in patchColors.
+func voxels(w *nl.World) string {
+	if !w.Is3D() {
+		return ""
+	}
+	var raw []byte
+	var rec [voxelBytes]byte
+	w.EachVoxel(func(v nl.Voxel) {
+		if raw == nil {
+			// Most colored 3D worlds color a good share of their patches;
+			// start at a quarter of the grid to skip early regrowth.
+			raw = make([]byte, 0, len(w.Patches().Agents)/4*voxelBytes+voxelBytes)
+		}
+		binary.LittleEndian.PutUint16(rec[0:], uint16(int16(v.X)))
+		binary.LittleEndian.PutUint16(rec[2:], uint16(int16(v.Y)))
+		binary.LittleEndian.PutUint16(rec[4:], uint16(int16(v.Z)))
+		rec[6], rec[7], rec[8] = v.C.R, v.C.G, v.C.B
+		raw = append(raw, rec[:]...)
+	})
+	if len(raw) == 0 {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
 // patchColors packs one RGB pixel per patch. Row 0 is maxPycor so the
-// bytes can be drawn as an image without flipping.
+// bytes can be drawn as an image without flipping. A 3D world is
+// projected top-down: each column shows its highest non-black patch.
 func patchColors(w *nl.World) string {
 	width, height := w.Width(), w.Height()
 	if width < 1 || height < 1 {
@@ -1445,6 +1503,16 @@ func patchColors(w *nl.World) string {
 	}
 	raw := make([]byte, width*height*3)
 	i := 0
+	if w.Is3D() {
+		for py := w.MaxPycor; py >= w.MinPycor; py-- {
+			for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
+				c, _ := w.TopColor(px, py)
+				raw[i], raw[i+1], raw[i+2] = c.R, c.G, c.B
+				i += 3
+			}
+		}
+		return base64.StdEncoding.EncodeToString(raw)
+	}
 	for py := w.MaxPycor; py >= w.MinPycor; py-- {
 		for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
 			p := w.GetPatch(px, py)

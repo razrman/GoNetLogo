@@ -93,13 +93,26 @@ func (w *World) captureView() *ViewSnap {
 		Height:    w.height,
 		minPx:     w.MinPxcor,
 		maxPy:     w.MaxPycor,
-		patches:   make([]snapPatch, len(w.patchOrder)),
 		shapes:    w.Shapes,
 		patchSize: w.PatchSize,
 		labelFont: w.LabelFont,
 	}
+	if w.threeD {
+		// A flat picture of a 3D world is the top-down projection.
+		s.patches = make([]snapPatch, 0, w.width*w.height)
+		for py := w.MaxPycor; py >= w.MinPycor; py-- {
+			for px := w.MinPxcor; px <= w.MaxPxcor; px++ {
+				c, _ := w.TopColor(px, py)
+				s.patches = append(s.patches, snapPatch{x: px, y: py, c: c})
+			}
+		}
+	} else {
+		s.patches = make([]snapPatch, len(w.patchOrder))
+	}
 	for i, p := range w.patchOrder {
-		s.patches[i] = snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p)}
+		if !w.threeD {
+			s.patches[i] = snapPatch{x: p.PX, y: p.PY, c: patchRGBA(p)}
+		}
 		if text, col, ok := p.viewLabel(); ok {
 			s.labels = append(s.labels, snapLabel{
 				x: float64(p.PX), y: float64(p.PY), patch: true, text: text, c: col,

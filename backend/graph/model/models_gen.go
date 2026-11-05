@@ -113,10 +113,13 @@ type LibraryListing struct {
 }
 
 type Link struct {
-	X1     float64 `json:"x1"`
-	Y1     float64 `json:"y1"`
+	X1 float64 `json:"x1"`
+	Y1 float64 `json:"y1"`
+	// End z coordinates. 0 in a 2D world.
+	Z1     float64 `json:"z1"`
 	X2     float64 `json:"x2"`
 	Y2     float64 `json:"y2"`
+	Z2     float64 `json:"z2"`
 	Hidden bool    `json:"hidden"`
 	R      int     `json:"r"`
 	G      int     `json:"g"`
@@ -124,6 +127,21 @@ type Link struct {
 }
 
 type Mutation struct {
+}
+
+// The NetLogo 3D observer: a camera at (x, y, z) looking at
+// (targetX, targetY, targetZ). revision goes up on every observer camera
+// command (setxyz, facexyz, face, orbit-*, zoom, reset-perspective) and
+// stays put while the model just runs, so a viewer can move its camera only
+// when the model asks.
+type Observer3d struct {
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Z        float64 `json:"z"`
+	TargetX  float64 `json:"targetX"`
+	TargetY  float64 `json:"targetY"`
+	TargetZ  float64 `json:"targetZ"`
+	Revision int     `json:"revision"`
 }
 
 // Samples one pen gained since the subscriber's cursor.
@@ -235,9 +253,13 @@ type Subscription struct {
 }
 
 type Turtle struct {
-	Who     int     `json:"who"`
-	X       float64 `json:"x"`
-	Y       float64 `json:"y"`
+	Who int     `json:"who"`
+	X   float64 `json:"x"`
+	Y   float64 `json:"y"`
+	// zcor, pitch, and roll. All 0 in a 2D world.
+	Z       float64 `json:"z"`
+	Pitch   float64 `json:"pitch"`
+	Roll    float64 `json:"roll"`
 	Heading float64 `json:"heading"`
 	Size    float64 `json:"size"`
 	Shape   string  `json:"shape"`
@@ -282,15 +304,31 @@ type Widget struct {
 }
 
 type World struct {
-	MinPxcor  int     `json:"minPxcor"`
-	MaxPxcor  int     `json:"maxPxcor"`
-	MinPycor  int     `json:"minPycor"`
-	MaxPycor  int     `json:"maxPycor"`
-	Width     int     `json:"width"`
-	Height    int     `json:"height"`
+	MinPxcor int `json:"minPxcor"`
+	MaxPxcor int `json:"maxPxcor"`
+	MinPycor int `json:"minPycor"`
+	MaxPycor int `json:"maxPycor"`
+	Width    int `json:"width"`
+	Height   int `json:"height"`
+	// Number of patch layers. 1 for a 2D world. A NetLogo 3D world has more,
+	// and patchColors is then a top-down projection: each column shows its
+	// highest non-black patch.
+	Depth int `json:"depth"`
+	// Z bounds. Both 0 for a 2D world.
+	MinPzcor  int     `json:"minPzcor"`
+	MaxPzcor  int     `json:"maxPzcor"`
 	PatchSize float64 `json:"patchSize"`
 	WrapX     bool    `json:"wrapX"`
 	WrapY     bool    `json:"wrapY"`
+	// Z wrapping. Always true for a 3D world (NetLogo 3D worlds are tori); false for 2D.
+	WrapZ bool `json:"wrapZ"`
+	// Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
+	// pxcor, pycor, pzcor as little-endian int16, then r, g, b.
+	// Patch order (highest layer first). Black patches are omitted.
+	// Empty for a 2D world, whose patches are in patchColors.
+	Voxels string `json:"voxels"`
+	// The observer camera of a 3D world. Null for a 2D world.
+	Observer *Observer3d `json:"observer,omitempty"`
 	// Label point size at patchSize. NetLogo's default is 10.
 	// The view scales it with the patch when the canvas is a different size.
 	LabelFont int `json:"labelFont"`

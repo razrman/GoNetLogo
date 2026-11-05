@@ -53,7 +53,11 @@ export type Turtle = {
   who: number
   x: number
   y: number
+  // zcor, pitch, and roll; 0 in a 2D world.
+  z?: number
   heading: number
+  pitch?: number
+  roll?: number
   size: number
   shape: string
   hidden: boolean
@@ -64,8 +68,10 @@ export type Turtle = {
 export type Link = {
   x1: number
   y1: number
+  z1?: number
   x2: number
   y2: number
+  z2?: number
   hidden: boolean
   r: number
   g: number
@@ -102,9 +108,30 @@ export type TurtleShape = {
   elements: ShapeElement[]
 }
 
+// The NetLogo 3D observer camera. revision changes only on observer
+// camera commands.
+export type Observer3D = {
+  x: number
+  y: number
+  z: number
+  targetX: number
+  targetY: number
+  targetZ: number
+  revision: number
+}
+
 export type World = WorldView & {
   width: number
   height: number
+  // Patch layers: 1 for a 2D world. A 3D world (depth > 1) is drawn by
+  // WorldView3D from voxels, turtle z/pitch/roll, and link z.
+  depth?: number
+  minPzcor?: number
+  maxPzcor?: number
+  wrapZ?: boolean
+  // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b.
+  voxels?: string
+  observer?: Observer3D | null
   labelFont: number
   shapes: TurtleShape[]
   patchColors: string

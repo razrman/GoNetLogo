@@ -359,9 +359,15 @@ export const Frames = `
         maxPycor
         width
         height
+        depth
+        minPzcor
+        maxPzcor
         patchSize
         wrapX
         wrapY
+        wrapZ
+        voxels
+        observer { x y z targetX targetY targetZ revision }
         labelFont
         shapes {
           name
@@ -371,8 +377,8 @@ export const Frames = `
         patchColors
         drawing { pen erase x y x2 y2 heading size shape r g b }
         labels { who px py lx ly text r g b }
-        turtles { who x y heading size shape hidden r g b }
-        links { x1 y1 x2 y2 hidden r g b }
+        turtles { who x y z heading pitch roll size shape hidden r g b }
+        links { x1 y1 z1 x2 y2 z2 hidden r g b }
       }
       plots {
         index

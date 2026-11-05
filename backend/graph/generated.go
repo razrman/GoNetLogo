@@ -136,6 +136,8 @@ type ComplexityRoot struct {
 		X2     func(childComplexity int) int
 		Y1     func(childComplexity int) int
 		Y2     func(childComplexity int) int
+		Z1     func(childComplexity int) int
+		Z2     func(childComplexity int) int
 	}
 
 	Mutation struct {
@@ -157,6 +159,16 @@ type ComplexityRoot struct {
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
 		Stop            func(childComplexity int, sessionID string) int
+	}
+
+	Observer3D struct {
+		Revision func(childComplexity int) int
+		TargetX  func(childComplexity int) int
+		TargetY  func(childComplexity int) int
+		TargetZ  func(childComplexity int) int
+		X        func(childComplexity int) int
+		Y        func(childComplexity int) int
+		Z        func(childComplexity int) int
 	}
 
 	PlotPenDelta struct {
@@ -251,12 +263,15 @@ type ComplexityRoot struct {
 		G       func(childComplexity int) int
 		Heading func(childComplexity int) int
 		Hidden  func(childComplexity int) int
+		Pitch   func(childComplexity int) int
 		R       func(childComplexity int) int
+		Roll    func(childComplexity int) int
 		Shape   func(childComplexity int) int
 		Size    func(childComplexity int) int
 		Who     func(childComplexity int) int
 		X       func(childComplexity int) int
 		Y       func(childComplexity int) int
+		Z       func(childComplexity int) int
 	}
 
 	TurtleShape struct {
@@ -290,6 +305,7 @@ type ComplexityRoot struct {
 	}
 
 	World struct {
+		Depth       func(childComplexity int) int
 		Drawing     func(childComplexity int) int
 		Height      func(childComplexity int) int
 		LabelFont   func(childComplexity int) int
@@ -297,15 +313,20 @@ type ComplexityRoot struct {
 		Links       func(childComplexity int) int
 		MaxPxcor    func(childComplexity int) int
 		MaxPycor    func(childComplexity int) int
+		MaxPzcor    func(childComplexity int) int
 		MinPxcor    func(childComplexity int) int
 		MinPycor    func(childComplexity int) int
+		MinPzcor    func(childComplexity int) int
+		Observer    func(childComplexity int) int
 		PatchColors func(childComplexity int) int
 		PatchSize   func(childComplexity int) int
 		Shapes      func(childComplexity int) int
 		Turtles     func(childComplexity int) int
+		Voxels      func(childComplexity int) int
 		Width       func(childComplexity int) int
 		WrapX       func(childComplexity int) int
 		WrapY       func(childComplexity int) int
+		WrapZ       func(childComplexity int) int
 	}
 
 	WorldSettings struct {
@@ -824,6 +845,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Link.Y2(childComplexity), true
 
+	case "Link.z1":
+		if e.complexity.Link.Z1 == nil {
+			break
+		}
+
+		return e.complexity.Link.Z1(childComplexity), true
+
+	case "Link.z2":
+		if e.complexity.Link.Z2 == nil {
+			break
+		}
+
+		return e.complexity.Link.Z2(childComplexity), true
+
 	case "Mutation.createSession":
 		if e.complexity.Mutation.CreateSession == nil {
 			break
@@ -1039,6 +1074,55 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.Stop(childComplexity, args["sessionId"].(string)), true
+
+	case "Observer3D.revision":
+		if e.complexity.Observer3D.Revision == nil {
+			break
+		}
+
+		return e.complexity.Observer3D.Revision(childComplexity), true
+
+	case "Observer3D.targetX":
+		if e.complexity.Observer3D.TargetX == nil {
+			break
+		}
+
+		return e.complexity.Observer3D.TargetX(childComplexity), true
+
+	case "Observer3D.targetY":
+		if e.complexity.Observer3D.TargetY == nil {
+			break
+		}
+
+		return e.complexity.Observer3D.TargetY(childComplexity), true
+
+	case "Observer3D.targetZ":
+		if e.complexity.Observer3D.TargetZ == nil {
+			break
+		}
+
+		return e.complexity.Observer3D.TargetZ(childComplexity), true
+
+	case "Observer3D.x":
+		if e.complexity.Observer3D.X == nil {
+			break
+		}
+
+		return e.complexity.Observer3D.X(childComplexity), true
+
+	case "Observer3D.y":
+		if e.complexity.Observer3D.Y == nil {
+			break
+		}
+
+		return e.complexity.Observer3D.Y(childComplexity), true
+
+	case "Observer3D.z":
+		if e.complexity.Observer3D.Z == nil {
+			break
+		}
+
+		return e.complexity.Observer3D.Z(childComplexity), true
 
 	case "PlotPenDelta.epoch":
 		if e.complexity.PlotPenDelta.Epoch == nil {
@@ -1529,12 +1613,26 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Turtle.Hidden(childComplexity), true
 
+	case "Turtle.pitch":
+		if e.complexity.Turtle.Pitch == nil {
+			break
+		}
+
+		return e.complexity.Turtle.Pitch(childComplexity), true
+
 	case "Turtle.r":
 		if e.complexity.Turtle.R == nil {
 			break
 		}
 
 		return e.complexity.Turtle.R(childComplexity), true
+
+	case "Turtle.roll":
+		if e.complexity.Turtle.Roll == nil {
+			break
+		}
+
+		return e.complexity.Turtle.Roll(childComplexity), true
 
 	case "Turtle.shape":
 		if e.complexity.Turtle.Shape == nil {
@@ -1570,6 +1668,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Turtle.Y(childComplexity), true
+
+	case "Turtle.z":
+		if e.complexity.Turtle.Z == nil {
+			break
+		}
+
+		return e.complexity.Turtle.Z(childComplexity), true
 
 	case "TurtleShape.elements":
 		if e.complexity.TurtleShape.Elements == nil {
@@ -1739,6 +1844,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Widget.Y(childComplexity), true
 
+	case "World.depth":
+		if e.complexity.World.Depth == nil {
+			break
+		}
+
+		return e.complexity.World.Depth(childComplexity), true
+
 	case "World.drawing":
 		if e.complexity.World.Drawing == nil {
 			break
@@ -1788,6 +1900,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.MaxPycor(childComplexity), true
 
+	case "World.maxPzcor":
+		if e.complexity.World.MaxPzcor == nil {
+			break
+		}
+
+		return e.complexity.World.MaxPzcor(childComplexity), true
+
 	case "World.minPxcor":
 		if e.complexity.World.MinPxcor == nil {
 			break
@@ -1801,6 +1920,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.World.MinPycor(childComplexity), true
+
+	case "World.minPzcor":
+		if e.complexity.World.MinPzcor == nil {
+			break
+		}
+
+		return e.complexity.World.MinPzcor(childComplexity), true
+
+	case "World.observer":
+		if e.complexity.World.Observer == nil {
+			break
+		}
+
+		return e.complexity.World.Observer(childComplexity), true
 
 	case "World.patchColors":
 		if e.complexity.World.PatchColors == nil {
@@ -1830,6 +1963,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Turtles(childComplexity), true
 
+	case "World.voxels":
+		if e.complexity.World.Voxels == nil {
+			break
+		}
+
+		return e.complexity.World.Voxels(childComplexity), true
+
 	case "World.width":
 		if e.complexity.World.Width == nil {
 			break
@@ -1850,6 +1990,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.World.WrapY(childComplexity), true
+
+	case "World.wrapZ":
+		if e.complexity.World.WrapZ == nil {
+			break
+		}
+
+		return e.complexity.World.WrapZ(childComplexity), true
 
 	case "WorldSettings.frameRateCap":
 		if e.complexity.WorldSettings.FrameRateCap == nil {
@@ -2084,7 +2231,7 @@ type Mutation {
   That directory is MODELS_DIR, or the discovered models directory when the
   variable is unset (the repo, bin/, or a macOS .app next to the repo).
   path is relative to it. Absolute paths and any .. segment are rejected.
-  A .nlogo, .nlogox, or .nlogox3d file is accepted.
+  A .nlogo, .nlogox, .nlogo3d, or .nlogox3d file is accepted.
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
@@ -2313,9 +2460,29 @@ type World {
   maxPycor: Int!
   width: Int!
   height: Int!
+  """
+  Number of patch layers. 1 for a 2D world. A NetLogo 3D world has more,
+  and patchColors is then a top-down projection: each column shows its
+  highest non-black patch.
+  """
+  depth: Int!
+  """Z bounds. Both 0 for a 2D world."""
+  minPzcor: Int!
+  maxPzcor: Int!
   patchSize: Float!
   wrapX: Boolean!
   wrapY: Boolean!
+  """Z wrapping. Always true for a 3D world (NetLogo 3D worlds are tori); false for 2D."""
+  wrapZ: Boolean!
+  """
+  Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
+  pxcor, pycor, pzcor as little-endian int16, then r, g, b.
+  Patch order (highest layer first). Black patches are omitted.
+  Empty for a 2D world, whose patches are in patchColors.
+  """
+  voxels: String!
+  """The observer camera of a 3D world. Null for a 2D world."""
+  observer: Observer3D
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -2417,10 +2584,31 @@ type ShapeElement {
   h: Float!
 }
 
+"""
+The NetLogo 3D observer: a camera at (x, y, z) looking at
+(targetX, targetY, targetZ). revision goes up on every observer camera
+command (setxyz, facexyz, face, orbit-*, zoom, reset-perspective) and
+stays put while the model just runs, so a viewer can move its camera only
+when the model asks.
+"""
+type Observer3D {
+  x: Float!
+  y: Float!
+  z: Float!
+  targetX: Float!
+  targetY: Float!
+  targetZ: Float!
+  revision: Int!
+}
+
 type Turtle {
   who: Int!
   x: Float!
   y: Float!
+  """zcor, pitch, and roll. All 0 in a 2D world."""
+  z: Float!
+  pitch: Float!
+  roll: Float!
   heading: Float!
   size: Float!
   shape: String!
@@ -2433,8 +2621,11 @@ type Turtle {
 type Link {
   x1: Float!
   y1: Float!
+  """End z coordinates. 0 in a 2D world."""
+  z1: Float!
   x2: Float!
   y2: Float!
+  z2: Float!
   hidden: Boolean!
   r: Int!
   g: Int!
@@ -5267,12 +5458,24 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_width(ctx, field)
 			case "height":
 				return ec.fieldContext_World_height(ctx, field)
+			case "depth":
+				return ec.fieldContext_World_depth(ctx, field)
+			case "minPzcor":
+				return ec.fieldContext_World_minPzcor(ctx, field)
+			case "maxPzcor":
+				return ec.fieldContext_World_maxPzcor(ctx, field)
 			case "patchSize":
 				return ec.fieldContext_World_patchSize(ctx, field)
 			case "wrapX":
 				return ec.fieldContext_World_wrapX(ctx, field)
 			case "wrapY":
 				return ec.fieldContext_World_wrapY(ctx, field)
+			case "wrapZ":
+				return ec.fieldContext_World_wrapZ(ctx, field)
+			case "voxels":
+				return ec.fieldContext_World_voxels(ctx, field)
+			case "observer":
+				return ec.fieldContext_World_observer(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -5823,6 +6026,50 @@ func (ec *executionContext) fieldContext_Link_y1(_ context.Context, field graphq
 	return fc, nil
 }
 
+func (ec *executionContext) _Link_z1(ctx context.Context, field graphql.CollectedField, obj *model.Link) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Link_z1(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z1, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Link_z1(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Link",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Link_x2(ctx context.Context, field graphql.CollectedField, obj *model.Link) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Link_x2(ctx, field)
 	if err != nil {
@@ -5899,6 +6146,50 @@ func (ec *executionContext) _Link_y2(ctx context.Context, field graphql.Collecte
 }
 
 func (ec *executionContext) fieldContext_Link_y2(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Link",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Link_z2(ctx context.Context, field graphql.CollectedField, obj *model.Link) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Link_z2(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z2, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Link_z2(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Link",
 		Field:      field,
@@ -7763,6 +8054,314 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 	if fc.Args, err = ec.field_Mutation_setWorld_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Observer3D_x(ctx context.Context, field graphql.CollectedField, obj *model.Observer3d) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Observer3D_x(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.X, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Observer3D_x(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Observer3D",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Observer3D_y(ctx context.Context, field graphql.CollectedField, obj *model.Observer3d) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Observer3D_y(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Y, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Observer3D_y(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Observer3D",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Observer3D_z(ctx context.Context, field graphql.CollectedField, obj *model.Observer3d) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Observer3D_z(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Observer3D_z(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Observer3D",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Observer3D_targetX(ctx context.Context, field graphql.CollectedField, obj *model.Observer3d) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Observer3D_targetX(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TargetX, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Observer3D_targetX(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Observer3D",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Observer3D_targetY(ctx context.Context, field graphql.CollectedField, obj *model.Observer3d) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Observer3D_targetY(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TargetY, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Observer3D_targetY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Observer3D",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Observer3D_targetZ(ctx context.Context, field graphql.CollectedField, obj *model.Observer3d) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Observer3D_targetZ(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TargetZ, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Observer3D_targetZ(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Observer3D",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Observer3D_revision(ctx context.Context, field graphql.CollectedField, obj *model.Observer3d) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Observer3D_revision(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Revision, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Observer3D_revision(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Observer3D",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
 	}
 	return fc, nil
 }
@@ -10310,12 +10909,24 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_width(ctx, field)
 			case "height":
 				return ec.fieldContext_World_height(ctx, field)
+			case "depth":
+				return ec.fieldContext_World_depth(ctx, field)
+			case "minPzcor":
+				return ec.fieldContext_World_minPzcor(ctx, field)
+			case "maxPzcor":
+				return ec.fieldContext_World_maxPzcor(ctx, field)
 			case "patchSize":
 				return ec.fieldContext_World_patchSize(ctx, field)
 			case "wrapX":
 				return ec.fieldContext_World_wrapX(ctx, field)
 			case "wrapY":
 				return ec.fieldContext_World_wrapY(ctx, field)
+			case "wrapZ":
+				return ec.fieldContext_World_wrapZ(ctx, field)
+			case "voxels":
+				return ec.fieldContext_World_voxels(ctx, field)
+			case "observer":
+				return ec.fieldContext_World_observer(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -11056,6 +11667,138 @@ func (ec *executionContext) _Turtle_y(ctx context.Context, field graphql.Collect
 }
 
 func (ec *executionContext) fieldContext_Turtle_y(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Turtle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Turtle_z(ctx context.Context, field graphql.CollectedField, obj *model.Turtle) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Turtle_z(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Turtle_z(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Turtle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Turtle_pitch(ctx context.Context, field graphql.CollectedField, obj *model.Turtle) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Turtle_pitch(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Pitch, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Turtle_pitch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Turtle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Turtle_roll(ctx context.Context, field graphql.CollectedField, obj *model.Turtle) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Turtle_roll(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Roll, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Turtle_roll(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Turtle",
 		Field:      field,
@@ -12687,6 +13430,138 @@ func (ec *executionContext) fieldContext_World_height(_ context.Context, field g
 	return fc, nil
 }
 
+func (ec *executionContext) _World_depth(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_depth(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Depth, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_depth(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_minPzcor(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_minPzcor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MinPzcor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_minPzcor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_maxPzcor(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_maxPzcor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MaxPzcor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_maxPzcor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _World_patchSize(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_World_patchSize(ctx, field)
 	if err != nil {
@@ -12814,6 +13689,151 @@ func (ec *executionContext) fieldContext_World_wrapY(_ context.Context, field gr
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_wrapZ(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_wrapZ(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.WrapZ, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_wrapZ(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_voxels(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_voxels(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Voxels, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_voxels(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_observer(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_observer(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Observer, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.Observer3d)
+	fc.Result = res
+	return ec.marshalOObserver3D2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐObserver3d(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_observer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "x":
+				return ec.fieldContext_Observer3D_x(ctx, field)
+			case "y":
+				return ec.fieldContext_Observer3D_y(ctx, field)
+			case "z":
+				return ec.fieldContext_Observer3D_z(ctx, field)
+			case "targetX":
+				return ec.fieldContext_Observer3D_targetX(ctx, field)
+			case "targetY":
+				return ec.fieldContext_Observer3D_targetY(ctx, field)
+			case "targetZ":
+				return ec.fieldContext_Observer3D_targetZ(ctx, field)
+			case "revision":
+				return ec.fieldContext_Observer3D_revision(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Observer3D", field.Name)
 		},
 	}
 	return fc, nil
@@ -13138,6 +14158,12 @@ func (ec *executionContext) fieldContext_World_turtles(_ context.Context, field 
 				return ec.fieldContext_Turtle_x(ctx, field)
 			case "y":
 				return ec.fieldContext_Turtle_y(ctx, field)
+			case "z":
+				return ec.fieldContext_Turtle_z(ctx, field)
+			case "pitch":
+				return ec.fieldContext_Turtle_pitch(ctx, field)
+			case "roll":
+				return ec.fieldContext_Turtle_roll(ctx, field)
 			case "heading":
 				return ec.fieldContext_Turtle_heading(ctx, field)
 			case "size":
@@ -13202,10 +14228,14 @@ func (ec *executionContext) fieldContext_World_links(_ context.Context, field gr
 				return ec.fieldContext_Link_x1(ctx, field)
 			case "y1":
 				return ec.fieldContext_Link_y1(ctx, field)
+			case "z1":
+				return ec.fieldContext_Link_z1(ctx, field)
 			case "x2":
 				return ec.fieldContext_Link_x2(ctx, field)
 			case "y2":
 				return ec.fieldContext_Link_y2(ctx, field)
+			case "z2":
+				return ec.fieldContext_Link_z2(ctx, field)
 			case "hidden":
 				return ec.fieldContext_Link_hidden(ctx, field)
 			case "r":
@@ -15868,6 +16898,11 @@ func (ec *executionContext) _Link(ctx context.Context, sel ast.SelectionSet, obj
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "z1":
+			out.Values[i] = ec._Link_z1(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "x2":
 			out.Values[i] = ec._Link_x2(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -15875,6 +16910,11 @@ func (ec *executionContext) _Link(ctx context.Context, sel ast.SelectionSet, obj
 			}
 		case "y2":
 			out.Values[i] = ec._Link_y2(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "z2":
+			out.Values[i] = ec._Link_z2(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -16063,6 +17103,75 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setWorld(ctx, field)
 			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var observer3DImplementors = []string{"Observer3D"}
+
+func (ec *executionContext) _Observer3D(ctx context.Context, sel ast.SelectionSet, obj *model.Observer3d) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, observer3DImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Observer3D")
+		case "x":
+			out.Values[i] = ec._Observer3D_x(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "y":
+			out.Values[i] = ec._Observer3D_y(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "z":
+			out.Values[i] = ec._Observer3D_z(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "targetX":
+			out.Values[i] = ec._Observer3D_targetX(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "targetY":
+			out.Values[i] = ec._Observer3D_targetY(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "targetZ":
+			out.Values[i] = ec._Observer3D_targetZ(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "revision":
+			out.Values[i] = ec._Observer3D_revision(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -16761,6 +17870,21 @@ func (ec *executionContext) _Turtle(ctx context.Context, sel ast.SelectionSet, o
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "z":
+			out.Values[i] = ec._Turtle_z(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pitch":
+			out.Values[i] = ec._Turtle_pitch(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "roll":
+			out.Values[i] = ec._Turtle_roll(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "heading":
 			out.Values[i] = ec._Turtle_heading(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -17015,6 +18139,21 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "depth":
+			out.Values[i] = ec._World_depth(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "minPzcor":
+			out.Values[i] = ec._World_minPzcor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxPzcor":
+			out.Values[i] = ec._World_maxPzcor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "patchSize":
 			out.Values[i] = ec._World_patchSize(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -17030,6 +18169,18 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "wrapZ":
+			out.Values[i] = ec._World_wrapZ(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "voxels":
+			out.Values[i] = ec._World_voxels(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "observer":
+			out.Values[i] = ec._World_observer(ctx, field, obj)
 		case "labelFont":
 			out.Values[i] = ec._World_labelFont(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18600,6 +19751,13 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	}
 	res := scalar.MarshalInt(*v)
 	return res
+}
+
+func (ec *executionContext) marshalOObserver3D2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐObserver3d(ctx context.Context, sel ast.SelectionSet, v *model.Observer3d) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._Observer3D(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx context.Context, sel ast.SelectionSet, v *model.Session) graphql.Marshaler {

@@ -22,6 +22,7 @@ var modelExts = map[string]bool{
 	".nlogo":    true,
 	".nlogox":   true,
 	".nlogox3d": true,
+	".nlogo3d":  true,
 }
 
 // Options controls one Check call.
@@ -84,8 +85,10 @@ type Result struct {
 	GoTicks    int      `json:"go_ticks"`
 	WorldW     int      `json:"world_w"`
 	WorldH     int      `json:"world_h"`
-	Notes      []string `json:"notes,omitempty"`
-	ElapsedMS  int64    `json:"elapsed_ms"`
+	// WorldD is the number of patch layers: 1 for a 2D model.
+	WorldD    int      `json:"world_d"`
+	Notes     []string `json:"notes,omitempty"`
+	ElapsedMS int64    `json:"elapsed_ms"`
 }
 
 // Walk returns model files under root, in slash-sorted order.
@@ -175,6 +178,7 @@ func Check(path string, opt Options) (res Result) {
 	}
 	res.WorldW = m.View.MaxPxcor - m.View.MinPxcor + 1
 	res.WorldH = m.View.MaxPycor - m.View.MinPycor + 1
+	res.WorldD = m.View.Depth()
 
 	prog, err := m.Compile()
 	if err != nil {
@@ -252,6 +256,18 @@ func worldRunnable(v nl.ViewSpec, maxSide int) (string, bool) {
 	}
 	if w > maxSide || h > maxSide {
 		return fmt.Sprintf("world is %dx%d, GoNetLogo allows at most %d patches on a side", w, h, maxSide), false
+	}
+	if v.Is3D {
+		d := v.Depth()
+		if d < 1 {
+			return "the world is empty", false
+		}
+		if d > maxSide {
+			return fmt.Sprintf("world is %dx%dx%d, GoNetLogo allows at most %d patches on a side", w, h, d, maxSide), false
+		}
+		if err := nl.ValidWorld3D(v.MinPxcor, v.MaxPxcor, v.MinPycor, v.MaxPycor, v.MinPzcor, v.MaxPzcor); err != nil {
+			return fmt.Sprintf("world is %dx%dx%d: %s", w, h, d, err.Error()), false
+		}
 	}
 	return "", true
 }

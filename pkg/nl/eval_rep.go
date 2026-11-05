@@ -9,6 +9,11 @@ import (
 )
 
 func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
+	if vm.World.threeD {
+		if v, handled, err := vm.evalReporter3D(name, args, pos); handled {
+			return v, err
+		}
+	}
 	switch name {
 	case "turtle":
 		id, err := asInt(args[0], "turtle")
@@ -1216,6 +1221,9 @@ func (vm *VM) evalInCone(e *inConeExpr) (Value, error) {
 	}
 
 	halfAngle := angle / 2.0
+	if vm.World.threeD {
+		return vm.inCone3D(self, ags, dist, angle)
+	}
 	sx, sy := self.X, self.Y
 	heading := self.Heading
 	var keep []Agent
@@ -1269,6 +1277,24 @@ func (vm *VM) inRadius(e *infixExpr) (Value, error) {
 	if err != nil {
 		return Value{}, err
 	}
+	if vm.World.threeD {
+		// NetLogo 3D in-radius is a ball: true 3D distance.
+		sx, sy, sz, err := vm.selfPoint3()
+		if err != nil {
+			return Value{}, err
+		}
+		var keep []Agent
+		for _, a := range ags.Alive() {
+			x, y, z, err := point3Of(a)
+			if err != nil {
+				return Value{}, err
+			}
+			if vm.World.Distance3(sx, sy, sz, x, y, z) <= rad {
+				keep = append(keep, a)
+			}
+		}
+		return SetVal(&AgentSet{Kind: ags.Kind, Breed: ags.Breed, Agents: keep}), nil
+	}
 	sx, sy, err := vm.selfPoint()
 	if err != nil {
 		return Value{}, err
@@ -1303,7 +1329,25 @@ func (vm *VM) atPoints(e *infixExpr) (Value, error) {
 		return Value{}, fmt.Errorf("at-points expected a list of coordinate pairs")
 	}
 	patchMap := map[*Patch]bool{}
+	if vm.World.threeD {
+		// NetLogo 3D at-points takes [dx dy dz] triples.
+		for _, item := range r.L {
+			if item.K != KindList || len(item.L) != 3 {
+				return Value{}, fmt.Errorf("at-points expected a list of [dx dy dz] triples in 3D")
+			}
+			n, err := nums(item.L, "at-points")
+			if err != nil {
+				return Value{}, err
+			}
+			if p := vm.patchAtOffset3(n[0], n[1], n[2]); p != nil {
+				patchMap[p] = true
+			}
+		}
+	}
 	for _, item := range r.L {
+		if vm.World.threeD {
+			break
+		}
 		if item.K != KindList || len(item.L) != 2 {
 			return Value{}, fmt.Errorf("at-points expected a list of [dx dy] pairs")
 		}
@@ -2235,6 +2279,22 @@ func (vm *VM) getAgentVar(name string) (Value, bool, error) {
 }
 
 func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
+	if vm.World.threeD {
+		switch name {
+		case "zcor":
+			return Num(t.Z), true, nil
+		case "pitch":
+			return Num(t.Pitch), true, nil
+		case "roll":
+			return Num(t.Roll), true, nil
+		case "pzcor":
+			p := vm.World.PatchHere(t)
+			if p == nil {
+				return Nobody(), true, nil
+			}
+			return Num(float64(p.PZ)), true, nil
+		}
+	}
 	switch name {
 	case "who":
 		return Num(float64(t.Who)), true, nil
@@ -2313,6 +2373,9 @@ func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
 }
 
 func (vm *VM) getPatchVar(p *Patch, name string) (Value, bool, error) {
+	if name == "pzcor" && vm.World.threeD {
+		return Num(float64(p.PZ)), true, nil
+	}
 	switch name {
 	case "pxcor":
 		return Num(float64(p.PX)), true, nil
@@ -2393,6 +2456,26 @@ func (vm *VM) setAgentVar(name string, v Value) (bool, error) {
 }
 
 func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
+	if vm.World.threeD {
+		switch name {
+		case "pzcor":
+			return true, fmt.Errorf("you can't change %s", name)
+		case "zcor", "pitch", "roll":
+			n, err := v.Num()
+			if err != nil {
+				return true, err
+			}
+			switch name {
+			case "zcor":
+				return true, vm.World.MoveTo3(t, t.X, t.Y, n)
+			case "pitch":
+				t.Pitch = normDeg(n)
+			default:
+				t.Roll = normDeg(n)
+			}
+			return true, nil
+		}
+	}
 	switch name {
 	case "who", "pxcor", "pycor":
 		return true, fmt.Errorf("you can't change %s", name)
@@ -2508,6 +2591,9 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 }
 
 func (vm *VM) setPatchVar(p *Patch, name string, v Value) (bool, error) {
+	if name == "pzcor" && vm.World.threeD {
+		return true, fmt.Errorf("you can't change %s", name)
+	}
 	switch name {
 	case "pxcor", "pycor":
 		return true, fmt.Errorf("you can't change %s", name)

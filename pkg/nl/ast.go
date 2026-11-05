@@ -24,7 +24,9 @@ type Program struct {
 	LinkBreedOwn  map[string][]string
 	Extensions    []string
 	Procedures    []*Procedure
-	procs         map[string]*Procedure
+	// Is3D selects the NetLogo 3D dialect. See Parse3D.
+	Is3D  bool
+	procs map[string]*Procedure
 	// compiled is set once procedure bodies have been turned into closures.
 	compiled bool
 	// noClosure forces the tree walker even if bodies were compiled.

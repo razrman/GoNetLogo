@@ -152,6 +152,25 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
       }
     }
   }
+
+  // A 3D world is shown from above: the server projects each column to
+  // its highest colored patch and sends turtles low to high. Say so, so
+  // the flat picture is not mistaken for the whole world.
+  const depth = world.depth ?? 1
+  if (depth > 1) paintBadge(ctx, ox, oy, `3D · top-down view · ${depth} layers`, dpr)
+}
+
+function paintBadge(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, dpr: number) {
+  const fontPx = Math.round(11 * dpr)
+  const pad = Math.round(4 * dpr)
+  ctx.font = `${fontPx}px ui-sans-serif, system-ui, sans-serif`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  const width = ctx.measureText(text).width
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+  ctx.fillRect(x + pad, y + pad, width + pad * 2, fontPx + pad * 2)
+  ctx.fillStyle = '#e8e8e0'
+  ctx.fillText(text, x + pad * 2, y + pad * 2)
 }
 
 const layer = document.createElement('canvas')
