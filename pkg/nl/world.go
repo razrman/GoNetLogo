@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"math"
-	"math/rand"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -82,7 +81,7 @@ type World struct {
 	perspectiveAgent Agent
 	perspectiveMode  string // "watch", "follow", "ride", or ""
 
-	rng      *rand.Rand
+	rng      *MersenneTwister
 	rngDraws atomic.Uint64
 	seed     int64
 
@@ -389,18 +388,24 @@ func (w *World) Resize(minPx, maxPx, minPy, maxPy int, wrapX, wrapY bool) {
 	w.recreatePatches()
 }
 
+// Seed reseeds the world RNG the way random-seed does in NetLogo:
+// MersenneTwisterFast.setSeed, which uses only the low 32 bits.
 func (w *World) Seed(seed int64) {
 	w.seed = seed
 	w.ResetRNGDraws()
-	src := rand.NewSource(seed)
-	w.rng = rand.New(&countingSource{src: src, s64: src.(rand.Source64), draws: &w.rngDraws})
+	if w.rng == nil {
+		w.rng = &MersenneTwister{draws: &w.rngDraws}
+	}
+	w.rng.SetSeed(seed)
 }
 
-func (w *World) RNG() *rand.Rand { return w.rng }
+// RNG is the world's NetLogo-compatible random number generator.
+func (w *World) RNG() *MersenneTwister { return w.rng }
 
-// RNGDraws is how many times the world RNG source has been asked for a
-// number since the last clear-all, setup, or random-seed. Every Int63 or
-// Uint64 on that source counts, including rejection samples inside Intn.
+// RNGDraws is how many 32-bit words the world RNG has produced since the
+// last clear-all, setup, or random-seed. random 100 is two words (NetLogo
+// uses nextLong), random-float is two, and a rejection inside nextInt or
+// nextLong counts every word it read.
 func (w *World) RNGDraws() uint64 {
 	if w == nil {
 		return 0
@@ -415,35 +420,9 @@ func (w *World) ResetRNGDraws() {
 	}
 }
 
-// countingSource delegates to a math/rand source and counts every draw.
-// It implements Source64 so Rand.Uint64 stays one draw, matching the
-// source rand.NewSource returns. Int63 still calls the inner Int63, so
-// Intn, Float64, and Shuffle keep the unwrapped sequence.
-type countingSource struct {
-	src   rand.Source
-	s64   rand.Source64
-	draws *atomic.Uint64
-}
-
-func (c *countingSource) Int63() int64 {
-	c.draws.Add(1)
-	return c.src.Int63()
-}
-
-func (c *countingSource) Uint64() uint64 {
-	if c.s64 != nil {
-		c.draws.Add(1)
-		return c.s64.Uint64()
-	}
-	// Two Int63 draws, each counted by Int63. This path is unused for
-	// rand.NewSource, which implements Source64.
-	hi := uint64(c.Int63())
-	lo := uint64(c.Int63())
-	return hi>>31 | lo<<32
-}
-
-func (c *countingSource) Seed(seed int64) {
-	c.src.Seed(seed)
+// nextInt is MersenneTwisterFast.nextInt(n) for an int bound.
+func (w *World) nextInt(n int) int {
+	return int(w.rng.NextIntN(int32(n)))
 }
 
 // SetProgramVars installs the variable declarations from a compiled program.
@@ -1527,43 +1506,69 @@ func (w *World) HeadingTowards(x1, y1, x2, y2 float64) (float64, error) {
 	return h, nil
 }
 
+// RandomXcor is random-xcor: min + nextDouble * (max - min) with the
+// patch-edge bounds, as NetLogo computes it.
 func (w *World) RandomXcor() float64 {
-	span := w.worldWidth()
-	return float64(w.MinPxcor) - 0.5 + w.rng.Float64()*span
+	lo := float64(w.MinPxcor) - 0.5
+	hi := float64(w.MaxPxcor) + 0.5
+	return lo + float64(w.rng.NextDouble()*(hi-lo))
 }
 
+// RandomYcor is random-ycor.
 func (w *World) RandomYcor() float64 {
-	span := w.worldHeight()
-	return float64(w.MinPycor) - 0.5 + w.rng.Float64()*span
+	lo := float64(w.MinPycor) - 0.5
+	hi := float64(w.MaxPycor) + 0.5
+	return lo + float64(w.rng.NextDouble()*(hi-lo))
 }
 
+// RandomPxcor is random-pxcor: min + nextInt(max - min + 1).
 func (w *World) RandomPxcor() int {
-	return w.MinPxcor + w.rng.Intn(w.width)
+	return w.MinPxcor + w.nextInt(w.MaxPxcor-w.MinPxcor+1)
 }
 
+// RandomPycor is random-pycor.
 func (w *World) RandomPycor() int {
-	return w.MinPycor + w.rng.Intn(w.height)
+	return w.MinPycor + w.nextInt(w.MaxPycor-w.MinPycor+1)
 }
 
-// RandomInt implements random. n > 0 yields [0, n). n < 0 yields (n, 0].
+// RandomInt is random with an integer bound. n > 0 yields [0, n), n < 0
+// yields (n, 0], and 0 yields 0. Like NetLogo it draws with nextLong.
 func (w *World) RandomInt(n int) (int, error) {
-	if n == 0 {
-		return 0, fmt.Errorf("random expected a nonzero number")
-	}
-	if n > 0 {
-		return w.rng.Intn(n), nil
-	}
-	return -w.rng.Intn(-n), nil
+	v, err := w.Random(float64(n))
+	return int(v), err
 }
 
+// Random implements NetLogo's random reporter (_random). A non-integer
+// bound is rounded away from zero first, so random 2.5 is random 3. The
+// draw is nextLong(bound), not nextInt.
+func (w *World) Random(max float64) (float64, error) {
+	// validLong: 2^53 is the largest integer a double holds exactly.
+	if max > 9007199254740992 || max < -9007199254740992 {
+		return 0, fmt.Errorf("%s is too large to be represented exactly as an integer in NetLogo", formatNum(max))
+	}
+	if math.IsNaN(max) {
+		return 0, nil // Java's (long) NaN is 0
+	}
+	n := int64(max)
+	if max != float64(n) {
+		if max >= 0 {
+			n++
+		} else {
+			n--
+		}
+	}
+	switch {
+	case n > 0:
+		return float64(w.rng.NextLongN(n)), nil
+	case n < 0:
+		return -float64(w.rng.NextLongN(-n)), nil
+	}
+	return 0, nil
+}
+
+// RandomFloat is random-float: n * nextDouble. It always draws, even for 0.
 func (w *World) RandomFloat(n float64) (float64, error) {
-	if n == 0 {
-		return 0, nil
-	}
-	if n > 0 {
-		return w.rng.Float64() * n, nil
-	}
-	return -w.rng.Float64() * -n, nil
+	return n * w.rng.NextDouble(), nil
 }
 
 // --- links ---
@@ -1763,12 +1768,8 @@ func (w *World) Hill(t *Turtle, varName string, four, down bool) error {
 	if len(bestPatches) == 0 {
 		return nil
 	}
-	var pick *Patch
-	if len(bestPatches) == 1 {
-		pick = bestPatches[0]
-	} else {
-		pick = bestPatches[w.rng.Intn(len(bestPatches))]
-	}
+	// NetLogo always draws nextInt(winners), even for a single winner.
+	pick := bestPatches[w.nextInt(len(bestPatches))]
 	if w.threeD {
 		px, py, pz := float64(pick.PX), float64(pick.PY), float64(pick.PZ)
 		if err := w.FaceXYZ(t, px, py, pz, true); err != nil {
@@ -2050,11 +2051,20 @@ func (w *World) segmentHitsPatch(m *Mark, px, py int) bool {
 	return false
 }
 
-// Shuffle copies agents and shuffles them with the world RNG.
+// Shuffle returns agents in the order NetLogo's shufflerator yields them,
+// drawing every index up front. Dead agents keep their slot in the draw
+// sequence and stay in the result. Primitives that run code per agent
+// use ShuffleIter so draws interleave with the body as in NetLogo.
 func (w *World) Shuffle(ags []Agent) []Agent {
-	out := append([]Agent(nil), ags...)
-	w.rng.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
-	return out
+	it := w.newShuffler(ags, false)
+	out := make([]Agent, 0, len(ags))
+	for {
+		a, ok := it.Next()
+		if !ok {
+			return out
+		}
+		out = append(out, a)
+	}
 }
 
 // SetBreed moves a turtle into a breed. Empty breed means the default turtles.

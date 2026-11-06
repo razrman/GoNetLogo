@@ -217,11 +217,18 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		}
 		return w.TickAdvance(n)
 	case "random-seed":
-		n, err := asInt(args[0], "random-seed")
+		d, err := args[0].Num()
 		if err != nil {
-			return err
+			return fmt.Errorf("random-seed expected a number, got %s", args[0].TypeName())
 		}
-		w.Seed(int64(n))
+		// NetLogo truncates to a long and accepts only the int range.
+		if d <= -2147483649 || d >= 2147483648 {
+			return fmt.Errorf("%s is not in the allowable range for random seeds (-2147483648 to 2147483647)", formatNum(d))
+		}
+		if math.IsNaN(d) {
+			d = 0 // Java's (long) NaN
+		}
+		w.Seed(int64(d))
 	case "die":
 		if vm.self == nil {
 			return fmt.Errorf("only turtles and links can die")
@@ -847,11 +854,13 @@ func (vm *VM) createLinks(name string, args []Value, block []Stmt, pos Pos) {
 			vm.fail(pos, "%s expected a turtle agentset", name)
 		}
 		for _, a := range args[0].Set.Alive() {
-			t, ok := a.(*Turtle)
-			if !ok {
+			if _, ok := a.(*Turtle); !ok {
 				vm.fail(pos, "%s expected turtles", name)
 			}
-			others = append(others, t)
+		}
+		// NetLogo creates the links in shufflerator order.
+		for _, a := range vm.World.shuffledLive(args[0].Set) {
+			others = append(others, a.(*Turtle))
 		}
 	} else {
 		t, ok := args[0].A.(*Turtle)
@@ -860,6 +869,7 @@ func (vm *VM) createLinks(name string, args []Value, block []Stmt, pos Pos) {
 		}
 		others = []*Turtle{t}
 	}
+	var made []Agent
 	for _, other := range others {
 		a, b := self, other
 		if from {
@@ -873,9 +883,12 @@ func (vm *VM) createLinks(name string, args []Value, block []Stmt, pos Pos) {
 		if !created {
 			continue
 		}
-		if block != nil {
-			vm.execAgentBlock(l, block)
-		}
+		made = append(made, l)
+	}
+	// NetLogo creates every link first, then asks the new links to run
+	// the block in shufflerator order.
+	if len(block) > 0 {
+		vm.execAskBlock(made, true, block)
 	}
 }
 
@@ -1128,6 +1141,12 @@ func (vm *VM) evalCall(c *callExpr) (Value, error) {
 		return vm.evalIfelseValue(c)
 	case "all?", "max-one-of", "min-one-of", "max-n-of", "min-n-of", "sort-on":
 		return vm.evalAgentBlockRep(c)
+	case "one-of":
+		if len(c.Args) == 1 {
+			if w, ok := c.Args[0].(*withExpr); ok {
+				return vm.oneOfWith(w)
+			}
+		}
 	}
 	if proc := vm.Prog.Proc(c.Name); proc != nil && proc.IsReporter {
 		args := vm.evalAll(c.Args, c.Pos)
@@ -1204,21 +1223,27 @@ func (vm *VM) evalAgentBlockRep(c *callExpr) (Value, error) {
 		type scoredAgent struct {
 			a Agent
 			k Value
-			r int // random tie-breaker
 		}
-		items := make([]scoredAgent, len(live))
-		for i, a := range live {
-			items[i] = scoredAgent{a: a, k: vm.score(a, block, c.Pos), r: vm.World.rng.Int()}
+		// NetLogo scores agents in shufflerator order and keeps that order
+		// within a tie, which is how ties break randomly.
+		items := make([]scoredAgent, 0, len(live))
+		it := vm.World.shuffleSet(ags)
+		for {
+			a, ok := it.Next()
+			if !ok {
+				break
+			}
+			if a.IsDead() {
+				continue
+			}
+			items = append(items, scoredAgent{a: a, k: vm.score(a, block, c.Pos)})
 		}
 		var sortErr error
-		sort.Slice(items, func(i, j int) bool {
+		sort.SliceStable(items, func(i, j int) bool {
 			cmp, err := compare(items[i].k, items[j].k)
 			if err != nil {
 				sortErr = err
 				return false
-			}
-			if cmp == 0 {
-				return items[i].r < items[j].r
 			}
 			if c.Name == "max-n-of" {
 				return cmp > 0
@@ -1278,40 +1303,56 @@ func (vm *VM) evalAgentBlockRep(c *callExpr) (Value, error) {
 		if len(live) == 0 {
 			return Nobody(), nil
 		}
-		best := live[0]
-		bestV := vm.score(best, block, c.Pos)
+		// NetLogo collects every agent tied for the best value, in
+		// iteration order, then picks one with nextInt(winners). It draws
+		// even when there is a single winner.
+		winners := []Agent{live[0]}
+		bestV := vm.score(live[0], block, c.Pos)
 		for _, a := range live[1:] {
 			sv := vm.score(a, block, c.Pos)
 			cmp, err := compare(sv, bestV)
 			if err != nil {
 				return Value{}, err
 			}
-			if c.Name == "max-one-of" && cmp > 0 || c.Name == "min-one-of" && cmp < 0 {
-				best, bestV = a, sv
+			if c.Name == "min-one-of" {
+				cmp = -cmp
+			}
+			if cmp > 0 {
+				winners, bestV = append(winners[:0], a), sv
+			} else if cmp == 0 {
+				winners = append(winners, a)
 			}
 		}
-		return AgentVal(best), nil
+		return AgentVal(winners[vm.World.nextInt(len(winners))]), nil
 	case "sort-on":
-		var agents []Agent
+		type pair struct {
+			a Agent
+			k Value
+		}
+		var ps []pair
 		if target.K == KindAgentset {
-			agents = target.Set.Alive()
+			// NetLogo scores agents in shufflerator order, then stable
+			// sorts, so ties break randomly with NetLogo's draws.
+			it := vm.World.shuffleSet(target.Set)
+			for {
+				a, ok := it.Next()
+				if !ok {
+					break
+				}
+				if a.IsDead() {
+					continue
+				}
+				ps = append(ps, pair{a, vm.score(a, block, c.Pos)})
+			}
 		} else if target.K == KindList {
 			for _, it := range target.L {
 				if it.K != KindAgent {
 					return Value{}, fmt.Errorf("sort-on expected agents")
 				}
-				agents = append(agents, it.A)
+				ps = append(ps, pair{it.A, vm.score(it.A, block, c.Pos)})
 			}
 		} else {
 			return Value{}, fmt.Errorf("sort-on expected an agentset or list")
-		}
-		type pair struct {
-			a Agent
-			k Value
-		}
-		ps := make([]pair, len(agents))
-		for i, a := range agents {
-			ps[i] = pair{a, vm.score(a, block, c.Pos)}
 		}
 		var sortErr error
 		sort.SliceStable(ps, func(i, j int) bool {

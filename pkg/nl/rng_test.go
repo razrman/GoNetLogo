@@ -1,14 +1,14 @@
 package nl
 
 import (
-	"math"
 	"strings"
 	"testing"
 )
 
 // TestRNGDrawCounter checks that every underlying draw is counted and that
 // random-seed and clear-all put the counter back to zero. The values after
-// seed 1 are the sequence the unwrapped math/rand source produced.
+// seed 1 are what NetLogo's MersenneTwisterFast gives (random uses
+// nextLong, random-float uses nextDouble); see mersenne_test.go.
 func TestRNGDrawCounter(t *testing.T) {
 	m, err := ParseModel("rng.nlogo", "to setup\n  clear-all\nend\n@#$#@#$#@\n")
 	if err != nil {
@@ -23,7 +23,7 @@ func TestRNGDrawCounter(t *testing.T) {
 	}
 
 	vm.World.Seed(1)
-	wantInt := []int{81, 87, 47, 59, 81}
+	wantInt := []int{81, 88, 80, 90, 48}
 	for i, want := range wantInt {
 		got, err := vm.World.RandomInt(100)
 		if err != nil {
@@ -33,18 +33,19 @@ func TestRNGDrawCounter(t *testing.T) {
 			t.Fatalf("random %d = %d, want %d (sequence changed)", i, got, want)
 		}
 	}
-	wantFloat := []float64{0.6868230729, 0.0656370192, 0.1565192547}
+	wantFloat := []float64{0.09233859772355446, 0.18626021426783113, 0.345560724582464}
 	for i, want := range wantFloat {
 		got, err := vm.World.RandomFloat(1)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if math.Abs(got-want) > 1e-9 {
-			t.Fatalf("random-float %d = %.10f, want %.10f", i, got, want)
+		if got != want {
+			t.Fatalf("random-float %d = %v, want %v", i, got, want)
 		}
 	}
-	if got := vm.World.RNGDraws(); got == 0 {
-		t.Fatal("random and random-float did not count")
+	// nextLong and nextDouble each read two 32-bit words.
+	if got := vm.World.RNGDraws(); got != 16 {
+		t.Fatalf("random and random-float draws = %d, want 16", got)
 	}
 
 	before := vm.World.RNGDraws()

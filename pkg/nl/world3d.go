@@ -435,12 +435,16 @@ func (w *World) Neighbors6(p *Patch) []*Patch {
 
 // --- random coordinates ---
 
+// RandomZcor is random-zcor, computed like NetLogo 3D's random-xcor.
 func (w *World) RandomZcor() float64 {
-	return float64(w.MinPzcor) - 0.5 + w.rng.Float64()*w.worldDepth()
+	lo := float64(w.MinPzcor) - 0.5
+	hi := float64(w.MaxPzcor) + 0.5
+	return lo + float64(w.rng.NextDouble()*(hi-lo))
 }
 
+// RandomPzcor is random-pzcor: min + nextInt(max - min + 1).
 func (w *World) RandomPzcor() int {
-	return w.MinPzcor + w.rng.Intn(w.depth)
+	return w.MinPzcor + w.nextInt(w.MaxPzcor-w.MinPzcor+1)
 }
 
 // --- observer camera ---
