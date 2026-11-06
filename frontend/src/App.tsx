@@ -21,6 +21,7 @@ import {
   SetSpeed,
   SetSwitch,
   SetWorld,
+  GenerateRngSeed,
   Setup,
   Step,
   Stop,
@@ -35,7 +36,9 @@ import {
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
 import { InfoView } from './InfoTab'
 import { LibraryBrowser } from './LibraryBrowser'
+import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
+import { rngSeedError } from './rngSeed'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
 // first time one is shown. 2D models never fetch it.
@@ -48,7 +51,7 @@ type LoadResult = { loadModel: SessionInfo }
 type FileResult = { loadModelFile: SessionInfo }
 type SourceResult = { loadModelSource: SessionInfo }
 type LibraryResult = { library: LibraryListing }
-type CodeResult = { setCode: { ok: boolean; error: string | null } }
+type CodeResult = { setCode: { ok: boolean; error: string | null; session?: { procedures: string[] } } }
 type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
 
 export function App() {
@@ -71,9 +74,11 @@ export function App() {
   const [, chooserMut] = useMutation(SetChooser)
   const [, inputMut] = useMutation(SetInput)
   const [, setWorldMut] = useMutation(SetWorld)
+  const [, generateSeedMut] = useMutation<{ generateRngSeed: string }>(GenerateRngSeed)
 
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('fire.nlogo')
+  const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
   const [info, setInfo] = useState('')
   const [modelDir, setModelDir] = useState<string | null>(null)
@@ -146,6 +151,7 @@ export function App() {
       setInfo(info.info ?? '')
       setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
+      setProcedures(info.procedures ?? [])
       await speedMut({ id: info.id, speed: 30 })
       await autoSetup(info.id, info.procedures)
       const go = await goMut({ id: info.id })
@@ -184,6 +190,7 @@ export function App() {
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
+    setProcedures(info.procedures ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -191,7 +198,7 @@ export function App() {
   }
 
   async function onSetup() {
-    if (!sessionId) return
+    if (!sessionId || !hasProcedure(procedures, 'setup')) return
     setBanner(null)
     const res = await setupMut({ id: sessionId })
     if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
@@ -240,6 +247,8 @@ export function App() {
     }
     const message = res.data?.setCode.error
     setCompileError(message ? presentCompileError(message, code) : null)
+    const nextProcedures = res.data?.setCode.session?.procedures
+    if (res.data?.setCode.ok && nextProcedures) setProcedures(nextProcedures)
   }
 
   async function openSource(filename: string, source: string) {
@@ -256,6 +265,7 @@ export function App() {
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
+    setProcedures(info.procedures ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -295,14 +305,28 @@ export function App() {
     if (!sessionId) return
     setLibraryLoading(true)
     setLibraryError(null)
-    const result = await queryLibrary(null)
+    const last = readLastModelPath()
+    const folder = last == null ? null : parentFolder(last)
+    let result = await queryLibrary(folder)
+    if (result.disconnect) {
+      setLibraryLoading(false)
+      return
+    }
+    // A saved folder that is gone falls back to the usual library root.
+    if (folder != null && (result.message || !result.listing?.available)) {
+      result = await queryLibrary(null)
+      if (result.disconnect) {
+        setLibraryLoading(false)
+        return
+      }
+    }
     setLibraryLoading(false)
-    if (result.disconnect) return
     if (!result.listing?.available) {
       fileRef.current?.click()
       return
     }
-    setLibrary(result.listing)
+    if (result.message) setLibraryError(result.message)
+    if (result.listing) setLibrary(result.listing)
   }
 
   async function openLibraryPath(path: string) {
@@ -324,6 +348,7 @@ export function App() {
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
+    setProcedures(info.procedures ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -344,6 +369,7 @@ export function App() {
       return
     }
     const info = res.data.loadModelFile
+    writeLastModelPath(entry.path)
     applyOpenedModel(info)
     await autoSetup(sessionId, info.procedures)
   }
@@ -370,7 +396,33 @@ export function App() {
     }
     const applied = await sendWorld(sessionId, next, setWorldMut)
     if (applied.message) return applied.message
+    setProcedures(applied.procedures)
     return autoSetup(sessionId, applied.procedures)
+  }
+
+  async function onPopulateSeed(): Promise<{ seed: string | null; message: string | null }> {
+    if (!sessionId) return { seed: null, message: 'No session' }
+    if (frame?.running) {
+      const stopped = await stopMut({ id: sessionId })
+      if (reportDisconnect(stopped.error?.message)) return { seed: null, message: 'Server disconnected. Reconnecting…' }
+      if (stopped.error) return { seed: null, message: stopped.error.message }
+      setActive(null)
+    }
+    let last = 'Could not generate an RNG seed'
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const res = await generateSeedMut({ id: sessionId })
+      const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
+      if (reportDisconnect(message)) return { seed: null, message: 'Server disconnected. Reconnecting…' }
+      if (!message) {
+        const seed = res.data?.generateRngSeed ?? ''
+        if (rngSeedError(seed)) return { seed: null, message: 'Could not generate an RNG seed' }
+        return { seed, message: null }
+      }
+      last = message
+      if (!/model is running|running a command/i.test(message)) return { seed: null, message }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return { seed: null, message: last }
   }
 
   async function autoSetup(id: string, procedures: readonly string[] | undefined): Promise<string | null> {
@@ -472,7 +524,13 @@ export function App() {
             }}
           />
           <div className="controls">
-            <button className="act" type="button" disabled={!sessionId} onClick={() => void onSetup()}>
+            <button
+              className="act"
+              type="button"
+              disabled={!sessionId || !hasProcedure(procedures, 'setup')}
+              title={sessionId && !hasProcedure(procedures, 'setup') ? 'This model has no setup procedure' : undefined}
+              onClick={() => void onSetup()}
+            >
               setup
             </button>
             <button
@@ -598,6 +656,7 @@ export function App() {
               world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
               disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
               onApply={onWorld}
+              onPopulateSeed={onPopulateSeed}
               onDirtyChange={onWorldDirty}
               registerApply={registerWorldApply}
             />
@@ -714,6 +773,7 @@ export function App() {
           listing={library}
           loading={libraryLoading}
           error={libraryError}
+          selectedPath={readLastModelPath()}
           onOpen={(path) => void openLibraryPath(path)}
           onUp={(path) => void openLibraryPath(path)}
           onFile={(entry) => void openLibraryFile(entry)}
@@ -837,12 +897,14 @@ function WorldSettingsForm({
   world,
   disabled,
   onApply,
+  onPopulateSeed,
   onDirtyChange,
   registerApply,
 }: {
   world: WorldView | null
   disabled: boolean
   onApply: (next: WorldView) => Promise<string | null>
+  onPopulateSeed: () => Promise<{ seed: string | null; message: string | null }>
   onDirtyChange: (dirty: boolean) => void
   registerApply: (apply: (() => Promise<boolean>) | null) => void
 }) {
@@ -857,6 +919,7 @@ function WorldSettingsForm({
     wrapX: true,
     wrapY: true,
     wrapZ: false,
+    rngSeed: '',
   })
   const [error, setError] = useState<string | null>(null)
   const [synced, setSynced] = useState(false)
@@ -864,6 +927,14 @@ function WorldSettingsForm({
   const signature = world
     ? `${world.minPxcor},${world.maxPxcor},${world.minPycor},${world.maxPycor},${world.minPzcor ?? 0},${world.maxPzcor ?? 0},${world.patchSize},${world.wrapX},${world.wrapY},${world.wrapZ ?? false},${world.threeD ?? false}`
     : ''
+  // Keep the seed box on the server value unless the user has edited it.
+  // A geometry change still replaces the whole draft below.
+  const serverSeed = world?.rngSeed ?? ''
+  const [seenSeed, setSeenSeed] = useState(serverSeed)
+  if (serverSeed !== seenSeed) {
+    setSeenSeed(serverSeed)
+    setDraft((d) => (d.rngSeed === seenSeed ? { ...d, rngSeed: serverSeed } : d))
+  }
 
   useEffect(() => {
     if (!world) return
@@ -878,6 +949,7 @@ function WorldSettingsForm({
       wrapX: world.wrapX,
       wrapY: world.wrapY,
       wrapZ: world.wrapZ ?? false,
+      rngSeed: world.rngSeed ?? '',
     })
     setError(null)
     setSynced(true)
@@ -895,10 +967,21 @@ function WorldSettingsForm({
       setError(parsed)
       return false
     }
+    const next = world && parsed.rngSeed === (world.rngSeed ?? '') ? { ...parsed, rngSeed: undefined } : parsed
     setError(null)
-    const message = await onApply(parsed)
+    const message = await onApply(next)
     setError(message)
     return message == null
+  }
+
+  async function populate() {
+    const result = await onPopulateSeed()
+    if (result.message) {
+      setError(result.message)
+      return
+    }
+    if (result.seed) setDraft((d) => ({ ...d, rngSeed: result.seed ?? '' }))
+    setError(null)
   }
 
   useEffect(() => {
@@ -914,6 +997,23 @@ function WorldSettingsForm({
   return (
     <form className="world-settings" onSubmit={(e) => void apply(e)}>
       <h2>World</h2>
+      <div className="seed">
+        <span>RNG Seed</span>
+        <input
+          aria-label="RNG Seed"
+          size={6}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoComplete="off"
+          value={draft.rngSeed}
+          disabled={disabled}
+          onChange={(e) => setDraft({ ...draft, rngSeed: e.target.value })}
+        />
+        <button className="iface" type="button" aria-label="Random RNG seed" disabled={disabled} onClick={() => void populate()}>
+          Random
+        </button>
+      </div>
       <div className="axes">
         <span />
         <span className="col">min</span>
@@ -969,6 +1069,7 @@ type WorldDraft = {
   wrapX: boolean
   wrapY: boolean
   wrapZ: boolean
+  rngSeed: string
 }
 
 function worldDraftDirty(draft: WorldDraft, world: WorldView) {
@@ -979,7 +1080,8 @@ function worldDraftDirty(draft: WorldDraft, world: WorldView) {
     !sameNumber(draft.maxPycor, world.maxPycor) ||
     !sameNumber(draft.patchSize, world.patchSize) ||
     draft.wrapX !== world.wrapX ||
-    draft.wrapY !== world.wrapY
+    draft.wrapY !== world.wrapY ||
+    draft.rngSeed !== (world.rngSeed ?? '')
   if (world.threeD !== true) return xy
   return (
     xy ||
@@ -997,6 +1099,8 @@ function sameNumber(raw: string, live: number) {
 }
 
 function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string {
+  const seedError = rngSeedError(draft.rngSeed)
+  if (seedError) return seedError
   const minPxcor = Number(draft.minPxcor)
   const maxPxcor = Number(draft.maxPxcor)
   const minPycor = Number(draft.minPycor)
@@ -1021,7 +1125,16 @@ function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string
   if (!(patchSize > 0) || patchSize > 100) {
     return 'Patch size must be greater than 0 and at most 100.'
   }
-  const next: WorldView = { minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX: draft.wrapX, wrapY: draft.wrapY }
+  const next: WorldView = {
+    minPxcor,
+    maxPxcor,
+    minPycor,
+    maxPycor,
+    patchSize,
+    wrapX: draft.wrapX,
+    wrapY: draft.wrapY,
+    rngSeed: draft.rngSeed,
+  }
   if (!threeD) return next
   return { ...next, minPzcor, maxPzcor, wrapZ: draft.wrapZ, threeD: true }
 }
@@ -1032,11 +1145,12 @@ function sendWorld(
   sessionId: string,
   next: WorldView,
   setWorldMut: (
-    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ'> & {
+    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ' | 'rngSeed'> & {
       id: string
       minPzcor: number | null
       maxPzcor: number | null
       wrapZ: boolean | null
+      rngSeed: string | null
     },
   ) => Promise<{
     error?: { message: string }
@@ -1050,6 +1164,7 @@ function sendWorld(
       minPzcor: next.threeD ? (next.minPzcor ?? 0) : null,
       maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
       wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
+      rngSeed: next.rngSeed ?? null,
     })
     if (res.error?.message) return { message: res.error.message, procedures: [] }
     return { message: null, procedures: res.data?.setWorld.procedures ?? [] }

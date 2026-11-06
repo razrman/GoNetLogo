@@ -731,8 +731,18 @@ func (s *Session) PressButton(index int) error {
 // Turtles and links die and patches are reset, as with resize-world.
 // minPz, maxPz, and wrapZ change the Z axis of a 3D world. Pass both Z
 // bounds or neither. A nil wrapZ leaves Z wrapping as it is. On a 2D
-// world the Z arguments are ignored.
-func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool) error {
+// world the Z arguments are ignored. A non-nil rngSeed reseeds the world
+// RNG after a successful resize. An invalid seed is rejected first, so
+// the grid is left alone.
+func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool, rngSeed *string) error {
+	var seed *int64
+	if rngSeed != nil {
+		n, err := nl.DecodeRNGSeed(*rngSeed)
+		if err != nil {
+			return err
+		}
+		seed = &n
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.rejectIfActiveLocked("set world"); err != nil {
@@ -757,14 +767,51 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		if err := w.ApplyView3D(minPx, maxPx, minPy, maxPy, minZ, maxZ, patchSize, wrapX, wrapY, zWrap); err != nil {
 			return err
 		}
+		s.seedWorldLocked(seed)
 		s.broadcastLocked()
 		return nil
 	}
 	if err := w.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
 		return err
 	}
+	s.seedWorldLocked(seed)
 	s.broadcastLocked()
 	return nil
+}
+
+// GenerateRNGSeed draws a 6-digit seed with crypto/rand, seeds the world
+// RNG with it, and returns the text. The patch grid is not resized.
+func (s *Session) GenerateRNGSeed() (string, error) {
+	text, err := nl.GenerateRNGSeed()
+	if err != nil {
+		return "", err
+	}
+	n, err := nl.DecodeRNGSeed(text)
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.rejectIfActiveLocked("set RNG seed"); err != nil {
+		return "", err
+	}
+	if s.vm == nil || s.vm.World == nil {
+		return "", fmt.Errorf("no world")
+	}
+	s.seedWorldLocked(&n)
+	s.broadcastLocked()
+	return text, nil
+}
+
+// seedWorldLocked reseeds when seed is set. Caller holds s.mu.
+func (s *Session) seedWorldLocked(seed *int64) {
+	if seed == nil || s.vm == nil || s.vm.World == nil {
+		return
+	}
+	n := *seed
+	s.withWorldLocked(func() {
+		s.vm.World.Seed(n)
+	})
 }
 
 // WorldSettings is the current size, patch size, and wrapping.
@@ -792,6 +839,7 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 			WrapY:        w.WrapY,
 			WrapZ:        w.Is3D() && w.WrapZ,
 			ThreeD:       w.Is3D(),
+			RngSeed:      nl.FormatRNGSeed(w.RNGSeed()),
 		}
 	})
 	return out, nil
@@ -834,7 +882,7 @@ func (s *Session) SetSpeed(speed float64) {
 
 // SetSlider updates a slider and the interface global it owns.
 func (s *Session) SetSlider(index int, value float64) error {
-	return s.editWidget(index, "slider", func(w *nl.Widget) error {
+	return s.editWidget(index, "slider", func(w *nl.Widget) (*widgetGlobal, error) {
 		if value < w.Min {
 			value = w.Min
 		}
@@ -842,74 +890,96 @@ func (s *Session) SetSlider(index int, value float64) error {
 			value = w.Max
 		}
 		w.Value = value
-		if w.Variable != "" {
-			s.vm.World.SetGlobal(w.Variable, nl.Num(value))
+		if w.Variable == "" {
+			return nil, nil
 		}
-		return nil
+		return &widgetGlobal{name: w.Variable, value: nl.Num(value)}, nil
 	})
 }
 
 // SetSwitch updates a switch and its global.
 func (s *Session) SetSwitch(index int, on bool) error {
-	return s.editWidget(index, "switch", func(w *nl.Widget) error {
+	return s.editWidget(index, "switch", func(w *nl.Widget) (*widgetGlobal, error) {
 		w.On = on
-		if w.Variable != "" {
-			s.vm.World.SetGlobal(w.Variable, nl.Bool(on))
+		if w.Variable == "" {
+			return nil, nil
 		}
-		return nil
+		return &widgetGlobal{name: w.Variable, value: nl.Bool(on)}, nil
 	})
 }
 
 // SetChooser selects a chooser row and copies that value into the global.
 func (s *Session) SetChooser(index, current int) error {
-	return s.editWidget(index, "chooser", func(w *nl.Widget) error {
+	return s.editWidget(index, "chooser", func(w *nl.Widget) (*widgetGlobal, error) {
 		if current < 0 || current >= len(w.Choices) {
-			return fmt.Errorf("chooser %s has no choice %d", w.Display, current)
+			return nil, fmt.Errorf("chooser %s has no choice %d", w.Display, current)
 		}
 		w.Current = current
-		if w.Variable != "" {
-			s.vm.World.SetGlobal(w.Variable, w.Choices[current])
+		if w.Variable == "" {
+			return nil, nil
 		}
-		return nil
+		return &widgetGlobal{name: w.Variable, value: w.Choices[current]}, nil
 	})
 }
 
 // SetInput updates an input box. Number and color inputs become globals of that type.
 func (s *Session) SetInput(index int, text string) error {
-	return s.editWidget(index, "input", func(w *nl.Widget) error {
+	return s.editWidget(index, "input", func(w *nl.Widget) (*widgetGlobal, error) {
 		w.Text = text
 		if w.Variable == "" {
-			return nil
+			return nil, nil
 		}
 		if numberInput(w.InputType) {
 			n, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
 			if err != nil {
-				return fmt.Errorf("%s: %w", w.Display, err)
+				return nil, fmt.Errorf("%s: %w", w.Display, err)
 			}
 			w.Value = n
-			s.vm.World.SetGlobal(w.Variable, nl.Num(n))
-			return nil
+			return &widgetGlobal{name: w.Variable, value: nl.Num(n)}, nil
 		}
-		s.vm.World.SetGlobal(w.Variable, nl.Str(text))
-		return nil
+		return &widgetGlobal{name: w.Variable, value: nl.Str(text)}, nil
 	})
 }
 
-func (s *Session) editWidget(index int, kind string, fn func(*nl.Widget) error) error {
+// editWidget changes one interface widget and the global it owns.
+// Go may be running. NetLogo applies slider, switch, chooser, and input
+// edits during a forever button, and the next read in that run sees the
+// new value. The session lock is not held across the world update: a
+// running button yields by taking the session lock after it drops the
+// world lock. Buttons, commands, code edits, and model loads stay
+// rejected while a run is active.
+func (s *Session) editWidget(index int, kind string, fn func(*nl.Widget) (*widgetGlobal, error)) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.model == nil || s.vm == nil || index < 0 || index >= len(s.model.Widgets) {
+		s.mu.Unlock()
 		return fmt.Errorf("no %s at index %d", kind, index)
 	}
 	w := &s.model.Widgets[index]
 	if w.Kind != kind {
+		s.mu.Unlock()
 		return fmt.Errorf("widget %d is a %s", index, w.Kind)
 	}
-	if err := fn(w); err != nil {
+	global, err := fn(w)
+	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
+	vm := s.vm
+	s.mu.Unlock()
+	if global != nil && global.name != "" && vm != nil && vm.World != nil {
+		vm.World.SetGlobal(global.name, global.value)
+	}
+	s.mu.Lock()
 	s.broadcastLocked()
+	s.mu.Unlock()
 	return nil
+}
+
+// widgetGlobal is the interface variable a widget edit writes. The world
+// lock is taken only for this write, after the session lock is released.
+type widgetGlobal struct {
+	name  string
+	value nl.Value
 }
 
 func (s *Session) runNamed(name string, forever bool) error {
@@ -1485,6 +1555,7 @@ func worldLocked(w *nl.World) model.World {
 		WrapY:       w.WrapY,
 		WrapZ:       w.Is3D() && w.WrapZ,
 		ThreeD:      w.Is3D(),
+		RngSeed:     nl.FormatRNGSeed(w.RNGSeed()),
 		LabelFont:   labelFontOf(w),
 		Shapes:      shapeViews(w),
 		PatchColors: patchColors(w),
