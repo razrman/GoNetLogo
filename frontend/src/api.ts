@@ -279,6 +279,7 @@ export const WorldSettingsQuery = `
       wrapY
       wrapZ
       threeD
+      rngSeed
     }
   }
 `
@@ -296,6 +297,7 @@ export const SetWorld = `
     $minPzcor: Int
     $maxPzcor: Int
     $wrapZ: Boolean
+    $rngSeed: String
   ) {
     setWorld(
       sessionId: $id
@@ -309,7 +311,14 @@ export const SetWorld = `
       minPzcor: $minPzcor
       maxPzcor: $maxPzcor
       wrapZ: $wrapZ
+      rngSeed: $rngSeed
     ) { id procedures }
+  }
+`
+
+export const GenerateRngSeed = `
+  mutation GenerateRngSeed($id: ID!) {
+    generateRngSeed(sessionId: $id)
   }
 `
 
@@ -372,6 +381,7 @@ export const Frames = `
         wrapY
         wrapZ
         threeD
+        rngSeed
         voxels
         observer { x y z targetX targetY targetZ revision }
         labelFont

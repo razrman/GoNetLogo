@@ -547,6 +547,20 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   max-width: 100%;
 }
 
+.world-settings .seed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+}
+
+.world-settings .seed input {
+  width: 8.5ch;
+  max-width: 8.5ch;
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+}
+
 .world-settings .patch,
 .world-settings .check {
   display: flex;

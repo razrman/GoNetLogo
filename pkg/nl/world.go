@@ -403,6 +403,15 @@ func (w *World) Seed(seed int64) {
 	w.rng.SetSeed(seed)
 }
 
+// RNGSeed is the integer last passed to Seed. The caller serializes it
+// with Seed; the world lock is not taken here.
+func (w *World) RNGSeed() int64 {
+	if w == nil {
+		return 0
+	}
+	return w.seed
+}
+
 // RNG is the world's NetLogo-compatible random number generator.
 func (w *World) RNG() *MersenneTwister { return w.rng }
 

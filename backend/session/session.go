@@ -731,8 +731,18 @@ func (s *Session) PressButton(index int) error {
 // Turtles and links die and patches are reset, as with resize-world.
 // minPz, maxPz, and wrapZ change the Z axis of a 3D world. Pass both Z
 // bounds or neither. A nil wrapZ leaves Z wrapping as it is. On a 2D
-// world the Z arguments are ignored.
-func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool) error {
+// world the Z arguments are ignored. A non-nil rngSeed reseeds the world
+// RNG after a successful resize. An invalid seed is rejected first, so
+// the grid is left alone.
+func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool, rngSeed *string) error {
+	var seed *int64
+	if rngSeed != nil {
+		n, err := nl.DecodeRNGSeed(*rngSeed)
+		if err != nil {
+			return err
+		}
+		seed = &n
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.rejectIfActiveLocked("set world"); err != nil {
@@ -757,14 +767,51 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		if err := w.ApplyView3D(minPx, maxPx, minPy, maxPy, minZ, maxZ, patchSize, wrapX, wrapY, zWrap); err != nil {
 			return err
 		}
+		s.seedWorldLocked(seed)
 		s.broadcastLocked()
 		return nil
 	}
 	if err := w.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
 		return err
 	}
+	s.seedWorldLocked(seed)
 	s.broadcastLocked()
 	return nil
+}
+
+// GenerateRNGSeed draws a 6-digit seed with crypto/rand, seeds the world
+// RNG with it, and returns the text. The patch grid is not resized.
+func (s *Session) GenerateRNGSeed() (string, error) {
+	text, err := nl.GenerateRNGSeed()
+	if err != nil {
+		return "", err
+	}
+	n, err := nl.DecodeRNGSeed(text)
+	if err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.rejectIfActiveLocked("set RNG seed"); err != nil {
+		return "", err
+	}
+	if s.vm == nil || s.vm.World == nil {
+		return "", fmt.Errorf("no world")
+	}
+	s.seedWorldLocked(&n)
+	s.broadcastLocked()
+	return text, nil
+}
+
+// seedWorldLocked reseeds when seed is set. Caller holds s.mu.
+func (s *Session) seedWorldLocked(seed *int64) {
+	if seed == nil || s.vm == nil || s.vm.World == nil {
+		return
+	}
+	n := *seed
+	s.withWorldLocked(func() {
+		s.vm.World.Seed(n)
+	})
 }
 
 // WorldSettings is the current size, patch size, and wrapping.
@@ -792,6 +839,7 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 			WrapY:        w.WrapY,
 			WrapZ:        w.Is3D() && w.WrapZ,
 			ThreeD:       w.Is3D(),
+			RngSeed:      nl.FormatRNGSeed(w.RNGSeed()),
 		}
 	})
 	return out, nil
@@ -1485,6 +1533,7 @@ func worldLocked(w *nl.World) model.World {
 		WrapY:       w.WrapY,
 		WrapZ:       w.Is3D() && w.WrapZ,
 		ThreeD:      w.Is3D(),
+		RngSeed:     nl.FormatRNGSeed(w.RNGSeed()),
 		LabelFont:   labelFontOf(w),
 		Shapes:      shapeViews(w),
 		PatchColors: patchColors(w),
