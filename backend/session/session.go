@@ -882,7 +882,7 @@ func (s *Session) SetSpeed(speed float64) {
 
 // SetSlider updates a slider and the interface global it owns.
 func (s *Session) SetSlider(index int, value float64) error {
-	return s.editWidget(index, "slider", func(w *nl.Widget) error {
+	return s.editWidget(index, "slider", func(w *nl.Widget) (*widgetGlobal, error) {
 		if value < w.Min {
 			value = w.Min
 		}
@@ -890,74 +890,96 @@ func (s *Session) SetSlider(index int, value float64) error {
 			value = w.Max
 		}
 		w.Value = value
-		if w.Variable != "" {
-			s.vm.World.SetGlobal(w.Variable, nl.Num(value))
+		if w.Variable == "" {
+			return nil, nil
 		}
-		return nil
+		return &widgetGlobal{name: w.Variable, value: nl.Num(value)}, nil
 	})
 }
 
 // SetSwitch updates a switch and its global.
 func (s *Session) SetSwitch(index int, on bool) error {
-	return s.editWidget(index, "switch", func(w *nl.Widget) error {
+	return s.editWidget(index, "switch", func(w *nl.Widget) (*widgetGlobal, error) {
 		w.On = on
-		if w.Variable != "" {
-			s.vm.World.SetGlobal(w.Variable, nl.Bool(on))
+		if w.Variable == "" {
+			return nil, nil
 		}
-		return nil
+		return &widgetGlobal{name: w.Variable, value: nl.Bool(on)}, nil
 	})
 }
 
 // SetChooser selects a chooser row and copies that value into the global.
 func (s *Session) SetChooser(index, current int) error {
-	return s.editWidget(index, "chooser", func(w *nl.Widget) error {
+	return s.editWidget(index, "chooser", func(w *nl.Widget) (*widgetGlobal, error) {
 		if current < 0 || current >= len(w.Choices) {
-			return fmt.Errorf("chooser %s has no choice %d", w.Display, current)
+			return nil, fmt.Errorf("chooser %s has no choice %d", w.Display, current)
 		}
 		w.Current = current
-		if w.Variable != "" {
-			s.vm.World.SetGlobal(w.Variable, w.Choices[current])
+		if w.Variable == "" {
+			return nil, nil
 		}
-		return nil
+		return &widgetGlobal{name: w.Variable, value: w.Choices[current]}, nil
 	})
 }
 
 // SetInput updates an input box. Number and color inputs become globals of that type.
 func (s *Session) SetInput(index int, text string) error {
-	return s.editWidget(index, "input", func(w *nl.Widget) error {
+	return s.editWidget(index, "input", func(w *nl.Widget) (*widgetGlobal, error) {
 		w.Text = text
 		if w.Variable == "" {
-			return nil
+			return nil, nil
 		}
 		if numberInput(w.InputType) {
 			n, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
 			if err != nil {
-				return fmt.Errorf("%s: %w", w.Display, err)
+				return nil, fmt.Errorf("%s: %w", w.Display, err)
 			}
 			w.Value = n
-			s.vm.World.SetGlobal(w.Variable, nl.Num(n))
-			return nil
+			return &widgetGlobal{name: w.Variable, value: nl.Num(n)}, nil
 		}
-		s.vm.World.SetGlobal(w.Variable, nl.Str(text))
-		return nil
+		return &widgetGlobal{name: w.Variable, value: nl.Str(text)}, nil
 	})
 }
 
-func (s *Session) editWidget(index int, kind string, fn func(*nl.Widget) error) error {
+// editWidget changes one interface widget and the global it owns.
+// Go may be running. NetLogo applies slider, switch, chooser, and input
+// edits during a forever button, and the next read in that run sees the
+// new value. The session lock is not held across the world update: a
+// running button yields by taking the session lock after it drops the
+// world lock. Buttons, commands, code edits, and model loads stay
+// rejected while a run is active.
+func (s *Session) editWidget(index int, kind string, fn func(*nl.Widget) (*widgetGlobal, error)) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.model == nil || s.vm == nil || index < 0 || index >= len(s.model.Widgets) {
+		s.mu.Unlock()
 		return fmt.Errorf("no %s at index %d", kind, index)
 	}
 	w := &s.model.Widgets[index]
 	if w.Kind != kind {
+		s.mu.Unlock()
 		return fmt.Errorf("widget %d is a %s", index, w.Kind)
 	}
-	if err := fn(w); err != nil {
+	global, err := fn(w)
+	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
+	vm := s.vm
+	s.mu.Unlock()
+	if global != nil && global.name != "" && vm != nil && vm.World != nil {
+		vm.World.SetGlobal(global.name, global.value)
+	}
+	s.mu.Lock()
 	s.broadcastLocked()
+	s.mu.Unlock()
 	return nil
+}
+
+// widgetGlobal is the interface variable a widget edit writes. The world
+// lock is taken only for this write, after the session lock is released.
+type widgetGlobal struct {
+	name  string
+	value nl.Value
 }
 
 func (s *Session) runNamed(name string, forever bool) error {

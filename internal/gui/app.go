@@ -665,14 +665,22 @@ func (s *session) rebuildSide() {
 			sl.Value = w.Value
 			variable := w.Variable
 			sl.OnChanged = func(v float64) {
+				// NetLogo moves sliders during go. Do not hold the session
+				// lock across SetGlobal: a running button yields by taking
+				// that lock after it drops the world lock.
 				s.mu.Lock()
-				defer s.mu.Unlock()
-				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+				if s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+					s.mu.Unlock()
 					return
 				}
-				s.vm.World.SetGlobal(variable, nl.Num(v))
 				s.model.Widgets[idx].Value = v
-				label.SetText(sliderCaption(s.model.Widgets[idx]))
+				vm := s.vm
+				caption := sliderCaption(s.model.Widgets[idx])
+				s.mu.Unlock()
+				if variable != "" {
+					vm.World.SetGlobal(variable, nl.Num(v))
+				}
+				label.SetText(caption)
 			}
 			c.slider = sl
 			objs = append(objs, label, sl)
@@ -680,12 +688,16 @@ func (s *session) rebuildSide() {
 			variable := w.Variable
 			chk := widget.NewCheck(w.Display, func(on bool) {
 				s.mu.Lock()
-				defer s.mu.Unlock()
-				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+				if s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+					s.mu.Unlock()
 					return
 				}
-				s.vm.World.SetGlobal(variable, nl.Bool(on))
 				s.model.Widgets[idx].On = on
+				vm := s.vm
+				s.mu.Unlock()
+				if variable != "" {
+					vm.World.SetGlobal(variable, nl.Bool(on))
+				}
 			})
 			chk.Checked = w.On
 			c.check = chk
@@ -708,16 +720,24 @@ func (s *session) rebuildSide() {
 			}
 			sel.OnChanged = func(picked string) {
 				s.mu.Lock()
-				defer s.mu.Unlock()
-				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+				if s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+					s.mu.Unlock()
 					return
 				}
+				var chosen nl.Value
+				found := false
 				for i, ch := range s.model.Widgets[idx].Choices {
 					if ch.Format(false) == picked {
 						s.model.Widgets[idx].Current = i
-						s.vm.World.SetGlobal(variable, ch)
+						chosen = ch
+						found = true
 						break
 					}
+				}
+				vm := s.vm
+				s.mu.Unlock()
+				if found && variable != "" {
+					vm.World.SetGlobal(variable, chosen)
 				}
 			}
 			c.choice = sel
@@ -733,18 +753,26 @@ func (s *session) rebuildSide() {
 			typ := w.InputType
 			ent.OnChanged = func(text string) {
 				s.mu.Lock()
-				defer s.mu.Unlock()
-				if s.busy || s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+				if s.vm == nil || s.model == nil || idx >= len(s.model.Widgets) {
+					s.mu.Unlock()
 					return
 				}
 				s.model.Widgets[idx].Text = text
-				if strings.EqualFold(typ, "number") || strings.EqualFold(typ, "color") || typ == "Number" || typ == "Color" {
-					var n float64
+				numeric := strings.EqualFold(typ, "number") || strings.EqualFold(typ, "color") || typ == "Number" || typ == "Color"
+				var n float64
+				if numeric {
 					fmt.Sscan(text, &n)
 					s.model.Widgets[idx].Value = n
-					s.vm.World.SetGlobal(variable, nl.Num(n))
+				}
+				vm := s.vm
+				s.mu.Unlock()
+				if variable == "" {
+					return
+				}
+				if numeric {
+					vm.World.SetGlobal(variable, nl.Num(n))
 				} else {
-					s.vm.World.SetGlobal(variable, nl.Str(text))
+					vm.World.SetGlobal(variable, nl.Str(text))
 				}
 			}
 			c.entry = ent
