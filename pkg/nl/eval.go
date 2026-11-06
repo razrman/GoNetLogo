@@ -145,6 +145,8 @@ type VM struct {
 	UserFile      func() (string, bool)
 	UserNewFile   func() (string, bool)
 	UserDirectory func() (string, bool)
+	// sr is the Simple R session created by sr:setup.
+	sr *srSession
 }
 
 type everyKey struct {

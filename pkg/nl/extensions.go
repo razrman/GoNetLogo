@@ -28,6 +28,8 @@ func (p *parser) installExtensions() {
 		switch name {
 		case "palette":
 			p.installPalette()
+		case "sr":
+			p.installSR()
 		}
 	}
 }
@@ -66,6 +68,9 @@ func isExtZeroArg(prog *Program, name string) bool {
 	if prog.hasExtension("palette") && paletteZero[name] {
 		return true
 	}
+	if prog.hasExtension("sr") && srZero[name] {
+		return true
+	}
 	return false
 }
 
@@ -78,27 +83,45 @@ func isExtCommand(prog *Program, name string) bool {
 			return true
 		}
 	}
+	if prog.hasExtension("sr") {
+		if _, ok := srCommands[name]; ok {
+			return true
+		}
+	}
 	return false
 }
 
 func (vm *VM) extCommand(name string, args []Value, pos Pos) (error, bool) {
-	if len(name) >= 8 && name[:8] == "palette:" {
+	switch {
+	case len(name) >= 8 && name[:8] == "palette:":
 		return vm.paletteCommand(name, args, pos)
+	case len(name) >= 3 && name[:3] == "sr:":
+		return vm.srCommand(name, args, pos)
+	default:
+		return nil, false
 	}
-	return nil, false
 }
 
 func (vm *VM) extReporter(name string, args []Value, pos Pos) (Value, bool, error) {
-	if len(name) >= 8 && name[:8] == "palette:" {
+	switch {
+	case len(name) >= 8 && name[:8] == "palette:":
 		v, err := vm.paletteReporter(name, args, pos)
 		return v, true, err
+	case len(name) >= 3 && name[:3] == "sr:":
+		v, err := vm.srReporter(name, args, pos)
+		return v, true, err
+	default:
+		return Value{}, false, nil
 	}
-	return Value{}, false, nil
 }
 
 func (vm *VM) extZero(name string, pos Pos) (Value, bool, error) {
 	if paletteZero[name] && vm.Prog != nil && vm.Prog.hasExtension("palette") {
 		v, err := vm.paletteZero(name, pos)
+		return v, true, err
+	}
+	if srZero[name] && vm.Prog != nil && vm.Prog.hasExtension("sr") {
+		v, err := vm.srZero(name, pos)
 		return v, true, err
 	}
 	return Value{}, false, nil

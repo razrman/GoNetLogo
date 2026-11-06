@@ -232,6 +232,7 @@ func Check(path string, opt Options) (res Result) {
 		res.Go = "skipped"
 		return res
 	}
+	defer vm.Close()
 	runModel(vm, &res, opt, setupAction, goAction)
 	if res.Line == 0 && res.Error != "" {
 		res.Line, res.Snippet = snippetAt(m.Code, res.Error)
