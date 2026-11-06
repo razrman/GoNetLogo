@@ -36,6 +36,7 @@ import {
 import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
 import { InfoView } from './InfoTab'
 import { LibraryBrowser } from './LibraryBrowser'
+import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
 import { rngSeedError } from './rngSeed'
 
@@ -298,14 +299,28 @@ export function App() {
     if (!sessionId) return
     setLibraryLoading(true)
     setLibraryError(null)
-    const result = await queryLibrary(null)
+    const last = readLastModelPath()
+    const folder = last == null ? null : parentFolder(last)
+    let result = await queryLibrary(folder)
+    if (result.disconnect) {
+      setLibraryLoading(false)
+      return
+    }
+    // A saved folder that is gone falls back to the usual library root.
+    if (folder != null && (result.message || !result.listing?.available)) {
+      result = await queryLibrary(null)
+      if (result.disconnect) {
+        setLibraryLoading(false)
+        return
+      }
+    }
     setLibraryLoading(false)
-    if (result.disconnect) return
     if (!result.listing?.available) {
       fileRef.current?.click()
       return
     }
-    setLibrary(result.listing)
+    if (result.message) setLibraryError(result.message)
+    if (result.listing) setLibrary(result.listing)
   }
 
   async function openLibraryPath(path: string) {
@@ -347,6 +362,7 @@ export function App() {
       return
     }
     const info = res.data.loadModelFile
+    writeLastModelPath(entry.path)
     applyOpenedModel(info)
     await autoSetup(sessionId, info.procedures)
   }
@@ -743,6 +759,7 @@ export function App() {
           listing={library}
           loading={libraryLoading}
           error={libraryError}
+          selectedPath={readLastModelPath()}
           onOpen={(path) => void openLibraryPath(path)}
           onUp={(path) => void openLibraryPath(path)}
           onFile={(entry) => void openLibraryFile(entry)}

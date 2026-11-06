@@ -898,10 +898,15 @@ canvas.world {
 }
 
 .library-modal {
-  width: min(440px, calc(100% - 32px));
-  max-height: min(560px, calc(100% - 32px));
+  position: relative;
+  width: min(440px, calc(100vw - 32px));
+  height: min(480px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  padding-bottom: 18px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .library-modal p {
@@ -927,7 +932,7 @@ canvas.world {
   margin: 0 0 12px;
   padding: 0;
   overflow: auto;
-  min-height: 180px;
+  min-height: 0;
   flex: 1 1 auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -945,6 +950,41 @@ canvas.world {
 }
 
 .library-list button:hover { background: var(--ivory-2); }
+.library-list button.selected {
+  background: #f3e2c2;
+  box-shadow: inset 3px 0 0 var(--ember);
+}
+.library-list button.selected:hover { background: #ead4ac; }
+
+.library-resize {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+.library-resize.x {
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+}
+.library-resize.y {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 10px;
+  cursor: row-resize;
+}
+.library-resize.both {
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(196, 73, 29, 0.7) 50%);
+}
+.library-resize:focus-visible { outline: 2px solid var(--ember); outline-offset: -2px; }
+body.library-resizing, body.library-resizing * { cursor: nwse-resize !important; }
 
 .library-empty {
   padding: 16px 10px;
