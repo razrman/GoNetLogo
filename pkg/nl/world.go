@@ -1228,9 +1228,15 @@ func (w *World) moveToMarked(t *Turtle, x, y, z float64, visited map[*Turtle]boo
 	if t.PenDown {
 		w.drawLine(t.X, t.Y, nx, ny, t.Color, t.PenSize)
 	}
-	w.detach(t)
-	t.X, t.Y, t.Z = nx, ny, nz
-	w.attach(t)
+	// Like NetLogo, a turtle changes its patch's turtle list only when it
+	// crosses into another patch, so turtles-here keeps arrival order.
+	if np := w.PatchAt3(nx, ny, nz); np != t.patch || np == nil {
+		w.detach(t)
+		t.X, t.Y, t.Z = nx, ny, nz
+		w.attach(t)
+	} else {
+		t.X, t.Y, t.Z = nx, ny, nz
+	}
 
 	var tiedErr error
 	for _, l := range t.links {
@@ -1394,18 +1400,18 @@ func (w *World) TurtlesHere(p *Patch) []*Turtle {
 			out = append(out, t)
 		}
 	}
-	// who order
-	for i := 1; i < len(out); i++ {
-		j := i
-		for j > 0 && out[j].Who < out[j-1].Who {
-			out[j], out[j-1] = out[j-1], out[j]
-			j--
-		}
-	}
+	// Arrival order, as NetLogo's Patch.turtlesHere keeps it. one-of and
+	// n-of index into this order, so sorting it would change which agent
+	// a seeded run picks.
 	return out
 }
 
 // Neighbors returns the 8 surrounding patches (fewer at the edge of a box).
+// neighborRing8 is NetLogo's neighbors order (Neighbors.getNeighbors):
+// N, E, S, W, NE, SE, SW, NW. one-of neighbors, uphill, and ask
+// neighbors index this order, so it must match for seeded runs.
+var neighborRing8 = [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}, {1, 1}, {1, -1}, {-1, -1}, {-1, 1}}
+
 func (w *World) Neighbors(p *Patch) []*Patch {
 	return w.neighbors(p, false)
 }
@@ -1427,11 +1433,7 @@ func (w *World) neighbors(p *Patch, four bool) []*Patch {
 	if four {
 		offs = [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}}
 	} else {
-		offs = [][2]int{
-			{-1, 1}, {0, 1}, {1, 1},
-			{-1, 0}, {1, 0},
-			{-1, -1}, {0, -1}, {1, -1},
-		}
+		offs = neighborRing8
 	}
 	out := make([]*Patch, 0, len(offs))
 	for _, o := range offs {

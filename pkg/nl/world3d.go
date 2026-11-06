@@ -393,16 +393,16 @@ func (w *World) RollRight(t *Turtle, delta float64) {
 // --- neighbors ---
 
 var neighborOffs26 = func() [][3]int {
-	// The 2D order on the patch's own layer, then the layer above, then
-	// the layer below.
-	ring := [][2]int{{-1, 1}, {0, 1}, {1, 1}, {-1, 0}, {1, 0}, {-1, -1}, {0, -1}, {1, -1}}
+	// NetLogo 3D's Torus3D.getNeighbors3d order: the own layer N, E, S,
+	// W, NE, SE, SW, NW, then up and down, then that ring on the layer
+	// above and on the layer below. one-of neighbors indexes this order.
 	var out [][3]int
-	for _, o := range ring {
+	for _, o := range neighborRing8 {
 		out = append(out, [3]int{o[0], o[1], 0})
 	}
+	out = append(out, [3]int{0, 0, 1}, [3]int{0, 0, -1})
 	for _, dz := range []int{1, -1} {
-		out = append(out, [3]int{0, 0, dz})
-		for _, o := range ring {
+		for _, o := range neighborRing8 {
 			out = append(out, [3]int{o[0], o[1], dz})
 		}
 	}
