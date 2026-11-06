@@ -51,7 +51,7 @@ type LoadResult = { loadModel: SessionInfo }
 type FileResult = { loadModelFile: SessionInfo }
 type SourceResult = { loadModelSource: SessionInfo }
 type LibraryResult = { library: LibraryListing }
-type CodeResult = { setCode: { ok: boolean; error: string | null } }
+type CodeResult = { setCode: { ok: boolean; error: string | null; session?: { procedures: string[] } } }
 type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
 
 export function App() {
@@ -78,6 +78,7 @@ export function App() {
 
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('fire.nlogo')
+  const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
   const [info, setInfo] = useState('')
   const [modelDir, setModelDir] = useState<string | null>(null)
@@ -150,6 +151,7 @@ export function App() {
       setInfo(info.info ?? '')
       setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
+      setProcedures(info.procedures ?? [])
       await speedMut({ id: info.id, speed: 30 })
       await autoSetup(info.id, info.procedures)
       const go = await goMut({ id: info.id })
@@ -188,6 +190,7 @@ export function App() {
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
+    setProcedures(info.procedures ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -195,7 +198,7 @@ export function App() {
   }
 
   async function onSetup() {
-    if (!sessionId) return
+    if (!sessionId || !hasProcedure(procedures, 'setup')) return
     setBanner(null)
     const res = await setupMut({ id: sessionId })
     if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
@@ -244,6 +247,8 @@ export function App() {
     }
     const message = res.data?.setCode.error
     setCompileError(message ? presentCompileError(message, code) : null)
+    const nextProcedures = res.data?.setCode.session?.procedures
+    if (res.data?.setCode.ok && nextProcedures) setProcedures(nextProcedures)
   }
 
   async function openSource(filename: string, source: string) {
@@ -260,6 +265,7 @@ export function App() {
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
+    setProcedures(info.procedures ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -342,6 +348,7 @@ export function App() {
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
+    setProcedures(info.procedures ?? [])
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -389,6 +396,7 @@ export function App() {
     }
     const applied = await sendWorld(sessionId, next, setWorldMut)
     if (applied.message) return applied.message
+    setProcedures(applied.procedures)
     return autoSetup(sessionId, applied.procedures)
   }
 
@@ -516,7 +524,13 @@ export function App() {
             }}
           />
           <div className="controls">
-            <button className="act" type="button" disabled={!sessionId} onClick={() => void onSetup()}>
+            <button
+              className="act"
+              type="button"
+              disabled={!sessionId || !hasProcedure(procedures, 'setup')}
+              title={sessionId && !hasProcedure(procedures, 'setup') ? 'This model has no setup procedure' : undefined}
+              onClick={() => void onSetup()}
+            >
               setup
             </button>
             <button
