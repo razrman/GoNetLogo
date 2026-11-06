@@ -130,7 +130,10 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	if err := s.Go(); err != nil {
 		t.Fatal(err)
 	}
-	waitBusy(t, s)
+	// go itself returns in microseconds, so s.busy is usually false again
+	// before a poll can see it. Running stays set until stop, and
+	// rejectIfActiveLocked treats that the same as busy.
+	waitRunning(t, s)
 
 	if _, err := s.RunCommand("clear-all"); err == nil || !strings.Contains(err.Error(), "model is running") {
 		t.Fatalf("command during go: %v", err)
@@ -166,4 +169,16 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	if !s.Session().Running {
 		t.Fatal("widget update stopped the run")
 	}
+}
+
+func waitRunning(t *testing.T, s *Session) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if s.Session().Running {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("go did not start")
 }
