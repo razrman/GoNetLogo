@@ -478,6 +478,9 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 	case "layout-circle":
 		return vm.layoutCircle(args[0], args[1])
 	default:
+		if err, ok := vm.extCommand(name, args, pos); ok {
+			return err
+		}
 		return fmt.Errorf("primitive %s is not implemented yet", name)
 	}
 	// flush typed text on a following print-less command? NetLogo type
@@ -1101,6 +1104,9 @@ func (vm *VM) evalZero(name string, pos Pos) (Value, error) {
 	default:
 		if c, ok := colorNames[name]; ok {
 			return Num(c), nil
+		}
+		if v, ok, err := vm.extZero(name, pos); ok {
+			return v, err
 		}
 		return Value{}, errorAt(pos, "nothing named %s has been defined", strings.ToUpper(name))
 	}

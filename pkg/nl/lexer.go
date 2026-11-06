@@ -300,8 +300,21 @@ func (l *lexer) lexIdent(p Pos) Token {
 	for isIdentChar(l.peek()) {
 		l.bump()
 	}
+	// Extension primitive: extension:name with no space and a single colon.
+	// The character after the colon has to start an identifier, so "x: 1"
+	// and a trailing colon stay illegal.
+	if l.peek() == ':' && isExtPrimStart(l.peekAt(1)) {
+		l.bump()
+		for isIdentChar(l.peek()) {
+			l.bump()
+		}
+	}
 	text := l.src[start:l.i]
 	return Token{Kind: TokIdent, Lit: strings.ToLower(text), Text: text, Pos: p}
+}
+
+func isExtPrimStart(r rune) bool {
+	return unicode.IsLetter(r) || r == '_' || r == '?'
 }
 
 func (l *lexer) lexString(p Pos) Token {

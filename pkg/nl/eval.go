@@ -359,6 +359,9 @@ func isCommandLine(src string, prog *Program) bool {
 	if _, ok := commands[name]; ok {
 		return true
 	}
+	if isExtCommand(prog, name) {
+		return true
+	}
 	if is3DCommand(name, prog) {
 		return true
 	}
@@ -1201,7 +1204,7 @@ func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 			return vm.evalBreedCallFast(call, name, nil, pos)
 		}
 	}
-	if isZeroArgReporter(name, vm.World.threeD) {
+	if isZeroArgReporter(name, vm.World.threeD) || isExtZeroArg(vm.Prog, name) {
 		return vm.evalZero(name, pos)
 	}
 	if strings.HasSuffix(name, "-here") {

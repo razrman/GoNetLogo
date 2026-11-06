@@ -171,6 +171,8 @@ type Turtle struct {
 	// in a 2D world. Pitch and Roll are degrees in [0, 360).
 	Z, Pitch, Roll float64
 	Color          float64
+	RGB            color.RGBA
+	HasRGB         bool
 	Shape          string
 	Size           float64
 	Hidden         bool
@@ -203,6 +205,8 @@ type Link struct {
 	Directed  bool
 	Breed     string
 	Color     float64
+	RGB       color.RGBA
+	HasRGB    bool
 	Shape     string
 	Thickness float64
 	Hidden    bool
@@ -1064,6 +1068,8 @@ func (w *World) Hatch(parent *Turtle, breed string) *Turtle {
 		Pitch:   parent.Pitch,
 		Roll:    parent.Roll,
 		Color:   parent.Color,
+		RGB:     parent.RGB,
+		HasRGB:  parent.HasRGB,
 		Shape:   parent.Shape,
 		Size:    parent.Size,
 		Hidden:  parent.Hidden,

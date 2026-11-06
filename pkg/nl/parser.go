@@ -96,8 +96,9 @@ type parser struct {
 	breedSingular map[string]string
 	linkPlural    map[string]LinkBreedDecl
 
-	extraRep map[string]primSpec
-	extraCmd map[string]primSpec
+	extraRep   map[string]primSpec
+	extraCmd   map[string]primSpec
+	extraInfix map[string]infixSpec
 
 	// bodySpans records procedure body token ranges collected in pass 1.
 	bodies []bodySpan
@@ -303,6 +304,19 @@ func (p *parser) installDecls() {
 	for pl := range p.breedPlural {
 		p.extraRep[pl] = primSpec{argc: 0}
 	}
+	p.installExtensions()
+}
+
+func (p *parser) lookupInfix(name string) (infixSpec, bool) {
+	if s, ok := infixOps[name]; ok {
+		return s, true
+	}
+	if p.extraInfix != nil {
+		if s, ok := p.extraInfix[name]; ok {
+			return s, true
+		}
+	}
+	return infixSpec{}, false
 }
 
 func (p *parser) parseNameList() ([]string, error) {
@@ -390,6 +404,7 @@ func (p *parser) parseBodies() error {
 			linkPlural:    p.linkPlural,
 			extraRep:      p.extraRep,
 			extraCmd:      p.extraCmd,
+			extraInfix:    p.extraInfix,
 		}
 		stmts, err := sub.parseStatements(func(t Token) bool { return t.Kind == TokEOF })
 		if err != nil {
@@ -899,7 +914,7 @@ func (p *parser) parseVarArgs(spec primSpec) ([]Expr, error) {
 			break
 		}
 		if t.Kind == TokIdent {
-			if inf, ok := infixOps[t.Lit]; ok && len(args) >= spec.argc && inf.prec <= spec.prec {
+			if inf, ok := p.lookupInfix(t.Lit); ok && len(args) >= spec.argc && inf.prec <= spec.prec {
 				break
 			}
 		}
@@ -1146,7 +1161,7 @@ func (p *parser) taskName(t Token, g goal) (Expr, bool) {
 			p.next()
 			return reporterTask(name, len(proc.Params), t.Pos), true
 		}
-		if isZeroArgReporter(name, p.prog != nil && p.prog.Is3D) {
+		if isZeroArgReporter(name, p.prog != nil && p.prog.Is3D) || isExtZeroArg(p.prog, name) {
 			p.next()
 			return reporterTask(name, 0, t.Pos), true
 		}
@@ -1213,7 +1228,7 @@ func (p *parser) parseMore(left Expr, minPrec int) (Expr, error) {
 		if t.Kind != TokIdent {
 			return left, nil
 		}
-		inf, ok := infixOps[t.Lit]
+		inf, ok := p.lookupInfix(t.Lit)
 		if !ok {
 			return left, nil
 		}

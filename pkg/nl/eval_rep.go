@@ -844,6 +844,9 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		}
 		return args[1].L[0], nil
 	default:
+		if v, ok, err := vm.extReporter(name, args, pos); ok {
+			return v, err
+		}
 		if strings.HasPrefix(name, "is-") && strings.HasSuffix(name, "?") {
 			return vm.isType(name, args[0]), nil
 		}
@@ -932,6 +935,9 @@ func (vm *VM) evalInfix(e *infixExpr) (Value, error) {
 	r, err := vm.eval(e.Right)
 	if err != nil {
 		return Value{}, err
+	}
+	if strings.HasPrefix(e.Op, "palette:") {
+		return applyPaletteInfix(e.Op, l, r)
 	}
 	switch e.Op {
 	case "+":
@@ -2319,7 +2325,7 @@ func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
 	case "who":
 		return Num(float64(t.Who)), true, nil
 	case "color":
-		return Num(t.Color), true, nil
+		return storedColor(t.HasRGB, t.RGB, t.Color), true, nil
 	case "heading":
 		return Num(t.Heading), true, nil
 	case "xcor":
@@ -2427,7 +2433,7 @@ func (vm *VM) getLinkVar(l *Link, name string) (Value, bool, error) {
 	case "end2":
 		return AgentVal(l.End2), true, nil
 	case "color":
-		return Num(l.Color), true, nil
+		return storedColor(l.HasRGB, l.RGB, l.Color), true, nil
 	case "label":
 		return l.Label, true, nil
 	case "label-color":
@@ -2457,9 +2463,41 @@ func (vm *VM) getLinkVar(l *Link, name string) (Value, bool, error) {
 
 func patchColorValue(p *Patch) Value {
 	if p.HasRGB {
-		return List(Num(float64(p.RGB.R)), Num(float64(p.RGB.G)), Num(float64(p.RGB.B)))
+		return storedColor(true, p.RGB, p.PColor)
 	}
 	return Num(p.PColor)
+}
+
+func assignTurtleColor(t *Turtle, v Value) error {
+	c, _, err := ColorFromValue(v)
+	if err != nil {
+		return err
+	}
+	if v.K == KindNum {
+		t.Color = v.N
+		t.HasRGB = false
+		return nil
+	}
+	t.RGB = c
+	t.HasRGB = true
+	t.Color = ApproximateRGB(int(c.R), int(c.G), int(c.B))
+	return nil
+}
+
+func assignLinkColor(l *Link, v Value) error {
+	c, _, err := ColorFromValue(v)
+	if err != nil {
+		return err
+	}
+	if v.K == KindNum {
+		l.Color = v.N
+		l.HasRGB = false
+		return nil
+	}
+	l.RGB = c
+	l.HasRGB = true
+	l.Color = ApproximateRGB(int(c.R), int(c.G), int(c.B))
+	return nil
 }
 
 func (vm *VM) setAgentVar(name string, v Value) (bool, error) {
@@ -2500,18 +2538,7 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 	case "who", "pxcor", "pycor":
 		return true, fmt.Errorf("you can't change %s", name)
 	case "color":
-		n, _, err := ColorFromValue(v)
-		if err != nil {
-			return true, err
-		}
-		if v.K == KindNum {
-			t.Color = v.N
-		} else {
-			// Keep a numeric stand-in; the RGB is not stored on turtles yet.
-			t.Color = float64(n.R)
-			_ = n
-		}
-		return true, nil
+		return true, assignTurtleColor(t, v)
 	case "heading":
 		n, err := v.Num()
 		if err != nil {
@@ -2638,11 +2665,7 @@ func (vm *VM) setLinkVar(l *Link, name string, v Value) (bool, error) {
 	case "end1", "end2":
 		return true, fmt.Errorf("you can't change %s", name)
 	case "color":
-		if v.K != KindNum {
-			return true, fmt.Errorf("color must be a number")
-		}
-		l.Color = v.N
-		return true, nil
+		return true, assignLinkColor(l, v)
 	case "label":
 		l.Label = v
 		return true, nil

@@ -735,7 +735,14 @@ func Signature(r Result) string {
 	case strings.Contains(low, "non-standard character"):
 		return charSignature(r, low)
 	case strings.Contains(low, "nothing named"):
-		return "missing " + named(low)
+		n := named(low)
+		// extension:primitive is one identifier. An unimplemented
+		// extension still fails here; group it with the other
+		// extension failures instead of as a bare missing name.
+		if i := strings.Index(n, ":"); i > 0 {
+			return "extension " + n[:i]
+		}
+		return "missing " + n
 	case strings.Contains(low, "expected a declaration or procedure"):
 		return "declaration " + gotToken(low)
 	case strings.Contains(low, "system-dynamics"):
