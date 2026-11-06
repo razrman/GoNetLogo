@@ -965,6 +965,15 @@ func (c *compiler) compileInfix(e *infixExpr, locals map[string]bool) repFn {
 	right := c.compileExpr(e.Right, locals)
 	op := e.Op
 	pos := e.Pos
+	if strings.HasPrefix(op, "palette:") {
+		return func(vm *VM) Value {
+			v, err := applyPaletteInfix(op, left(vm), right(vm))
+			if err != nil {
+				vm.fail(pos, "%s", err.Error())
+			}
+			return v
+		}
+	}
 	return func(vm *VM) Value {
 		l := left(vm)
 		if op == "and" || op == "or" {
@@ -1195,7 +1204,7 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 	if strings.HasPrefix(name, "my-") {
 		return func(vm *VM) Value { return mustIdent(vm, name, pos) }
 	}
-	if isZeroArgReporter(name, c.prog.Is3D) {
+	if isZeroArgReporter(name, c.prog.Is3D) || isExtZeroArg(c.prog, name) {
 		return func(vm *VM) Value {
 			v, err := vm.evalZero(name, pos)
 			if err != nil {

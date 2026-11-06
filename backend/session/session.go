@@ -188,6 +188,9 @@ func (s *Session) Close() {
 	close(s.stop)
 	s.mu.Unlock()
 	s.haltVM(vm, "close")
+	if vm != nil {
+		vm.Close()
+	}
 	if debugEnabled() {
 		slog.Debug("session closed", "session", id)
 	}
@@ -428,9 +431,13 @@ func (s *Session) useModelFrom(name, content string, modelDir *string) error {
 }
 
 func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
+	old := s.vm
 	s.modelName = name
 	s.model = m
 	s.vm = vm
+	if old != nil && old != vm {
+		old.Close()
+	}
 	s.setRunningLocked(-1, "load")
 	s.frame = 0
 	s.clock = nl.RunClock{}

@@ -145,6 +145,8 @@ type VM struct {
 	UserFile      func() (string, bool)
 	UserNewFile   func() (string, bool)
 	UserDirectory func() (string, bool)
+	// sr is the Simple R session created by sr:setup.
+	sr *srSession
 }
 
 type everyKey struct {
@@ -357,6 +359,9 @@ func isCommandLine(src string, prog *Program) bool {
 		return true
 	}
 	if _, ok := commands[name]; ok {
+		return true
+	}
+	if isExtCommand(prog, name) {
 		return true
 	}
 	if is3DCommand(name, prog) {
@@ -1201,7 +1206,7 @@ func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 			return vm.evalBreedCallFast(call, name, nil, pos)
 		}
 	}
-	if isZeroArgReporter(name, vm.World.threeD) {
+	if isZeroArgReporter(name, vm.World.threeD) || isExtZeroArg(vm.Prog, name) {
 		return vm.evalZero(name, pos)
 	}
 	if strings.HasSuffix(name, "-here") {

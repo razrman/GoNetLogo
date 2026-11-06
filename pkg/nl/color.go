@@ -257,6 +257,14 @@ func HSBtoRGB(h, s, b float64) (uint8, uint8, uint8) {
 }
 
 func RGBtoHSB(r, g, b int) (float64, float64, float64) {
+	h, s, br := rgbHSB(r, g, b)
+	return roundPlaces(h, 3), roundPlaces(s, 3), roundPlaces(br, 3)
+}
+
+// rgbHSB is Java Color.RGBtoHSB scaled to hue 0–360 and saturation and
+// brightness 0–100, without rounding. palette:with-* uses the unrounded
+// components so a round trip matches the extension.
+func rgbHSB(r, g, b int) (float64, float64, float64) {
 	rf := float32(clampByte(r))
 	gf := float32(clampByte(g))
 	bf := float32(clampByte(b))
@@ -298,10 +306,7 @@ func RGBtoHSB(r, g, b int) (float64, float64, float64) {
 			hue = hue + 1.0
 		}
 	}
-	h := roundPlaces(float64(hue*360.0), 3)
-	s := roundPlaces(float64(saturation*100.0), 3)
-	br := roundPlaces(float64(brightness*100.0), 3)
-	return h, s, br
+	return float64(hue * 360.0), float64(saturation * 100.0), float64(brightness * 100.0)
 }
 
 func roundPlaces(n float64, places int) float64 {
@@ -310,10 +315,12 @@ func roundPlaces(n float64, places int) float64 {
 }
 
 func colorDistance(r1, g1, b1, r2, g2, b2 int) int64 {
-	// Matches NetLogo 6 implementation in Color.scala:
-	//   val rmean = r1 + r2 / 2
-	// Precedence matches NetLogo test RGB6: approximate-rgb 83 72 54 => 32.9.
-	rmean := int64(r1 + r2/2)
+	// Compuphase perceptual distance (https://www.compuphase.com/cmetric.htm):
+	//   rmean = (r1 + r2) / 2
+	// NetLogo's Color.scala writes `r1 + r2 / 2`. Division binds tighter than
+	// addition, so that expression is r1 + (r2 / 2), not the mean of the two
+	// red channels. approximate-rgb uses the mean.
+	rmean := int64(r1+r2) / 2
 	rd := int64(r1 - r2)
 	gd := int64(g1 - g2)
 	bd := int64(b1 - b2)
