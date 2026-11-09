@@ -197,7 +197,7 @@ export function hasProcedure(procedures: readonly string[] | null | undefined, n
 
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
-    setCode(sessionId: $id, code: $code) { ok error }
+    setCode(sessionId: $id, code: $code) { ok error session { procedures } }
   }
 `
 
@@ -279,6 +279,7 @@ export const WorldSettingsQuery = `
       wrapY
       wrapZ
       threeD
+      rngSeed
     }
   }
 `
@@ -296,6 +297,7 @@ export const SetWorld = `
     $minPzcor: Int
     $maxPzcor: Int
     $wrapZ: Boolean
+    $rngSeed: String
   ) {
     setWorld(
       sessionId: $id
@@ -309,7 +311,14 @@ export const SetWorld = `
       minPzcor: $minPzcor
       maxPzcor: $maxPzcor
       wrapZ: $wrapZ
+      rngSeed: $rngSeed
     ) { id procedures }
+  }
+`
+
+export const GenerateRngSeed = `
+  mutation GenerateRngSeed($id: ID!) {
+    generateRngSeed(sessionId: $id)
   }
 `
 
@@ -372,8 +381,11 @@ export const Frames = `
         wrapY
         wrapZ
         threeD
+        rngSeed
         voxels
         observer { x y z targetX targetY targetZ revision }
+        perspective
+        subject
         labelFont
         shapes {
           name
@@ -381,7 +393,7 @@ export const Frames = `
           elements { kind filled marked r g b points x y w h }
         }
         patchColors
-        drawing { pen erase x y x2 y2 heading size shape r g b }
+        drawing { pen erase x y z x2 y2 z2 heading size shape r g b }
         labels { who px py lx ly text r g b }
         turtles { who x y z heading pitch roll size shape hidden r g b }
         links { x1 y1 z1 x2 y2 z2 hidden r g b }

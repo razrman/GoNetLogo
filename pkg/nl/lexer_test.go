@@ -58,6 +58,26 @@ func TestLexNumberAndString(t *testing.T) {
 	}
 }
 
+func TestLexExtensionPrimitive(t *testing.T) {
+	toks := Lex("sr:runresult palette:scale-gradient")
+	if toks[0].Kind != TokIdent || toks[0].Lit != "sr:runresult" {
+		t.Fatalf("sr token %#v", toks[0])
+	}
+	if toks[1].Kind != TokIdent || toks[1].Lit != "palette:scale-gradient" {
+		t.Fatalf("palette token %#v", toks[1])
+	}
+	bad := Lex("sr : run")
+	sawErr := false
+	for _, tok := range bad {
+		if tok.Kind == TokError {
+			sawErr = true
+		}
+	}
+	if !sawErr {
+		t.Fatal("a colon with spaces is not an extension primitive")
+	}
+}
+
 func TestLexOperators(t *testing.T) {
 	toks := Lex("x != y and a <= b")
 	got := map[string]bool{}

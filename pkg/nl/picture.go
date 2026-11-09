@@ -41,7 +41,7 @@ type snapLink struct {
 
 type snapTurtle struct {
 	x, y, heading, size float64
-	color               float64
+	color               color.RGBA
 	shape               string
 }
 
@@ -134,7 +134,7 @@ func (w *World) captureView() *ViewSnap {
 		if l == nil || l.dead || l.Hidden || l.End1 == nil || l.End2 == nil || l.End1.dead || l.End2.dead {
 			continue
 		}
-		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, ColorRGBA(l.Color)})
+		s.links = append(s.links, snapLink{l.End1.X, l.End1.Y, l.End2.X, l.End2.Y, linkRGBA(l)})
 		if text, col, ok := l.viewLabel(); ok {
 			s.labels = append(s.labels, snapLabel{
 				x: (l.End1.X + l.End2.X) / 2, y: (l.End1.Y + l.End2.Y) / 2,
@@ -154,7 +154,7 @@ func (w *World) captureView() *ViewSnap {
 		if shape == "" {
 			shape = "default"
 		}
-		s.turtles = append(s.turtles, snapTurtle{t.X, t.Y, t.Heading, t.Size, t.Color, shape})
+		s.turtles = append(s.turtles, snapTurtle{t.X, t.Y, t.Heading, t.Size, turtleRGBA(t), shape})
 		if text, col, ok := t.viewLabel(); ok {
 			s.labels = append(s.labels, snapLabel{
 				x: t.X, y: t.Y, size: t.Size, text: text, c: col,
@@ -227,7 +227,7 @@ func (s *ViewSnap) paintDrawing(patchPx int) *image.RGBA {
 	p := &painter{img: layer}
 	for _, m := range s.marks {
 		if m.pen {
-			p.erase = false
+			p.erase = m.erase
 			p.c = ColorRGBA(m.color)
 			x1, y1 := worldToPx(s.minPx, s.maxPy, m.x, m.y, patchPx)
 			x2, y2 := worldToPx(s.minPx, s.maxPy, m.x2, m.y2, patchPx)
@@ -346,11 +346,23 @@ func drawScaledText(img *image.RGBA, x, y int, s string, c color.Color, scale in
 
 func patchRGBA(p *Patch) color.RGBA {
 	if p.HasRGB {
-		c := p.RGB
-		c.A = 255
-		return c
+		return p.RGB
 	}
 	return ColorRGBA(p.PColor)
+}
+
+func turtleRGBA(t *Turtle) color.RGBA {
+	if t.HasRGB {
+		return t.RGB
+	}
+	return ColorRGBA(t.Color)
+}
+
+func linkRGBA(l *Link) color.RGBA {
+	if l.HasRGB {
+		return l.RGB
+	}
+	return ColorRGBA(l.Color)
 }
 
 func worldToPx(minPx, maxPy int, x, y float64, patchPx int) (int, int) {
@@ -363,7 +375,7 @@ func worldToPx(minPx, maxPy int, x, y float64, patchPx int) (int, int) {
 
 func drawTurtle(img *image.RGBA, minPx, maxPy int, t snapTurtle, shapes *ShapeList, patchPx int) {
 	cx, cy := worldToPx(minPx, maxPy, t.x, t.y, patchPx)
-	p := &painter{img: img, c: ColorRGBA(t.color)}
+	p := &painter{img: img, c: t.color}
 	drawTurtleShape(p, cx, cy, t.size, t.heading, t.shape, shapes, patchPx)
 }
 

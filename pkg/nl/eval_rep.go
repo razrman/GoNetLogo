@@ -164,9 +164,6 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		if lam < 0 {
-			return Value{}, fmt.Errorf("random-poisson expected mean to be non-negative")
-		}
 		val := vm.randomPoisson(lam)
 		return Num(val), nil
 	case "plot-pen-exists?":
@@ -282,15 +279,15 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 	case "range":
 		return vm.doRange(args)
 	case "random":
-		n, err := asInt(args[0], "random")
+		n, err := args[0].Num()
+		if err != nil {
+			return Value{}, fmt.Errorf("random expected a number, got %s", args[0].TypeName())
+		}
+		k, err := vm.World.Random(n)
 		if err != nil {
 			return Value{}, err
 		}
-		k, err := vm.World.RandomInt(n)
-		if err != nil {
-			return Value{}, err
-		}
-		return Num(float64(k)), nil
+		return Num(k), nil
 	case "random-float":
 		n, err := args[0].Num()
 		if err != nil {
@@ -398,7 +395,7 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 			return Value{}, fmt.Errorf("shuffle expected a list")
 		}
 		out := append([]Value(nil), args[0].L...)
-		vm.World.rng.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+		vm.World.shuffleValues(out)
 		return List(out...), nil
 	case "sort":
 		return vm.doSort(args[0])
@@ -497,16 +494,17 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		if stdev < 0 {
 			return Value{}, fmt.Errorf("random-normal expected standard deviation to be non-negative")
 		}
-		val := vm.World.rng.NormFloat64()*stdev + mean
-		vm.World.rngDraws.Add(1)
+		// NetLogo: mean + sdev * nextGaussian. float64() keeps the
+		// product from fusing into an FMA, which Java never does.
+		val := mean + float64(stdev*vm.World.rng.NextGaussian())
 		return Num(val), nil
 	case "random-exponential":
 		mean, err := args[0].Num()
 		if err != nil {
 			return Value{}, err
 		}
-		val := vm.World.rng.ExpFloat64() * mean
-		vm.World.rngDraws.Add(1)
+		// NetLogo: -mean * StrictMath.log(nextDouble).
+		val := -mean * strictLog(vm.World.rng.NextDouble())
 		return Num(val), nil
 	case "modes":
 		xs, err := args[0].List()
@@ -846,6 +844,9 @@ func (vm *VM) evalReporter(name string, args []Value, pos Pos) (Value, error) {
 		}
 		return args[1].L[0], nil
 	default:
+		if v, ok, err := vm.extReporter(name, args, pos); ok {
+			return v, err
+		}
 		if strings.HasPrefix(name, "is-") && strings.HasSuffix(name, "?") {
 			return vm.isType(name, args[0]), nil
 		}
@@ -934,6 +935,9 @@ func (vm *VM) evalInfix(e *infixExpr) (Value, error) {
 	r, err := vm.eval(e.Right)
 	if err != nil {
 		return Value{}, err
+	}
+	if strings.HasPrefix(e.Op, "palette:") {
+		return applyPaletteInfix(e.Op, l, r)
 	}
 	switch e.Op {
 	case "+":
@@ -1104,20 +1108,68 @@ func (vm *VM) evalOf(e *ofExpr) (Value, error) {
 			return v
 		}), nil
 	case KindAgentset:
-		live := target.Set.Alive()
-		out := make([]Value, len(live))
-		for i, a := range live {
-			out[i] = vm.withAgent(a, func() Value {
+		// NetLogo's _of walks a shufflerator, so the list comes back in
+		// random order and the reporter's own draws interleave with it.
+		out := make([]Value, 0, len(target.Set.Agents))
+		it := vm.World.shuffleSet(target.Set)
+		for {
+			a, ok := it.Next()
+			if !ok {
+				break
+			}
+			if a.IsDead() {
+				continue
+			}
+			out = append(out, vm.withAgent(a, func() Value {
 				v, err := vm.eval(e.Block)
 				if err != nil {
 					vm.fail(e.Pos, "%s", err.Error())
 				}
 				return v
-			})
+			}))
 		}
 		return List(out...), nil
 	default:
 		return Value{}, fmt.Errorf("of expected an agent or agentset")
+	}
+}
+
+// oneOfWith is NetLogo's _oneofwith, which the NetLogo compiler swaps in
+// for one-of (agents with [cond]). It walks a shufflerator and returns
+// the first agent that passes, so it draws differently from with followed
+// by one-of.
+func (vm *VM) oneOfWith(e *withExpr) (Value, error) {
+	target, err := vm.eval(e.Agents)
+	if err != nil {
+		return Value{}, err
+	}
+	ags, err := vm.asAgentset(target)
+	if err != nil {
+		return Value{}, err
+	}
+	it := vm.World.shuffleSet(ags)
+	for {
+		a, ok := it.Next()
+		if !ok {
+			return Nobody(), nil
+		}
+		if a.IsDead() {
+			continue
+		}
+		v := vm.withAgent(a, func() Value {
+			val, err := vm.eval(e.Block)
+			if err != nil {
+				vm.fail(e.Pos, "%s", err.Error())
+			}
+			return val
+		})
+		b, err := v.Truth()
+		if err != nil {
+			return Value{}, err
+		}
+		if b {
+			return AgentVal(a), nil
+		}
 	}
 }
 
@@ -1399,43 +1451,35 @@ func (vm *VM) oneOf(v Value) (Value, error) {
 		// Scissors asks one random patch per event, once per patch per tick.
 		if v.Set.All && v.Set.Kind == KindPatch {
 			ags := v.Set.Agents
-			return AgentVal(ags[vm.World.rng.Intn(len(ags))]), nil
+			return AgentVal(ags[vm.World.nextInt(len(ags))]), nil
 		}
 		live := v.Set.Alive()
 		if len(live) == 0 {
 			return Nobody(), nil
 		}
-		return AgentVal(live[vm.World.rng.Intn(len(live))]), nil
+		return AgentVal(live[vm.World.nextInt(len(live))]), nil
 	case KindList:
 		if len(v.L) == 0 {
 			return Value{}, fmt.Errorf("one-of an empty list")
 		}
-		return v.L[vm.World.rng.Intn(len(v.L))], nil
+		return v.L[vm.World.nextInt(len(v.L))], nil
 	default:
 		return Value{}, fmt.Errorf("one-of expected a list or agentset")
 	}
 }
 
-func (vm *VM) randomPoisson(lam float64) float64 {
-	if lam == 0 {
-		return 0
+// randomPoisson is NetLogo's _randompoisson: count exponential
+// inter-arrival times, each -log(1 - nextDouble), until their sum
+// exceeds the mean. It always draws at least once.
+func (vm *VM) randomPoisson(mean float64) float64 {
+	rng := vm.World.rng
+	q := 0
+	sum := -strictLog(1 - rng.NextDouble())
+	for sum <= mean {
+		q++
+		sum -= strictLog(1 - rng.NextDouble())
 	}
-	vm.World.rngDraws.Add(1)
-	if lam < 30 {
-		L := math.Exp(-lam)
-		k := 0.0
-		p := 1.0
-		for p > L {
-			k++
-			p *= vm.World.rng.Float64()
-		}
-		return k - 1
-	}
-	val := math.Round(lam + math.Sqrt(lam)*vm.World.rng.NormFloat64())
-	if val < 0 {
-		return 0
-	}
-	return val
+	return float64(q)
 }
 
 func (vm *VM) upToNOf(nVal, src Value) (Value, error) {
@@ -1448,27 +1492,16 @@ func (vm *VM) upToNOf(nVal, src Value) (Value, error) {
 	}
 	switch src.K {
 	case KindList:
-		if n > len(src.L) {
-			n = len(src.L)
+		if n >= len(src.L) {
+			return src, nil
 		}
-		idx := vm.World.rng.Perm(len(src.L))[:n]
-		sort.Ints(idx)
-		out := make([]Value, n)
-		for i, j := range idx {
-			out[i] = src.L[j]
-		}
-		return List(out...), nil
+		return List(vm.World.randomSubsetValues(src.L, n)...), nil
 	case KindAgentset:
 		live := src.Set.Alive()
-		if n > len(live) {
-			n = len(live)
+		if n >= len(live) {
+			return src, nil
 		}
-		idx := vm.World.rng.Perm(len(live))[:n]
-		sort.Ints(idx)
-		ags := make([]Agent, n)
-		for i, j := range idx {
-			ags[i] = live[j]
-		}
+		ags := vm.World.randomSubsetAgents(live, n)
 		return SetVal(&AgentSet{Kind: src.Set.Kind, Breed: src.Set.Breed, Agents: ags}), nil
 	default:
 		return Value{}, fmt.Errorf("up-to-n-of expected a list or agentset")
@@ -1520,24 +1553,16 @@ func (vm *VM) nOf(nVal, src Value) (Value, error) {
 		if n > len(src.L) {
 			return Value{}, fmt.Errorf("n-of asked for more items than the list contains")
 		}
-		idx := vm.World.rng.Perm(len(src.L))[:n]
-		sort.Ints(idx)
-		out := make([]Value, n)
-		for i, j := range idx {
-			out[i] = src.L[j]
+		if n == len(src.L) {
+			return src, nil
 		}
-		return List(out...), nil
+		return List(vm.World.randomSubsetValues(src.L, n)...), nil
 	case KindAgentset:
 		live := src.Set.Alive()
 		if n > len(live) {
 			return Value{}, fmt.Errorf("n-of asked for more agents than the agentset contains")
 		}
-		idx := vm.World.rng.Perm(len(live))[:n]
-		sort.Ints(idx)
-		ags := make([]Agent, n)
-		for i, j := range idx {
-			ags[i] = live[j]
-		}
+		ags := vm.World.randomSubsetAgents(live, n)
 		return SetVal(&AgentSet{Kind: src.Set.Kind, Breed: src.Set.Breed, Agents: ags}), nil
 	default:
 		return Value{}, fmt.Errorf("n-of expected a list or agentset")
@@ -1755,7 +1780,8 @@ func (vm *VM) doSortBy(task, list Value, pos Pos) (Value, error) {
 	if list.K == KindList {
 		items = append([]Value(nil), list.L...)
 	} else if list.K == KindAgentset && list.Set != nil {
-		ags := list.Set.Alive()
+		// NetLogo feeds sort-by the agents in shufflerator order.
+		ags := vm.World.shuffledLive(list.Set)
 		items = make([]Value, len(ags))
 		for i, a := range ags {
 			items[i] = AgentVal(a)
@@ -2299,7 +2325,7 @@ func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
 	case "who":
 		return Num(float64(t.Who)), true, nil
 	case "color":
-		return Num(t.Color), true, nil
+		return storedColor(t.HasRGB, t.RGB, t.Color), true, nil
 	case "heading":
 		return Num(t.Heading), true, nil
 	case "xcor":
@@ -2327,10 +2353,14 @@ func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
 	case "pen-size":
 		return Num(t.PenSize), true, nil
 	case "pen-mode":
-		if t.PenDown {
+		switch {
+		case t.PenErase:
+			return Str("erase"), true, nil
+		case t.PenDown:
 			return Str("down"), true, nil
+		default:
+			return Str("up"), true, nil
 		}
-		return Str("up"), true, nil
 	case "pxcor":
 		p := vm.World.PatchHere(t)
 		if p == nil {
@@ -2407,7 +2437,7 @@ func (vm *VM) getLinkVar(l *Link, name string) (Value, bool, error) {
 	case "end2":
 		return AgentVal(l.End2), true, nil
 	case "color":
-		return Num(l.Color), true, nil
+		return storedColor(l.HasRGB, l.RGB, l.Color), true, nil
 	case "label":
 		return l.Label, true, nil
 	case "label-color":
@@ -2437,9 +2467,41 @@ func (vm *VM) getLinkVar(l *Link, name string) (Value, bool, error) {
 
 func patchColorValue(p *Patch) Value {
 	if p.HasRGB {
-		return List(Num(float64(p.RGB.R)), Num(float64(p.RGB.G)), Num(float64(p.RGB.B)))
+		return storedColor(true, p.RGB, p.PColor)
 	}
 	return Num(p.PColor)
+}
+
+func assignTurtleColor(t *Turtle, v Value) error {
+	c, _, err := ColorFromValue(v)
+	if err != nil {
+		return err
+	}
+	if v.K == KindNum {
+		t.Color = v.N
+		t.HasRGB = false
+		return nil
+	}
+	t.RGB = c
+	t.HasRGB = true
+	t.Color = ApproximateRGB(int(c.R), int(c.G), int(c.B))
+	return nil
+}
+
+func assignLinkColor(l *Link, v Value) error {
+	c, _, err := ColorFromValue(v)
+	if err != nil {
+		return err
+	}
+	if v.K == KindNum {
+		l.Color = v.N
+		l.HasRGB = false
+		return nil
+	}
+	l.RGB = c
+	l.HasRGB = true
+	l.Color = ApproximateRGB(int(c.R), int(c.G), int(c.B))
+	return nil
 }
 
 func (vm *VM) setAgentVar(name string, v Value) (bool, error) {
@@ -2480,18 +2542,7 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 	case "who", "pxcor", "pycor":
 		return true, fmt.Errorf("you can't change %s", name)
 	case "color":
-		n, _, err := ColorFromValue(v)
-		if err != nil {
-			return true, err
-		}
-		if v.K == KindNum {
-			t.Color = v.N
-		} else {
-			// Keep a numeric stand-in; the RGB is not stored on turtles yet.
-			t.Color = float64(n.R)
-			_ = n
-		}
-		return true, nil
+		return true, assignTurtleColor(t, v)
 	case "heading":
 		n, err := v.Num()
 		if err != nil {
@@ -2555,10 +2606,15 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 		switch strings.ToLower(v.S) {
 		case "up":
 			t.PenDown = false
+			t.PenErase = false
 		case "down":
 			t.PenDown = true
+			t.PenErase = false
+		case "erase":
+			t.PenDown = false
+			t.PenErase = true
 		default:
-			return true, fmt.Errorf("pen-mode must be \"up\" or \"down\"")
+			return true, fmt.Errorf("pen-mode must be \"up\", \"down\", or \"erase\"")
 		}
 		return true, nil
 	case "pcolor":
@@ -2618,11 +2674,7 @@ func (vm *VM) setLinkVar(l *Link, name string, v Value) (bool, error) {
 	case "end1", "end2":
 		return true, fmt.Errorf("you can't change %s", name)
 	case "color":
-		if v.K != KindNum {
-			return true, fmt.Errorf("color must be a number")
-		}
-		l.Color = v.N
-		return true, nil
+		return true, assignLinkColor(l, v)
 	case "label":
 		l.Label = v
 		return true, nil

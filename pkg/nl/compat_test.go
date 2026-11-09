@@ -137,13 +137,15 @@ end
 			want: "truetruetruetruetruetrue",
 		},
 		{
-			name: "approximate-rgb compuphase match",
+			name: "approximate-rgb red-channel mean",
 			code: `
 to test
 end
 `,
+			// rmean is (r1 + r2) / 2. NetLogo writes r1 + r2 / 2, which
+			// divides r2 first and reports 32.9 for this color.
 			eval: `approximate-rgb 83 72 54`,
-			want: "32.9",
+			want: "33",
 		},
 		{
 			name: "user dialog stubs in headless",

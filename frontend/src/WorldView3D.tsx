@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { penRadius, visiblePenTrails } from './penTrail'
+import { applyPov, type PovMode } from './pov'
 import type { Observer3D, World } from './types'
 import { WorldCanvas } from './WorldCanvas'
+import { wrapSegments, type WrapBounds } from './wrapSegment'
 
 // Interactive view of a NetLogo 3D world. Scene coordinates are NetLogo
 // coordinates (x east, y north, z up), with the camera's up vector on +z.
@@ -11,6 +14,12 @@ import { WorldCanvas } from './WorldCanvas'
 // camera follows the model's observer only when an observer camera
 // command runs (observer.revision changes), so a running model never
 // fights the user's own orbiting.
+//
+// follow, ride, and watch are the exception: the camera tracks the
+// subject turtle every frame. follow keeps the user's orbit around the
+// turtle, ride sits on it looking along its heading, and watch leaves
+// the camera put and turns it to face the turtle. reset-perspective
+// clears that and the observer revision sends the camera home.
 //
 // Patches and turtles are InstancedMeshes, so a dense world is a couple
 // of draw calls. Patch instances are rebuilt only when the voxel buffer
@@ -97,6 +106,9 @@ class Scene3D {
   private patches: THREE.InstancedMesh | null = null
   private turtles: THREE.InstancedMesh | null = null
   private links: THREE.LineSegments
+  private trails: THREE.InstancedMesh | null = null
+  private trailGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 5)
+  private trailMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
   private patchGeometry = new THREE.BoxGeometry(patchSize, patchSize, patchSize)
   private patchMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
   private turtleGeometry: THREE.BufferGeometry
@@ -106,6 +118,8 @@ class Scene3D {
   private boundsKey = ''
   private bounds: Bounds | null = null
   private observerRevision = -1
+  private povMode: PovMode = ''
+  private followOffset: { x: number; y: number; z: number } | null = null
   private patchesVisible = true
   private dirty = true
   private scratch = new THREE.Matrix4()
@@ -177,6 +191,15 @@ class Scene3D {
       this.dirty = true
     }
     if (this.controls.update()) this.dirty = true
+    // A drag while following changes the orbit. Keep that offset so the
+    // next world frame does not snap back to the old one.
+    if (this.povMode === 'follow') {
+      this.followOffset = {
+        x: this.camera.position.x - this.controls.target.x,
+        y: this.camera.position.y - this.controls.target.y,
+        z: this.camera.position.z - this.controls.target.z,
+      }
+    }
     if (!this.dirty) return
     this.dirty = false
     this.renderer.render(this.scene, this.camera)
@@ -188,6 +211,8 @@ class Scene3D {
     this.renderer.domElement.remove()
     this.patchGeometry.dispose()
     this.patchMaterial.dispose()
+    this.trailGeometry.dispose()
+    this.trailMaterial.dispose()
     this.turtleGeometry.dispose()
     this.turtleMaterial.dispose()
     this.links.geometry.dispose()
@@ -219,8 +244,12 @@ class Scene3D {
       // it; NetLogo's untouched home pose looks straight down, which is the
       // flat view this replaces, so keep the default view instead.
       const newWorld = this.observerRevision < 0 || obs.revision < this.observerRevision
-      if (!newWorld || obs.revision > 0) this.applyObserver(obs)
-      else if (this.observerRevision >= 0) this.resetView()
+      if (!newWorld || obs.revision > 0) {
+        this.applyObserver(obs)
+        // An observer command (including reset-perspective) chooses a new
+        // orbit. Follow recaptures it around the turtle on this frame.
+        this.followOffset = null
+      } else if (this.observerRevision >= 0) this.resetView()
       this.observerRevision = obs.revision
     }
     if (world.voxels !== this.voxels) {
@@ -229,6 +258,56 @@ class Scene3D {
     }
     this.updateTurtles(world)
     this.updateLinks(world)
+    this.updateTrails(world)
+    this.applyPerspective(world)
+  }
+
+  // applyPerspective moves the camera for follow, ride, and watch.
+  // An empty mode restores a free camera without jumping it; reset-perspective
+  // has already placed it via the observer.
+  private applyPerspective(world: World) {
+    const raw = world.perspective ?? ''
+    const mode: PovMode = raw === 'follow' || raw === 'ride' || raw === 'watch' ? raw : ''
+    const who = world.subject
+    const found = who == null ? undefined : world.turtles.find((t) => t.who === who)
+    const turtle = found
+      ? {
+          x: found.x,
+          y: found.y,
+          z: found.z ?? 0,
+          heading: found.heading,
+          pitch: found.pitch ?? 0,
+          roll: found.roll ?? 0,
+        }
+      : null
+    // Keep the saved orbit only while follow continues. Entering follow,
+    // leaving it, or an observer command (which already cleared the offset)
+    // starts from the camera as it is now.
+    if (!(mode === 'follow' && this.povMode === 'follow')) {
+      if (mode !== 'follow') this.followOffset = null
+    }
+    const pose = applyPov(
+      mode,
+      turtle,
+      { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z },
+      { x: this.controls.target.x, y: this.controls.target.y, z: this.controls.target.z },
+      mode === 'follow' ? this.followOffset : null,
+    )
+    const was = this.povMode
+    this.povMode = mode
+    this.followOffset = pose.followOffset
+    if (!mode && !was) return
+    if (mode) {
+      this.camera.position.set(pose.position.x, pose.position.y, pose.position.z)
+      this.camera.up.set(pose.up.x, pose.up.y, pose.up.z)
+      this.controls.target.set(pose.target.x, pose.target.y, pose.target.z)
+    } else {
+      this.camera.up.set(0, 0, 1)
+    }
+    this.controls.enableRotate = !pose.lockOrbit
+    this.controls.enablePan = !pose.lockOrbit
+    this.controls.update()
+    this.dirty = true
   }
 
   // resetView frames the whole world from the south-west, a little above.
@@ -359,19 +438,88 @@ class Scene3D {
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   }
 
+  // updateTrails draws pen-down strokes as tubes and leaves out whatever
+  // pen-erase has removed. clear-drawing arrives as an empty list. Turtles
+  // start pen-up, so a model that never calls pen-down keeps this empty.
+  private updateTrails(world: World) {
+    const pieces = visiblePenTrails(world.drawing ?? [], linkWrapBounds(world))
+    if (pieces.length === 0) {
+      if (this.trails) {
+        this.trails.count = 0
+        this.trails.visible = false
+      }
+      return
+    }
+    const mesh = this.instanced(this.trails, pieces.length, this.trailGeometry, this.trailMaterial)
+    this.trails = mesh
+    mesh.visible = true
+    const yAxis = new THREE.Vector3(0, 1, 0)
+    const dir = new THREE.Vector3()
+    const mid = new THREE.Vector3()
+    const quat = new THREE.Quaternion()
+    const scale = new THREE.Vector3()
+    for (let i = 0; i < pieces.length; i++) {
+      const p = pieces[i]
+      dir.set(p.bx - p.ax, p.by - p.ay, p.bz - p.az)
+      const len = dir.length()
+      if (len < 1e-8) {
+        this.scratch.makeScale(0, 0, 0)
+        mesh.setMatrixAt(i, this.scratch)
+        continue
+      }
+      dir.multiplyScalar(1 / len)
+      mid.set((p.ax + p.bx) / 2, (p.ay + p.by) / 2, (p.az + p.bz) / 2)
+      quat.setFromUnitVectors(yAxis, dir)
+      const radius = penRadius(p.size)
+      scale.set(radius * 2, len, radius * 2)
+      this.scratch.compose(mid, quat, scale)
+      mesh.setMatrixAt(i, this.scratch)
+      this.color.setRGB(p.r / 255, p.g / 255, p.b / 255, THREE.SRGBColorSpace)
+      mesh.setColorAt(i, this.color)
+    }
+    mesh.count = pieces.length
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  }
+
   private updateLinks(world: World) {
     const shown = world.links.filter((l) => !l.hidden)
-    const pos = new Float32Array(shown.length * 6)
-    const col = new Float32Array(shown.length * 6)
-    shown.forEach((l, i) => {
-      pos.set([l.x1, l.y1, l.z1 ?? 0, l.x2, l.y2, l.z2 ?? 0], i * 6)
+    const bounds = linkWrapBounds(world)
+    const pos: number[] = []
+    const col: number[] = []
+    for (const l of shown) {
+      const segs = wrapSegments(
+        { x: l.x1, y: l.y1, z: l.z1 ?? 0 },
+        { x: l.x2, y: l.y2, z: l.z2 ?? 0 },
+        bounds,
+      )
       this.color.setRGB(l.r / 255, l.g / 255, l.b / 255, THREE.SRGBColorSpace)
-      col.set([this.color.r, this.color.g, this.color.b, this.color.r, this.color.g, this.color.b], i * 6)
-    })
+      const r = this.color.r
+      const g = this.color.g
+      const b = this.color.b
+      for (const s of segs) {
+        pos.push(s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z)
+        col.push(r, g, b, r, g, b)
+      }
+    }
     const g = this.links.geometry
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(pos), 3))
+    g.setAttribute('color', new THREE.BufferAttribute(Float32Array.from(col), 3))
     g.computeBoundingSphere()
+  }
+}
+
+// linkWrapBounds is the half-patch wall on each axis. A link is split
+// only on axes whose wrap flag is set.
+function linkWrapBounds(world: World): WrapBounds {
+  return {
+    x: { min: world.minPxcor - 0.5, max: world.maxPxcor + 0.5, wrap: world.wrapX },
+    y: { min: world.minPycor - 0.5, max: world.maxPycor + 0.5, wrap: world.wrapY },
+    z: {
+      min: (world.minPzcor ?? 0) - 0.5,
+      max: (world.maxPzcor ?? 0) + 0.5,
+      wrap: world.wrapZ ?? false,
+    },
   }
 }
 

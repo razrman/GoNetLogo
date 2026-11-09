@@ -145,6 +145,8 @@ type VM struct {
 	UserFile      func() (string, bool)
 	UserNewFile   func() (string, bool)
 	UserDirectory func() (string, bool)
+	// sr is the Simple R session created by sr:setup.
+	sr *srSession
 }
 
 type everyKey struct {
@@ -357,6 +359,9 @@ func isCommandLine(src string, prog *Program) bool {
 		return true
 	}
 	if _, ok := commands[name]; ok {
+		return true
+	}
+	if isExtCommand(prog, name) {
 		return true
 	}
 	if is3DCommand(name, prog) {
@@ -758,6 +763,7 @@ func (vm *VM) execAsk(s *askStmt) {
 		vm.fail(s.Pos, "%s", err.Error())
 	}
 	var agents []Agent
+	skipDead := false
 	switch v.K {
 	case KindAgent:
 		if v.A == nil || v.A.IsDead() {
@@ -768,16 +774,27 @@ func (vm *VM) execAsk(s *askStmt) {
 		if vm.self != nil && v.Set != nil && v.Set.All && (v.Set.Kind == KindTurtle || v.Set.Kind == KindPatch) {
 			vm.fail(s.Pos, "only the observer can ASK the set of all %ss", v.Set.Kind)
 		}
-		agents = vm.World.Shuffle(v.Set.Alive())
+		agents, skipDead = shuffleSource(v.Set)
 	default:
 		vm.fail(s.Pos, "ask expected an agent or agentset, got %s", v.TypeName())
 	}
-	for _, a := range agents {
-		if a.IsDead() {
+	vm.execAskBlock(agents, skipDead, s.Body)
+}
+
+// execAskBlock runs body for each agent in NetLogo's shufflerator order.
+// Like runAskList it draws nothing for a single agent.
+func (vm *VM) execAskBlock(agents []Agent, skipDead bool, body []Stmt) {
+	it := vm.World.newShuffler(agents, skipDead)
+	for {
+		a, ok := it.Next()
+		if !ok {
+			return
+		}
+		if a == nil || a.IsDead() {
 			continue
 		}
 		vm.checkpoint()
-		vm.execAgentBlock(a, s.Body)
+		vm.execAgentBlock(a, body)
 	}
 }
 
@@ -806,14 +823,16 @@ func (vm *VM) execCreate(s *createStmt) {
 				vm.fail(s.Pos, "%s", err.Error())
 			}
 		} else {
-			cn := vm.World.rng.Intn(14)
-			h := vm.World.rng.Intn(360)
+			// NetLogo: createTurtle(breed, nextInt(14), nextInt(360)).
+			cn := vm.World.nextInt(14)
+			h := vm.World.nextInt(360)
 			t = vm.World.CreateTurtle(s.Breed, 0, 0, cn, h)
 		}
 		made = append(made, t)
 	}
-	for _, a := range made {
-		vm.execAgentBlock(a, s.Body)
+	// NetLogo runs a non-empty block as an ask over the new turtles.
+	if len(s.Body) > 0 {
+		vm.execAskBlock(made, true, s.Body)
 	}
 }
 
@@ -832,13 +851,14 @@ func (vm *VM) execSprout(s *sproutStmt) {
 	}
 	var made []Agent
 	for i := 0; i < k; i++ {
-		cn := vm.World.rng.Intn(14)
-		h := vm.World.rng.Intn(360)
+		cn := vm.World.nextInt(14)
+		h := vm.World.nextInt(360)
 		t := vm.World.CreateTurtle3(s.Breed, float64(p.PX), float64(p.PY), float64(p.PZ), cn, h)
 		made = append(made, t)
 	}
-	for _, a := range made {
-		vm.execAgentBlock(a, s.Body)
+	// NetLogo runs a non-empty block as an ask over the new turtles.
+	if len(s.Body) > 0 {
+		vm.execAskBlock(made, true, s.Body)
 	}
 }
 
@@ -859,8 +879,9 @@ func (vm *VM) execHatch(s *hatchStmt) {
 	for i := 0; i < k; i++ {
 		made = append(made, vm.World.Hatch(parent, s.Breed))
 	}
-	for _, a := range made {
-		vm.execAgentBlock(a, s.Body)
+	// NetLogo runs a non-empty block as an ask over the new turtles.
+	if len(s.Body) > 0 {
+		vm.execAskBlock(made, true, s.Body)
 	}
 }
 
@@ -1185,7 +1206,7 @@ func (vm *VM) evalIdent(name string, pos Pos) (Value, error) {
 			return vm.evalBreedCallFast(call, name, nil, pos)
 		}
 	}
-	if isZeroArgReporter(name, vm.World.threeD) {
+	if isZeroArgReporter(name, vm.World.threeD) || isExtZeroArg(vm.Prog, name) {
 		return vm.evalZero(name, pos)
 	}
 	if strings.HasSuffix(name, "-here") {

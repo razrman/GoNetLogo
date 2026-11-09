@@ -478,13 +478,14 @@ func (c *compiler) compileAsk(s *askStmt, locals map[string]bool) cmdFn {
 		return func(vm *VM) {
 			buf := vm.World.collectBreed(breed, vm.askBuf)
 			vm.askBuf = buf
-			vm.runAskList(buf, body, child)
+			vm.runAskList(buf, false, body, child)
 		}
 	}
 	agents := c.compileExpr(s.Agents, locals)
 	return func(vm *VM) {
 		v := agents(vm)
 		var list []Agent
+		skipDead := false
 		switch v.K {
 		case KindAgent:
 			if v.A == nil || v.A.IsDead() {
@@ -497,18 +498,19 @@ func (c *compiler) compileAsk(s *askStmt, locals map[string]bool) cmdFn {
 			}
 			// runAskList shuffles. Shuffling here as well would consume
 			// a second permutation and diverge from the tree walker.
-			list = v.Set.Alive()
+			list, skipDead = shuffleSource(v.Set)
 		default:
 			vm.fail(pos, "ask expected an agent or agentset, got %s", v.TypeName())
 		}
-		vm.runAskList(list, body, child)
+		vm.runAskList(list, skipDead, body, child)
 	}
 }
 
-// runAskList runs an ask body. A one-agent list does not allocate. A longer
-// list is copied so a nested ask can reuse askBuf, then shuffled with the
-// same RNG consumption as World.Shuffle.
-func (vm *VM) runAskList(list []Agent, body cmdFn, child bool) {
+// runAskList runs an ask body. A one-agent list does not allocate and,
+// as in NetLogo, draws nothing. A longer list goes through NetLogo's lazy
+// shufflerator, which copies it, so a nested ask can reuse askBuf.
+// skipDead selects ArrayAgentSet semantics (see agentShuffler).
+func (vm *VM) runAskList(list []Agent, skipDead bool, body cmdFn, child bool) {
 	if len(list) == 0 {
 		return
 	}
@@ -520,9 +522,12 @@ func (vm *VM) runAskList(list []Agent, body cmdFn, child bool) {
 		}
 		return
 	}
-	agents := append([]Agent(nil), list...)
-	vm.World.rng.Shuffle(len(agents), func(i, j int) { agents[i], agents[j] = agents[j], agents[i] })
-	for _, a := range agents {
+	it := vm.World.newShuffler(list, skipDead)
+	for {
+		a, ok := it.Next()
+		if !ok {
+			return
+		}
 		if a == nil || a.IsDead() {
 			continue
 		}
@@ -550,8 +555,10 @@ func (c *compiler) compileHatch(s *hatchStmt, locals map[string]bool) cmdFn {
 		for i := 0; i < k; i++ {
 			made = append(made, vm.World.Hatch(parent, breed))
 		}
-		for _, a := range made {
-			vm.runAgent(a, body, child)
+		// NetLogo runs a non-empty hatch block as an ask over the new
+		// turtles, in shufflerator order.
+		if len(s.Body) > 0 {
+			vm.runAskList(made, true, body, child)
 		}
 	}
 }
@@ -758,15 +765,16 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 		if len(e.Args) == 1 {
 			arg := c.compileExpr(e.Args[0], locals)
 			return func(vm *VM) Value {
-				n, err := asInt(arg(vm), "random")
+				v := arg(vm)
+				n, err := v.Num()
+				if err != nil {
+					vm.fail(pos, "random expected a number, got %s", v.TypeName())
+				}
+				k, err := vm.World.Random(n)
 				if err != nil {
 					vm.fail(pos, "%s", err.Error())
 				}
-				k, err := vm.World.RandomInt(n)
-				if err != nil {
-					vm.fail(pos, "%s", err.Error())
-				}
-				return Num(float64(k))
+				return Num(k)
 			}
 		}
 	case "any?":
@@ -848,6 +856,17 @@ func (c *compiler) compileCall(e *callExpr, locals map[string]bool) repFn {
 			}
 		}
 	case "one-of":
+		if len(e.Args) == 1 {
+			if w, ok := e.Args[0].(*withExpr); ok {
+				return func(vm *VM) Value {
+					v, err := vm.oneOfWith(w)
+					if err != nil {
+						vm.fail(pos, "%s", err.Error())
+					}
+					return v
+				}
+			}
+		}
 		if len(e.Args) == 1 {
 			arg := c.compileExpr(e.Args[0], locals)
 			return func(vm *VM) Value {
@@ -946,6 +965,15 @@ func (c *compiler) compileInfix(e *infixExpr, locals map[string]bool) repFn {
 	right := c.compileExpr(e.Right, locals)
 	op := e.Op
 	pos := e.Pos
+	if strings.HasPrefix(op, "palette:") {
+		return func(vm *VM) Value {
+			v, err := applyPaletteInfix(op, left(vm), right(vm))
+			if err != nil {
+				vm.fail(pos, "%s", err.Error())
+			}
+			return v
+		}
+	}
 	return func(vm *VM) Value {
 		l := left(vm)
 		if op == "and" || op == "or" {
@@ -1176,7 +1204,7 @@ func (c *compiler) resolveIdent(name string, pos Pos) repFn {
 	if strings.HasPrefix(name, "my-") {
 		return func(vm *VM) Value { return mustIdent(vm, name, pos) }
 	}
-	if isZeroArgReporter(name, c.prog.Is3D) {
+	if isZeroArgReporter(name, c.prog.Is3D) || isExtZeroArg(c.prog, name) {
 		return func(vm *VM) Value {
 			v, err := vm.evalZero(name, pos)
 			if err != nil {

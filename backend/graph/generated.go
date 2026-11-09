@@ -87,6 +87,8 @@ type ComplexityRoot struct {
 		X2      func(childComplexity int) int
 		Y       func(childComplexity int) int
 		Y2      func(childComplexity int) int
+		Z       func(childComplexity int) int
+		Z2      func(childComplexity int) int
 	}
 
 	Frame struct {
@@ -142,6 +144,7 @@ type ComplexityRoot struct {
 
 	Mutation struct {
 		CreateSession   func(childComplexity int, model string) int
+		GenerateRngSeed func(childComplexity int, sessionID string) int
 		Go              func(childComplexity int, sessionID string) int
 		LoadModel       func(childComplexity int, sessionID string, model string) int
 		LoadModelFile   func(childComplexity int, sessionID string, path string) int
@@ -155,7 +158,7 @@ type ComplexityRoot struct {
 		SetSlider       func(childComplexity int, sessionID string, index int, value float64) int
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
-		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool) int
+		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string) int
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
 		Stop            func(childComplexity int, sessionID string) int
@@ -323,7 +326,10 @@ type ComplexityRoot struct {
 		Observer    func(childComplexity int) int
 		PatchColors func(childComplexity int) int
 		PatchSize   func(childComplexity int) int
+		Perspective func(childComplexity int) int
+		RngSeed     func(childComplexity int) int
 		Shapes      func(childComplexity int) int
+		Subject     func(childComplexity int) int
 		ThreeD      func(childComplexity int) int
 		Turtles     func(childComplexity int) int
 		Voxels      func(childComplexity int) int
@@ -342,6 +348,7 @@ type ComplexityRoot struct {
 		MinPycor     func(childComplexity int) int
 		MinPzcor     func(childComplexity int) int
 		PatchSize    func(childComplexity int) int
+		RngSeed      func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
 		WrapX        func(childComplexity int) int
 		WrapY        func(childComplexity int) int
@@ -367,7 +374,8 @@ type MutationResolver interface {
 	SetSwitch(ctx context.Context, sessionID string, index int, on bool) (*model.Session, error)
 	SetChooser(ctx context.Context, sessionID string, index int, current int) (*model.Session, error)
 	SetInput(ctx context.Context, sessionID string, index int, text string) (*model.Session, error)
-	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool) (*model.Session, error)
+	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string) (*model.Session, error)
+	GenerateRngSeed(ctx context.Context, sessionID string) (string, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]string, error)
@@ -593,6 +601,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.DrawingMark.Y2(childComplexity), true
+
+	case "DrawingMark.z":
+		if e.complexity.DrawingMark.Z == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Z(childComplexity), true
+
+	case "DrawingMark.z2":
+		if e.complexity.DrawingMark.Z2 == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Z2(childComplexity), true
 
 	case "Frame.droppedFrames":
 		if e.complexity.Frame.DroppedFrames == nil {
@@ -879,6 +901,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.CreateSession(childComplexity, args["model"].(string)), true
 
+	case "Mutation.generateRngSeed":
+		if e.complexity.Mutation.GenerateRngSeed == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_generateRngSeed_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.GenerateRngSeed(childComplexity, args["sessionId"].(string)), true
+
 	case "Mutation.go":
 		if e.complexity.Mutation.Go == nil {
 			break
@@ -1045,7 +1079,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool), args["minPzcor"].(*int), args["maxPzcor"].(*int), args["wrapZ"].(*bool)), true
+		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool), args["minPzcor"].(*int), args["maxPzcor"].(*int), args["wrapZ"].(*bool), args["rngSeed"].(*string)), true
 
 	case "Mutation.setup":
 		if e.complexity.Mutation.Setup == nil {
@@ -1978,12 +2012,33 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.PatchSize(childComplexity), true
 
+	case "World.perspective":
+		if e.complexity.World.Perspective == nil {
+			break
+		}
+
+		return e.complexity.World.Perspective(childComplexity), true
+
+	case "World.rngSeed":
+		if e.complexity.World.RngSeed == nil {
+			break
+		}
+
+		return e.complexity.World.RngSeed(childComplexity), true
+
 	case "World.shapes":
 		if e.complexity.World.Shapes == nil {
 			break
 		}
 
 		return e.complexity.World.Shapes(childComplexity), true
+
+	case "World.subject":
+		if e.complexity.World.Subject == nil {
+			break
+		}
+
+		return e.complexity.World.Subject(childComplexity), true
 
 	case "World.threeD":
 		if e.complexity.World.ThreeD == nil {
@@ -2089,6 +2144,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.WorldSettings.PatchSize(childComplexity), true
+
+	case "WorldSettings.rngSeed":
+		if e.complexity.WorldSettings.RngSeed == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.RngSeed(childComplexity), true
 
 	case "WorldSettings.threeD":
 		if e.complexity.WorldSettings.ThreeD == nil {
@@ -2325,6 +2387,11 @@ type Mutation {
   resize-world takes six bounds there. Pass both, or omit both to leave
   Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
   on a 2D world. A 3D world keeps wrapping in X and Y.
+  rngSeed, when set, reseeds the world RNG the way random-seed does,
+  after the resize. It is 6 digits in the standard base64 alphabet
+  (A-Z, a-z, 0-9, +, /), most significant digit first. The place value
+  is an integer in 0 .. 2^36-1. Omit rngSeed to leave the RNG alone.
+  An invalid string is rejected and the world is not resized.
   """
   setWorld(
     sessionId: ID!
@@ -2338,7 +2405,13 @@ type Mutation {
     minPzcor: Int
     maxPzcor: Int
     wrapZ: Boolean
+    rngSeed: String
   ): Session!
+  """
+  Draw a new 6-digit base64 RNG seed with crypto/rand, seed the world
+  RNG with it, and return the text. The world is not resized.
+  """
+  generateRngSeed(sessionId: ID!): String!
 }
 
 type Subscription {
@@ -2546,6 +2619,12 @@ type WorldSettings {
   wrapZ: Boolean!
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
+  """
+  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
+  significant digit first. This is the low 36 bits of the integer last
+  passed to random-seed.
+  """
+  rngSeed: String!
 }
 
 type World {
@@ -2575,6 +2654,12 @@ type World {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
+  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
+  significant digit first. This is the low 36 bits of the integer last
+  passed to random-seed.
+  """
+  rngSeed: String!
+  """
   Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b.
   Patch order (highest layer first). Black patches are omitted.
@@ -2583,6 +2668,18 @@ type World {
   voxels: String!
   """The observer camera of a 3D world. Null for a 2D world."""
   observer: Observer3D
+  """
+  follow, ride, watch, or empty. The 3D view aims the camera from this
+  and the subject turtle. reset-perspective clears it. follow orbits
+  around the turtle, ride sits on it looking along its heading, and
+  watch keeps the camera where it is and turns it to face the turtle.
+  """
+  perspective: String!
+  """
+  who of the turtle being followed, ridden, or watched. Null when
+  perspective is empty or the subject is not a turtle.
+  """
+  subject: Int
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -2618,13 +2715,20 @@ type World {
 type DrawingMark {
   """True for a pen stroke. False for a stamp."""
   pen: Boolean!
-  """True when a stamp erases drawing under the turtle's shape."""
+  """
+  True when this mark removes drawing. A pen stroke with erase is
+  pen-mode "erase". A stamp with erase is stamp-erase.
+  """
   erase: Boolean!
   x: Float!
   y: Float!
-  """End of a pen stroke. Equal to x and y for a stamp."""
+  """z of the start. 0 in a 2D world. A stamp uses the turtle's zcor."""
+  z: Float!
+  """End of a pen stroke. Equal to x, y, and z for a stamp."""
   x2: Float!
   y2: Float!
+  """z of the end. 0 in a 2D world."""
+  z2: Float!
   heading: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
@@ -2751,6 +2855,21 @@ func (ec *executionContext) field_Mutation_createSession_args(ctx context.Contex
 		}
 	}
 	args["model"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_generateRngSeed_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
 	return args, nil
 }
 
@@ -3204,6 +3323,15 @@ func (ec *executionContext) field_Mutation_setWorld_args(ctx context.Context, ra
 		}
 	}
 	args["wrapZ"] = arg10
+	var arg11 *string
+	if tmp, ok := rawArgs["rngSeed"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rngSeed"))
+		arg11, err = ec.unmarshalOString2ᚖstring(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["rngSeed"] = arg11
 	return args, nil
 }
 
@@ -4317,6 +4445,50 @@ func (ec *executionContext) fieldContext_DrawingMark_y(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _DrawingMark_z(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_z(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_z(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DrawingMark_x2(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_DrawingMark_x2(ctx, field)
 	if err != nil {
@@ -4393,6 +4565,50 @@ func (ec *executionContext) _DrawingMark_y2(ctx context.Context, field graphql.C
 }
 
 func (ec *executionContext) fieldContext_DrawingMark_y2(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DrawingMark_z2(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_z2(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z2, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_z2(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "DrawingMark",
 		Field:      field,
@@ -5613,10 +5829,16 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_wrapZ(ctx, field)
 			case "threeD":
 				return ec.fieldContext_World_threeD(ctx, field)
+			case "rngSeed":
+				return ec.fieldContext_World_rngSeed(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
 				return ec.fieldContext_World_observer(ctx, field)
+			case "perspective":
+				return ec.fieldContext_World_perspective(ctx, field)
+			case "subject":
+				return ec.fieldContext_World_subject(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -8206,7 +8428,7 @@ func (ec *executionContext) _Mutation_setWorld(ctx context.Context, field graphq
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool), fc.Args["minPzcor"].(*int), fc.Args["maxPzcor"].(*int), fc.Args["wrapZ"].(*bool))
+		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool), fc.Args["minPzcor"].(*int), fc.Args["maxPzcor"].(*int), fc.Args["wrapZ"].(*bool), fc.Args["rngSeed"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8289,6 +8511,61 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_setWorld_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_generateRngSeed(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_generateRngSeed(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().GenerateRngSeed(rctx, fc.Args["sessionId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_generateRngSeed(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_generateRngSeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -10020,6 +10297,8 @@ func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context
 				return ec.fieldContext_WorldSettings_wrapZ(ctx, field)
 			case "threeD":
 				return ec.fieldContext_WorldSettings_threeD(ctx, field)
+			case "rngSeed":
+				return ec.fieldContext_WorldSettings_rngSeed(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type WorldSettings", field.Name)
 		},
@@ -11305,10 +11584,16 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_wrapZ(ctx, field)
 			case "threeD":
 				return ec.fieldContext_World_threeD(ctx, field)
+			case "rngSeed":
+				return ec.fieldContext_World_rngSeed(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
 				return ec.fieldContext_World_observer(ctx, field)
+			case "perspective":
+				return ec.fieldContext_World_perspective(ctx, field)
+			case "subject":
+				return ec.fieldContext_World_subject(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -14164,6 +14449,50 @@ func (ec *executionContext) fieldContext_World_threeD(_ context.Context, field g
 	return fc, nil
 }
 
+func (ec *executionContext) _World_rngSeed(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_rngSeed(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RngSeed, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_rngSeed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _World_voxels(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_World_voxels(ctx, field)
 	if err != nil {
@@ -14260,6 +14589,91 @@ func (ec *executionContext) fieldContext_World_observer(_ context.Context, field
 				return ec.fieldContext_Observer3D_revision(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Observer3D", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_perspective(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_perspective(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Perspective, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_perspective(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subject(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subject(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Subject, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*int)
+	fc.Result = res
+	return ec.marshalOInt2ᚖint(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subject(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -14452,10 +14866,14 @@ func (ec *executionContext) fieldContext_World_drawing(_ context.Context, field 
 				return ec.fieldContext_DrawingMark_x(ctx, field)
 			case "y":
 				return ec.fieldContext_DrawingMark_y(ctx, field)
+			case "z":
+				return ec.fieldContext_DrawingMark_z(ctx, field)
 			case "x2":
 				return ec.fieldContext_DrawingMark_x2(ctx, field)
 			case "y2":
 				return ec.fieldContext_DrawingMark_y2(ctx, field)
+			case "z2":
+				return ec.fieldContext_DrawingMark_z2(ctx, field)
 			case "heading":
 				return ec.fieldContext_DrawingMark_heading(ctx, field)
 			case "size":
@@ -15200,6 +15618,50 @@ func (ec *executionContext) fieldContext_WorldSettings_threeD(_ context.Context,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_rngSeed(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_rngSeed(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RngSeed, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_rngSeed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -17175,6 +17637,11 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "z":
+			out.Values[i] = ec._DrawingMark_z(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "x2":
 			out.Values[i] = ec._DrawingMark_x2(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -17182,6 +17649,11 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			}
 		case "y2":
 			out.Values[i] = ec._DrawingMark_y2(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "z2":
+			out.Values[i] = ec._DrawingMark_z2(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -17704,6 +18176,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "setWorld":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setWorld(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "generateRngSeed":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_generateRngSeed(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -18793,6 +19272,11 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "rngSeed":
+			out.Values[i] = ec._World_rngSeed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "voxels":
 			out.Values[i] = ec._World_voxels(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18800,6 +19284,13 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "observer":
 			out.Values[i] = ec._World_observer(ctx, field, obj)
+		case "perspective":
+			out.Values[i] = ec._World_perspective(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "subject":
+			out.Values[i] = ec._World_subject(ctx, field, obj)
 		case "labelFont":
 			out.Values[i] = ec._World_labelFont(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18926,6 +19417,11 @@ func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.Selectio
 			}
 		case "threeD":
 			out.Values[i] = ec._WorldSettings_threeD(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rngSeed":
+			out.Values[i] = ec._WorldSettings_rngSeed(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

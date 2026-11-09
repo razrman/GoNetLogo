@@ -99,6 +99,11 @@ type FileModel struct {
 	// Is3D selects NetLogo 3D: the code compiles in the 3D dialect and the
 	// world gets a Z axis.
 	Is3D bool
+	// Dynamics is the stock-and-flow diagram from the file. Nil when the
+	// model has no System Dynamics section. Compile turns it into
+	// system-dynamics-setup, system-dynamics-go, system-dynamics-do-plot,
+	// and the stock and flow reporters.
+	Dynamics *SystemDynamics
 }
 
 // Is3DModelFile reports whether a file name has a NetLogo 3D extension.
@@ -198,6 +203,15 @@ func parseNLogo(name, content string) (*FileModel, error) {
 		if lib := ParseVectorShapes(parts[3]); lib.Len() > 0 {
 			m.Shapes = lib
 		}
+	}
+	// Section 6 is the System Dynamics diagram. Earlier sections are code,
+	// widgets, info, turtle shapes, version, and preview commands.
+	if len(parts) > 6 {
+		sd, err := parseSDSection(parts[6])
+		if err != nil {
+			return nil, err
+		}
+		m.Dynamics = sd
 	}
 	if !m.View.Set {
 		m.View = DefaultView()
@@ -612,6 +626,12 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			if lib.Len() > 0 {
 				m.Shapes = lib
 			}
+		case "systemDynamics":
+			sd, err := parseSystemDynamics(dec, se)
+			if err != nil {
+				return nil, err
+			}
+			m.Dynamics = sd
 		}
 	}
 	if strings.TrimSpace(m.Code) == "" {
@@ -1198,6 +1218,12 @@ func (m *FileModel) Compile() (*Program, error) {
 	parse := Parse
 	if m.Is3D {
 		parse = Parse3D
+	}
+	if extra := m.Dynamics.Source(); extra != "" {
+		if !strings.HasSuffix(code, "\n") {
+			code += "\n"
+		}
+		code += extra
 	}
 	prog, err := parse(code)
 	if err != nil {

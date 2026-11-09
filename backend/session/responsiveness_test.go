@@ -128,22 +128,23 @@ func TestCommandsIgnoredWhileRunning(t *testing.T) {
 	}
 	waitBusy(t, s)
 
-	if err := s.Step(); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+	if err := s.Step(); err == nil || !strings.Contains(err.Error(), "Stop the model before stepping.") {
 		t.Fatalf("step: %v", err)
 	}
-	if err := s.Setup(); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+	// setup is a once-button. NetLogo runs it during go, and go continues.
+	if err := s.Setup(); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	s.mu.Lock()
 	setupIdx := s.findButtonLocked("setup")
 	s.mu.Unlock()
-	if err := s.PressButton(setupIdx); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+	if err := s.PressButton(setupIdx); err != nil {
 		t.Fatalf("press: %v", err)
 	}
-	if _, err := s.RunCommand("clear-all"); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+	if _, err := s.RunCommand("clear-all"); err == nil || !strings.Contains(err.Error(), "Stop the model before running a command.") {
 		t.Fatalf("command: %v", err)
 	}
-	if err := s.SetCode("to go\nend\n"); err == nil || !strings.Contains(err.Error(), "ignored: the model is running") {
+	if err := s.SetCode("to go\nend\n"); err == nil || !strings.Contains(err.Error(), "Stop the model before changing the code.") {
 		t.Fatalf("set code: %v", err)
 	}
 	if !s.Session().Running {

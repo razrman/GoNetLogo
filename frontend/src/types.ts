@@ -27,8 +27,11 @@ export type DrawingMark = {
   erase: boolean
   x: number
   y: number
+  // zcor of the stroke. 0 in a 2D world.
+  z: number
   x2: number
   y2: number
+  z2: number
   heading: number
   size: number
   shape: string
@@ -92,6 +95,8 @@ export type WorldView = {
   wrapZ?: boolean
   // True for a NetLogo 3D world, including one whose Z bounds are both 0.
   threeD?: boolean
+  // 6-digit base64 RNG seed. Omitted when this change does not reseed.
+  rngSeed?: string
 }
 
 export type ShapeElement = {
@@ -135,6 +140,9 @@ export type World = WorldView & {
   // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b.
   voxels?: string
   observer?: Observer3D | null
+  // follow, ride, watch, or empty. subject is the turtle's who.
+  perspective?: string
+  subject?: number | null
   labelFont: number
   shapes: TurtleShape[]
   patchColors: string

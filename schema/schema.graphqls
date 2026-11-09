@@ -84,6 +84,11 @@ type Mutation {
   resize-world takes six bounds there. Pass both, or omit both to leave
   Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
   on a 2D world. A 3D world keeps wrapping in X and Y.
+  rngSeed, when set, reseeds the world RNG the way random-seed does,
+  after the resize. It is 6 digits in the standard base64 alphabet
+  (A-Z, a-z, 0-9, +, /), most significant digit first. The place value
+  is an integer in 0 .. 2^36-1. Omit rngSeed to leave the RNG alone.
+  An invalid string is rejected and the world is not resized.
   """
   setWorld(
     sessionId: ID!
@@ -97,7 +102,13 @@ type Mutation {
     minPzcor: Int
     maxPzcor: Int
     wrapZ: Boolean
+    rngSeed: String
   ): Session!
+  """
+  Draw a new 6-digit base64 RNG seed with crypto/rand, seed the world
+  RNG with it, and return the text. The world is not resized.
+  """
+  generateRngSeed(sessionId: ID!): String!
 }
 
 type Subscription {
@@ -305,6 +316,12 @@ type WorldSettings {
   wrapZ: Boolean!
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
+  """
+  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
+  significant digit first. This is the low 36 bits of the integer last
+  passed to random-seed.
+  """
+  rngSeed: String!
 }
 
 type World {
@@ -334,6 +351,12 @@ type World {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
+  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
+  significant digit first. This is the low 36 bits of the integer last
+  passed to random-seed.
+  """
+  rngSeed: String!
+  """
   Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b.
   Patch order (highest layer first). Black patches are omitted.
@@ -342,6 +365,18 @@ type World {
   voxels: String!
   """The observer camera of a 3D world. Null for a 2D world."""
   observer: Observer3D
+  """
+  follow, ride, watch, or empty. The 3D view aims the camera from this
+  and the subject turtle. reset-perspective clears it. follow orbits
+  around the turtle, ride sits on it looking along its heading, and
+  watch keeps the camera where it is and turns it to face the turtle.
+  """
+  perspective: String!
+  """
+  who of the turtle being followed, ridden, or watched. Null when
+  perspective is empty or the subject is not a turtle.
+  """
+  subject: Int
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -377,13 +412,20 @@ type World {
 type DrawingMark {
   """True for a pen stroke. False for a stamp."""
   pen: Boolean!
-  """True when a stamp erases drawing under the turtle's shape."""
+  """
+  True when this mark removes drawing. A pen stroke with erase is
+  pen-mode "erase". A stamp with erase is stamp-erase.
+  """
   erase: Boolean!
   x: Float!
   y: Float!
-  """End of a pen stroke. Equal to x and y for a stamp."""
+  """z of the start. 0 in a 2D world. A stamp uses the turtle's zcor."""
+  z: Float!
+  """End of a pen stroke. Equal to x, y, and z for a stamp."""
   x2: Float!
   y2: Float!
+  """z of the end. 0 in a 2D world."""
+  z2: Float!
   heading: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
