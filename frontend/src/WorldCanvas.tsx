@@ -343,6 +343,7 @@ function drawDrawing(
   for (const m of world.drawing ?? []) {
     ctx.save()
     if (m.pen) {
+      if (m.erase) ctx.globalCompositeOperation = 'destination-out'
       ctx.strokeStyle = rgbCss(m.r, m.g, m.b)
       ctx.lineWidth = Math.max(1, m.size * ps * 0.55)
       ctx.lineCap = 'round'

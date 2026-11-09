@@ -1865,7 +1865,7 @@ func drawingMarks(w *nl.World) []model.DrawingMark {
 		c := nl.ColorRGBA(m.Color)
 		out = append(out, model.DrawingMark{
 			Pen: m.Pen, Erase: m.Erase,
-			X: m.X, Y: m.Y, X2: m.X2, Y2: m.Y2,
+			X: m.X, Y: m.Y, Z: m.Z, X2: m.X2, Y2: m.Y2, Z2: m.Z2,
 			Heading: m.Heading, Size: m.Size, Shape: m.Shape,
 			R: int(c.R), G: int(c.G), B: int(c.B),
 		})

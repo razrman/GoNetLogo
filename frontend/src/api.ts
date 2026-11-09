@@ -391,7 +391,7 @@ export const Frames = `
           elements { kind filled marked r g b points x y w h }
         }
         patchColors
-        drawing { pen erase x y x2 y2 heading size shape r g b }
+        drawing { pen erase x y z x2 y2 z2 heading size shape r g b }
         labels { who px py lx ly text r g b }
         turtles { who x y z heading pitch roll size shape hidden r g b }
         links { x1 y1 z1 x2 y2 z2 hidden r g b }

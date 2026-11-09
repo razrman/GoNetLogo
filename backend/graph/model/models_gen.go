@@ -38,13 +38,18 @@ type CompileResult struct {
 type DrawingMark struct {
 	// True for a pen stroke. False for a stamp.
 	Pen bool `json:"pen"`
-	// True when a stamp erases drawing under the turtle's shape.
+	// True when this mark removes drawing. A pen stroke with erase is
+	// pen-mode "erase". A stamp with erase is stamp-erase.
 	Erase bool    `json:"erase"`
 	X     float64 `json:"x"`
 	Y     float64 `json:"y"`
-	// End of a pen stroke. Equal to x and y for a stamp.
-	X2      float64 `json:"x2"`
-	Y2      float64 `json:"y2"`
+	// z of the start. 0 in a 2D world. A stamp uses the turtle's zcor.
+	Z float64 `json:"z"`
+	// End of a pen stroke. Equal to x, y, and z for a stamp.
+	X2 float64 `json:"x2"`
+	Y2 float64 `json:"y2"`
+	// z of the end. 0 in a 2D world.
+	Z2      float64 `json:"z2"`
 	Heading float64 `json:"heading"`
 	Size    float64 `json:"size"`
 	// Empty for a pen stroke. Turtle shape name for a stamp.

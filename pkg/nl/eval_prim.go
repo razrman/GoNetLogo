@@ -302,9 +302,17 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		}
 		return vm.facePoint(t, x, y)
 	case "pen-down", "pd", "pendown":
-		vm.requireTurtle(pos).PenDown = true
+		t := vm.requireTurtle(pos)
+		t.PenDown = true
+		t.PenErase = false
 	case "pen-up", "pu", "penup":
-		vm.requireTurtle(pos).PenDown = false
+		t := vm.requireTurtle(pos)
+		t.PenDown = false
+		t.PenErase = false
+	case "pen-erase", "pe":
+		t := vm.requireTurtle(pos)
+		t.PenDown = false
+		t.PenErase = true
 	case "stamp":
 		w.Stamp(vm.requireTurtle(pos), false)
 	case "stamp-erase":

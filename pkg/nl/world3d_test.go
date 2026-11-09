@@ -427,6 +427,81 @@ to-report approx [ x ] report precision x 6 end
 	}
 }
 
+func TestPenTrails3D(t *testing.T) {
+	vm := newTestVM3D(t, "", -4, 4, 1)
+	mustRun(t, vm, `
+crt 1 [
+  set color red
+  set pen-size 3
+  pen-down
+  set heading 0
+  set pitch 90
+  fd 2
+  pen-up
+  fd 1
+]
+`)
+	marks := vm.World.Marks()
+	if len(marks) != 2 {
+		t.Fatalf("marks %d, want two pen-down steps and no pen-up step: %+v", len(marks), marks)
+	}
+	if !marks[0].Pen || marks[0].Erase || marks[0].Size != 3 || marks[0].Z != 0 || marks[0].Z2 != 1 {
+		t.Fatalf("first 3D stroke %+v", marks[0])
+	}
+	if !near(marks[1].X, 0) || !near(marks[1].Y, 0) || marks[1].Z != 1 || marks[1].Z2 != 2 {
+		t.Fatalf("second 3D stroke %+v", marks[1])
+	}
+	if got := mustEval(t, vm, "[pen-mode] of turtle 0"); got != "up" {
+		t.Fatalf("pen-mode after pen-up = %s", got)
+	}
+	mustRun(t, vm, `ask turtle 0 [ pen-erase hatch 1 ]`)
+	if got := mustEval(t, vm, "[pen-mode] of turtle 1"); got != "erase" {
+		t.Fatalf("hatched pen-mode = %s", got)
+	}
+	mustRun(t, vm, `ask turtle 0 [ set pitch 270 fd 2 ]`)
+	marks = vm.World.Marks()
+	erases := 0
+	for _, m := range marks {
+		if m.Pen && m.Erase {
+			erases++
+			if !near(m.X, 0) || !near(m.Y, 0) {
+				t.Fatalf("erase stroke left the z axis: %+v", m)
+			}
+		}
+	}
+	if erases != 2 {
+		t.Fatalf("erase strokes %d, marks %+v", erases, marks)
+	}
+	mustRun(t, vm, "clear-drawing")
+	if len(vm.World.Marks()) != 0 {
+		t.Fatal("clear-drawing left 3D pen trails")
+	}
+	mustRun(t, vm, `crt 1 [ pen-down set pitch 90 fd 1 ]`)
+	mustRun(t, vm, "clear-all")
+	if len(vm.World.Marks()) != 0 {
+		t.Fatal("clear-all left 3D pen trails")
+	}
+
+	// The same cap that bounds a 2D stamp log bounds a 3D pen.
+	w := NewWorld3D(-2, 2, -2, 2, -2, 2)
+	turt := w.CreateTurtle("", 0, 0, 0, 0)
+	turt.PenDown = true
+	turt.PenSize = 1
+	for i := 0; i < MaxDrawingMarks+3; i++ {
+		if err := w.MoveTo3(turt, turt.X+0.1, 0, float64(i%5)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := w.Marks()
+	if len(got) != MaxDrawingMarks {
+		t.Fatalf("3D pen marks %d, want cap %d", len(got), MaxDrawingMarks)
+	}
+	last := got[len(got)-1]
+	if !last.Pen || last.Erase {
+		t.Fatalf("newest kept mark is not a pen stroke: %+v", last)
+	}
+}
+
 func TestLoad3DModels(t *testing.T) {
 	xmlModel := `<?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 3D 7.0.0" snapToGrid="false">

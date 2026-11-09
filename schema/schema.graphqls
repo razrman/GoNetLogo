@@ -400,13 +400,20 @@ type World {
 type DrawingMark {
   """True for a pen stroke. False for a stamp."""
   pen: Boolean!
-  """True when a stamp erases drawing under the turtle's shape."""
+  """
+  True when this mark removes drawing. A pen stroke with erase is
+  pen-mode "erase". A stamp with erase is stamp-erase.
+  """
   erase: Boolean!
   x: Float!
   y: Float!
-  """End of a pen stroke. Equal to x and y for a stamp."""
+  """z of the start. 0 in a 2D world. A stamp uses the turtle's zcor."""
+  z: Float!
+  """End of a pen stroke. Equal to x, y, and z for a stamp."""
   x2: Float!
   y2: Float!
+  """z of the end. 0 in a 2D world."""
+  z2: Float!
   heading: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""

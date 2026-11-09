@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { penRadius, visiblePenTrails } from './penTrail'
 import type { Observer3D, World } from './types'
 import { WorldCanvas } from './WorldCanvas'
 import { wrapSegments, type WrapBounds } from './wrapSegment'
@@ -98,6 +99,9 @@ class Scene3D {
   private patches: THREE.InstancedMesh | null = null
   private turtles: THREE.InstancedMesh | null = null
   private links: THREE.LineSegments
+  private trails: THREE.InstancedMesh | null = null
+  private trailGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 5)
+  private trailMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
   private patchGeometry = new THREE.BoxGeometry(patchSize, patchSize, patchSize)
   private patchMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
   private turtleGeometry: THREE.BufferGeometry
@@ -189,6 +193,8 @@ class Scene3D {
     this.renderer.domElement.remove()
     this.patchGeometry.dispose()
     this.patchMaterial.dispose()
+    this.trailGeometry.dispose()
+    this.trailMaterial.dispose()
     this.turtleGeometry.dispose()
     this.turtleMaterial.dispose()
     this.links.geometry.dispose()
@@ -230,6 +236,7 @@ class Scene3D {
     }
     this.updateTurtles(world)
     this.updateLinks(world)
+    this.updateTrails(world)
   }
 
   // resetView frames the whole world from the south-west, a little above.
@@ -356,6 +363,45 @@ class Scene3D {
       mesh.setColorAt(i, this.color)
     }
     mesh.count = n
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  }
+
+  // updateTrails draws pen-down strokes as tubes and leaves out whatever
+  // pen-erase has removed. clear-drawing arrives as an empty list.
+  private updateTrails(world: World) {
+    const pieces = visiblePenTrails(world.drawing ?? [], linkWrapBounds(world))
+    if (pieces.length === 0) {
+      if (this.trails) this.trails.count = 0
+      return
+    }
+    const mesh = this.instanced(this.trails, pieces.length, this.trailGeometry, this.trailMaterial)
+    this.trails = mesh
+    const yAxis = new THREE.Vector3(0, 1, 0)
+    const dir = new THREE.Vector3()
+    const mid = new THREE.Vector3()
+    const quat = new THREE.Quaternion()
+    const scale = new THREE.Vector3()
+    for (let i = 0; i < pieces.length; i++) {
+      const p = pieces[i]
+      dir.set(p.bx - p.ax, p.by - p.ay, p.bz - p.az)
+      const len = dir.length()
+      if (len < 1e-8) {
+        this.scratch.makeScale(0, 0, 0)
+        mesh.setMatrixAt(i, this.scratch)
+        continue
+      }
+      dir.multiplyScalar(1 / len)
+      mid.set((p.ax + p.bx) / 2, (p.ay + p.by) / 2, (p.az + p.bz) / 2)
+      quat.setFromUnitVectors(yAxis, dir)
+      const radius = penRadius(p.size)
+      scale.set(radius * 2, len, radius * 2)
+      this.scratch.compose(mid, quat, scale)
+      mesh.setMatrixAt(i, this.scratch)
+      this.color.setRGB(p.r / 255, p.g / 255, p.b / 255, THREE.SRGBColorSpace)
+      mesh.setColorAt(i, this.color)
+    }
+    mesh.count = pieces.length
     mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   }

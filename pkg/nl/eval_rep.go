@@ -2353,10 +2353,14 @@ func (vm *VM) getTurtleVar(t *Turtle, name string) (Value, bool, error) {
 	case "pen-size":
 		return Num(t.PenSize), true, nil
 	case "pen-mode":
-		if t.PenDown {
+		switch {
+		case t.PenErase:
+			return Str("erase"), true, nil
+		case t.PenDown:
 			return Str("down"), true, nil
+		default:
+			return Str("up"), true, nil
 		}
-		return Str("up"), true, nil
 	case "pxcor":
 		p := vm.World.PatchHere(t)
 		if p == nil {
@@ -2602,10 +2606,15 @@ func (vm *VM) setTurtleVar(t *Turtle, name string, v Value) (bool, error) {
 		switch strings.ToLower(v.S) {
 		case "up":
 			t.PenDown = false
+			t.PenErase = false
 		case "down":
 			t.PenDown = true
+			t.PenErase = false
+		case "erase":
+			t.PenDown = false
+			t.PenErase = true
 		default:
-			return true, fmt.Errorf("pen-mode must be \"up\" or \"down\"")
+			return true, fmt.Errorf("pen-mode must be \"up\", \"down\", or \"erase\"")
 		}
 		return true, nil
 	case "pcolor":

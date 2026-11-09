@@ -87,6 +87,8 @@ type ComplexityRoot struct {
 		X2      func(childComplexity int) int
 		Y       func(childComplexity int) int
 		Y2      func(childComplexity int) int
+		Z       func(childComplexity int) int
+		Z2      func(childComplexity int) int
 	}
 
 	Frame struct {
@@ -597,6 +599,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.DrawingMark.Y2(childComplexity), true
+
+	case "DrawingMark.z":
+		if e.complexity.DrawingMark.Z == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Z(childComplexity), true
+
+	case "DrawingMark.z2":
+		if e.complexity.DrawingMark.Z2 == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Z2(childComplexity), true
 
 	case "Frame.droppedFrames":
 		if e.complexity.Frame.DroppedFrames == nil {
@@ -2671,13 +2687,20 @@ type World {
 type DrawingMark {
   """True for a pen stroke. False for a stamp."""
   pen: Boolean!
-  """True when a stamp erases drawing under the turtle's shape."""
+  """
+  True when this mark removes drawing. A pen stroke with erase is
+  pen-mode "erase". A stamp with erase is stamp-erase.
+  """
   erase: Boolean!
   x: Float!
   y: Float!
-  """End of a pen stroke. Equal to x and y for a stamp."""
+  """z of the start. 0 in a 2D world. A stamp uses the turtle's zcor."""
+  z: Float!
+  """End of a pen stroke. Equal to x, y, and z for a stamp."""
   x2: Float!
   y2: Float!
+  """z of the end. 0 in a 2D world."""
+  z2: Float!
   heading: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
@@ -4394,6 +4417,50 @@ func (ec *executionContext) fieldContext_DrawingMark_y(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _DrawingMark_z(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_z(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_z(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DrawingMark_x2(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_DrawingMark_x2(ctx, field)
 	if err != nil {
@@ -4470,6 +4537,50 @@ func (ec *executionContext) _DrawingMark_y2(ctx context.Context, field graphql.C
 }
 
 func (ec *executionContext) fieldContext_DrawingMark_y2(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DrawingMark_z2(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_z2(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z2, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_z2(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "DrawingMark",
 		Field:      field,
@@ -14634,10 +14745,14 @@ func (ec *executionContext) fieldContext_World_drawing(_ context.Context, field 
 				return ec.fieldContext_DrawingMark_x(ctx, field)
 			case "y":
 				return ec.fieldContext_DrawingMark_y(ctx, field)
+			case "z":
+				return ec.fieldContext_DrawingMark_z(ctx, field)
 			case "x2":
 				return ec.fieldContext_DrawingMark_x2(ctx, field)
 			case "y2":
 				return ec.fieldContext_DrawingMark_y2(ctx, field)
+			case "z2":
+				return ec.fieldContext_DrawingMark_z2(ctx, field)
 			case "heading":
 				return ec.fieldContext_DrawingMark_heading(ctx, field)
 			case "size":
@@ -17401,6 +17516,11 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "z":
+			out.Values[i] = ec._DrawingMark_z(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "x2":
 			out.Values[i] = ec._DrawingMark_x2(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -17408,6 +17528,11 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			}
 		case "y2":
 			out.Values[i] = ec._DrawingMark_y2(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "z2":
+			out.Values[i] = ec._DrawingMark_z2(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

@@ -27,8 +27,11 @@ export type DrawingMark = {
   erase: boolean
   x: number
   y: number
+  // zcor of the stroke. 0 in a 2D world.
+  z: number
   x2: number
   y2: number
+  z2: number
   heading: number
   size: number
   shape: string
