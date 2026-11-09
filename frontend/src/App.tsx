@@ -1246,7 +1246,6 @@ function WorldSettingsForm({
 
   return (
     <form className="world-settings" onSubmit={(e) => void apply(e)}>
-      <h2>World</h2>
       <div className="seed">
         <label className="check">
           <input

@@ -502,14 +502,6 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   max-width: 100%;
 }
 
-.world-settings h2 {
-  margin: 0;
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
 .world-settings .axes {
   display: grid;
   grid-template-columns: auto 5.2ch 5.2ch;
