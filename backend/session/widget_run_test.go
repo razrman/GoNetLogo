@@ -312,7 +312,7 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedText := nl.FormatRNGSeed(42)
-	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, &seedText); err != nil {
+	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, &seedText, nil); err != nil {
 		t.Fatalf("seed during go: %v", err)
 	}
 	if got, err := s.GenerateRNGSeed(); err != nil || got == "" {
@@ -328,7 +328,7 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	if !s.Session().Running {
 		t.Fatal("seeding stopped the run")
 	}
-	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor+1, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "Stop the model before changing the world.") {
+	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor+1, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "Stop the model before changing the world.") {
 		t.Fatalf("resize during go: %v", err)
 	}
 	still, err := s.WorldSettings()

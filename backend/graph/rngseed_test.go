@@ -154,6 +154,87 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 	}
 }
 
+func TestSeedOverrideRoundTrip(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	type view struct {
+		MinPxcor, MaxPxcor, MinPycor, MaxPycor int
+		PatchSize                              float64
+		WrapX, WrapY, SeedOverride             bool
+		RngSeed                                string
+	}
+	var cur struct{ WorldSettings view }
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) {
+			minPxcor maxPxcor minPycor maxPycor patchSize wrapX wrapY rngSeed seedOverride
+		}
+	}`, &cur, client.Var("id", s.ID))
+	if cur.WorldSettings.SeedOverride {
+		t.Fatal("seed override starts on")
+	}
+
+	var turned struct {
+		SetSeedOverride struct {
+			World struct {
+				SeedOverride bool
+				RngSeed      string
+			}
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $on: Boolean!) {
+		setSeedOverride(sessionId: $id, on: $on) { world { seedOverride rngSeed } }
+	}`, &turned, client.Var("id", s.ID), client.Var("on", true))
+	if !turned.SetSeedOverride.World.SeedOverride || turned.SetSeedOverride.World.RngSeed == "" {
+		t.Fatalf("override on: %+v", turned.SetSeedOverride.World)
+	}
+
+	start := cur.WorldSettings
+	apply := func(seed string) string {
+		t.Helper()
+		var resp struct {
+			SetWorld struct {
+				World struct {
+					RngSeed      string
+					SeedOverride bool
+					MinPxcor     int
+				}
+			}
+		}
+		c.MustPost(`mutation ($id: ID!, $minPx: Int!, $maxPx: Int!, $minPy: Int!, $maxPy: Int!, $ps: Float!, $wrapX: Boolean!, $wrapY: Boolean!, $seed: String, $on: Boolean) {
+			setWorld(sessionId: $id, minPxcor: $minPx, maxPxcor: $maxPx, minPycor: $minPy, maxPycor: $maxPy, patchSize: $ps, wrapX: $wrapX, wrapY: $wrapY, rngSeed: $seed, seedOverride: $on) {
+				world { rngSeed seedOverride minPxcor }
+			}
+		}`, &resp,
+			client.Var("id", s.ID),
+			client.Var("minPx", start.MinPxcor),
+			client.Var("maxPx", start.MaxPxcor),
+			client.Var("minPy", start.MinPycor),
+			client.Var("maxPy", start.MaxPycor),
+			client.Var("ps", start.PatchSize),
+			client.Var("wrapX", start.WrapX),
+			client.Var("wrapY", start.WrapY),
+			client.Var("seed", seed),
+			client.Var("on", true),
+		)
+		if !resp.SetWorld.World.SeedOverride || resp.SetWorld.World.RngSeed != seed || resp.SetWorld.World.MinPxcor != start.MinPxcor {
+			t.Fatalf("applied %+v", resp.SetWorld.World)
+		}
+		return resp.SetWorld.World.RngSeed
+	}
+	apply("1")
+	if got := random100(t, c, s.ID); got != "81" {
+		t.Fatalf("random 100 = %q, want 81", got)
+	}
+	if got := random100(t, c, s.ID); got != "88" {
+		t.Fatalf("second random 100 = %q, want 88", got)
+	}
+	// The same seed text must reseed again. Omitting it would have left 80.
+	apply("1")
+	if got := random100(t, c, s.ID); got != "81" {
+		t.Fatalf("random 100 after repeat apply = %q, want 81", got)
+	}
+}
+
 func random100(t *testing.T, c *client.Client, id string) string {
 	t.Helper()
 	var resp struct {

@@ -561,6 +561,11 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
 }
 
+.world-settings input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .world-settings .patch,
 .world-settings .check {
   display: flex;

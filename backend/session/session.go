@@ -152,6 +152,12 @@ type Session struct {
 	// ignored* rate-limits the "run active" warning.
 	ignored   int
 	ignoredAt time.Time
+	// seedOverride applies overrideSeed before every setup and after a
+	// model load. The World tab uses it to repeat a run. A model's own
+	// random-seed still runs after that seed and wins for that setup.
+	// overrideSeed is the unsigned 32-bit value, stored as a non-negative int64.
+	seedOverride bool
+	overrideSeed int64
 	// progress* and run* feed the debug progress line and the stop log.
 	progressAt time.Time
 	rngMark    uint64
@@ -485,6 +491,11 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	}
 	slog.Info("model loaded", "session", s.id, "model", name, "widgets", widgets, "plots", plots,
 		"min_px", m.View.MinPxcor, "max_px", m.View.MaxPxcor, "min_py", m.View.MinPycor, "max_py", m.View.MaxPycor)
+	// A freshly built world is clock-seeded. The override replaces that
+	// before the next setup, so a reload repeats the same run.
+	if s.seedOverride && vm.World != nil {
+		vm.World.Seed(s.overrideSeed)
+	}
 }
 
 func (s *Session) compileButtonsLocked() {
@@ -800,10 +811,13 @@ func (s *Session) PressButton(index int) error {
 // minPz, maxPz, and wrapZ change the Z axis of a 3D world. Pass both Z
 // bounds or neither. A nil wrapZ leaves Z wrapping as it is. On a 2D
 // world the Z arguments are ignored. A non-nil rngSeed reseeds the world
-// RNG after a successful resize. It is an unsigned decimal integer in
+// RNG after a successful resize, including while go is running when the
+// geometry is unchanged. It is an unsigned decimal integer in
 // 0..4294967295, the 32 bits setSeed uses. An invalid seed is rejected
-// first, so the grid is left alone.
-func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool, rngSeed *string) error {
+// first, so the grid is left alone. seedOverride turns the session
+// override on or off. That stored seed is applied again before setup;
+// this call does not wait for setup to reseed an explicit rngSeed.
+func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool, rngSeed *string, seedOverride *bool) error {
 	var seed *int64
 	if rngSeed != nil {
 		n, err := nl.ParseRNGSeed(*rngSeed)
@@ -848,12 +862,24 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		return fmt.Errorf("%s", busyMessage("set world"))
 	}
 	if active && same {
+		// A seed-only change stays legal during go. Resizing still returns
+		// the stop-the-model error above. The explicit seed is applied now,
+		// the same as random-seed. The override flag is only stored; the
+		// automatic reseed waits for setup.
+		if seed == nil && seedOverride == nil {
+			return nil
+		}
+		s.mu.Lock()
+		capture := s.noteSeedLocked(seed, seedOverride)
+		s.mu.Unlock()
 		if seed != nil {
 			vm.DoLocked(func() { vm.World.Seed(*seed) })
-			s.mu.Lock()
-			s.broadcastLocked()
-			s.mu.Unlock()
+		} else if capture {
+			s.captureOverrideSeed(vm)
 		}
+		s.mu.Lock()
+		s.broadcastLocked()
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -882,16 +908,84 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		if err := w.ApplyView3D(minPx, maxPx, minPy, maxPy, minZ, maxZ, patchSize, wrapX, wrapY, zWrap); err != nil {
 			return err
 		}
-		s.seedWorldLocked(seed)
+		s.finishSeedLocked(seed, seedOverride)
 		s.broadcastLocked()
 		return nil
 	}
 	if err := w.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
 		return err
 	}
-	s.seedWorldLocked(seed)
+	s.finishSeedLocked(seed, seedOverride)
 	s.broadcastLocked()
 	return nil
+}
+
+// SetSeedOverride turns the session seed override on or off. The world is
+// not resized, and this is allowed while go is running. Turning it on
+// records the low 32 bits of the current world seed. The generator is not
+// reseeded here; the next setup applies the stored seed.
+func (s *Session) SetSeedOverride(on bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vm == nil || s.vm.World == nil {
+		return fmt.Errorf("no world")
+	}
+	turningOn := on && !s.seedOverride
+	s.seedOverride = on
+	if turningOn {
+		s.captureOverrideSeedLocked()
+	}
+	s.broadcastLocked()
+	return nil
+}
+
+// noteSeedLocked stores the override flag and an explicit seed. Caller
+// holds s.mu. It returns true when the override just turned on and no seed
+// was supplied, so the caller copies the world's current low 32 bits.
+func (s *Session) noteSeedLocked(seed *int64, override *bool) bool {
+	turningOn := override != nil && *override && !s.seedOverride
+	if override != nil {
+		s.seedOverride = *override
+	}
+	if seed != nil && s.seedOverride {
+		s.overrideSeed = *seed
+		return false
+	}
+	return turningOn && seed == nil
+}
+
+// finishSeedLocked records the seed preference after a successful resize
+// and reseeds when an explicit seed was sent. Caller holds s.mu.
+func (s *Session) finishSeedLocked(seed *int64, override *bool) {
+	capture := s.noteSeedLocked(seed, override)
+	s.seedWorldLocked(seed)
+	if capture {
+		s.captureOverrideSeedLocked()
+	}
+}
+
+// captureOverrideSeed copies the live seed's low 32 bits without holding
+// the session lock across the world lock.
+func (s *Session) captureOverrideSeed(vm *nl.VM) {
+	if vm == nil || vm.World == nil {
+		return
+	}
+	var n int64
+	vm.DoLocked(func() { n = int64(uint32(vm.World.RNGSeed())) })
+	s.mu.Lock()
+	s.overrideSeed = n
+	s.mu.Unlock()
+}
+
+// captureOverrideSeedLocked copies the live seed's low 32 bits.
+// Caller holds s.mu.
+func (s *Session) captureOverrideSeedLocked() {
+	if s.vm == nil || s.vm.World == nil {
+		return
+	}
+	var n int64
+	s.withWorldLocked(func() { n = int64(uint32(s.vm.World.RNGSeed())) })
+	s.overrideSeed = n
 }
 
 // worldGeometrySame reports whether applying these settings would leave
@@ -943,9 +1037,43 @@ func (s *Session) GenerateRNGSeed() (string, error) {
 	s.mu.Unlock()
 	vm.DoLocked(func() { vm.World.Seed(n) })
 	s.mu.Lock()
+	// Random updates the stored override when that mode is on, so the next
+	// setup repeats this draw. The generator was already reseeded above.
+	if s.seedOverride {
+		s.overrideSeed = n
+	}
 	s.broadcastLocked()
 	s.mu.Unlock()
 	return text, nil
+}
+
+// reseedForSetupLocked applies the session seed override before setup.
+// Caller holds s.mu. Model code runs afterward, so a random-seed command
+// inside setup still wins for that setup. With the override off, only the
+// draw counter is cleared: clear-all does not reseed, and neither does setup.
+func (s *Session) reseedForSetupLocked() {
+	if s.vm == nil || s.vm.World == nil {
+		return
+	}
+	if !s.seedOverride {
+		s.vm.World.ResetRNGDraws()
+		return
+	}
+	n := s.overrideSeed
+	s.withWorldLocked(func() {
+		s.vm.World.Seed(n)
+	})
+}
+
+// applySeedView reports the override on a world snapshot. Caller holds s.mu.
+func (s *Session) applySeedView(w *model.World) {
+	if w == nil {
+		return
+	}
+	w.SeedOverride = s.seedOverride
+	if s.seedOverride {
+		w.RngSeed = nl.FormatRNGSeed(s.overrideSeed)
+	}
 }
 
 // seedWorldLocked reseeds when seed is set. Caller holds s.mu.
@@ -964,6 +1092,8 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 	s.mu.Lock()
 	vm := s.vm
 	fps := s.frameRateCap()
+	override := s.seedOverride
+	overrideSeed := s.overrideSeed
 	s.mu.Unlock()
 	if vm == nil || vm.World == nil {
 		return nil, fmt.Errorf("no world")
@@ -984,10 +1114,20 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 			WrapY:        w.WrapY,
 			WrapZ:        w.Is3D() && w.WrapZ,
 			ThreeD:       w.Is3D(),
-			RngSeed:      nl.FormatRNGSeed(w.RNGSeed()),
+			RngSeed:      displayedRNGSeed(w.RNGSeed(), override, overrideSeed),
+			SeedOverride: override,
 		}
 	})
 	return out, nil
+}
+
+// displayedRNGSeed is the text the World tab shows. While the override is
+// on, that is the stored seed, not a random-seed the model ran afterward.
+func displayedRNGSeed(live int64, override bool, overrideSeed int64) string {
+	if override {
+		return nl.FormatRNGSeed(overrideSeed)
+	}
+	return nl.FormatRNGSeed(live)
 }
 
 // SetFrameRate sets the publish cap. Values outside 1..120 are clamped.
@@ -1139,7 +1279,7 @@ func (s *Session) runNamed(name string, forever bool) error {
 	if i < 0 {
 		if s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc(name) != nil {
 			if strings.EqualFold(name, "setup") && s.vm.World != nil {
-				s.vm.World.ResetRNGDraws()
+				s.reseedForSetupLocked()
 			}
 			_, err := s.vm.Call(name)
 			if err != nil {
@@ -1190,7 +1330,7 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	stmts := s.buttons[i]
 	vm := s.vm
 	if isSetupName(w.Display, w.Source) && vm != nil && vm.World != nil {
-		vm.World.ResetRNGDraws()
+		s.reseedForSetupLocked()
 	}
 	s.busy = true
 	s.armYield(vm)
@@ -1612,6 +1752,7 @@ func (s *Session) sessionLocked() *model.Session {
 		}
 		out.Widgets = s.widgetsLocked()
 		out.World = worldLocked(w)
+		s.applySeedView(&out.World)
 	})
 	s.shownStarted = started
 	s.shownTicks = ticks

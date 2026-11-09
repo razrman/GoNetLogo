@@ -342,8 +342,12 @@ type World struct {
 	// True when this is a NetLogo 3D world, even if both Z bounds are 0.
 	ThreeD bool `json:"threeD"`
 	// World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
-	// This is the low 32 bits of the integer last passed to random-seed.
+	// When seedOverride is true, this is the stored override seed. Otherwise
+	// it is the low 32 bits of the integer last passed to random-seed.
 	RngSeed string `json:"rngSeed"`
+	// When true, rngSeed is applied before every setup and after a model load.
+	// A random-seed command in the model still runs afterward.
+	SeedOverride bool `json:"seedOverride"`
 	// Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
 	// pxcor, pycor, pzcor as little-endian int16, then r, g, b.
 	// Patch order (highest layer first). Black patches are omitted.
@@ -398,6 +402,10 @@ type WorldSettings struct {
 	// True when this is a NetLogo 3D world, even if both Z bounds are 0.
 	ThreeD bool `json:"threeD"`
 	// World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
-	// This is the low 32 bits of the integer last passed to random-seed.
+	// When seedOverride is true, this is the stored override seed. Otherwise
+	// it is the low 32 bits of the integer last passed to random-seed.
 	RngSeed string `json:"rngSeed"`
+	// When true, rngSeed is applied before every setup and after a model load.
+	// A random-seed command in the model still runs afterward.
+	SeedOverride bool `json:"seedOverride"`
 }

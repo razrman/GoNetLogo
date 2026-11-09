@@ -97,6 +97,8 @@ export type WorldView = {
   threeD?: boolean
   // Unsigned decimal RNG seed, 0..4294967295. Omitted when this change does not reseed.
   rngSeed?: string
+  // Session seed override. When true, the server applies rngSeed before every setup.
+  seedOverride?: boolean
 }
 
 export type ShapeElement = {

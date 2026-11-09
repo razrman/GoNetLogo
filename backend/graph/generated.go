@@ -155,10 +155,11 @@ type ComplexityRoot struct {
 		SetCode         func(childComplexity int, sessionID string, code string) int
 		SetFrameRate    func(childComplexity int, sessionID string, fps int) int
 		SetInput        func(childComplexity int, sessionID string, index int, text string) int
+		SetSeedOverride func(childComplexity int, sessionID string, on bool) int
 		SetSlider       func(childComplexity int, sessionID string, index int, value float64) int
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
-		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string) int
+		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) int
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
 		Stop            func(childComplexity int, sessionID string) int
@@ -311,32 +312,33 @@ type ComplexityRoot struct {
 	}
 
 	World struct {
-		Depth       func(childComplexity int) int
-		Drawing     func(childComplexity int) int
-		Height      func(childComplexity int) int
-		LabelFont   func(childComplexity int) int
-		Labels      func(childComplexity int) int
-		Links       func(childComplexity int) int
-		MaxPxcor    func(childComplexity int) int
-		MaxPycor    func(childComplexity int) int
-		MaxPzcor    func(childComplexity int) int
-		MinPxcor    func(childComplexity int) int
-		MinPycor    func(childComplexity int) int
-		MinPzcor    func(childComplexity int) int
-		Observer    func(childComplexity int) int
-		PatchColors func(childComplexity int) int
-		PatchSize   func(childComplexity int) int
-		Perspective func(childComplexity int) int
-		RngSeed     func(childComplexity int) int
-		Shapes      func(childComplexity int) int
-		Subject     func(childComplexity int) int
-		ThreeD      func(childComplexity int) int
-		Turtles     func(childComplexity int) int
-		Voxels      func(childComplexity int) int
-		Width       func(childComplexity int) int
-		WrapX       func(childComplexity int) int
-		WrapY       func(childComplexity int) int
-		WrapZ       func(childComplexity int) int
+		Depth        func(childComplexity int) int
+		Drawing      func(childComplexity int) int
+		Height       func(childComplexity int) int
+		LabelFont    func(childComplexity int) int
+		Labels       func(childComplexity int) int
+		Links        func(childComplexity int) int
+		MaxPxcor     func(childComplexity int) int
+		MaxPycor     func(childComplexity int) int
+		MaxPzcor     func(childComplexity int) int
+		MinPxcor     func(childComplexity int) int
+		MinPycor     func(childComplexity int) int
+		MinPzcor     func(childComplexity int) int
+		Observer     func(childComplexity int) int
+		PatchColors  func(childComplexity int) int
+		PatchSize    func(childComplexity int) int
+		Perspective  func(childComplexity int) int
+		RngSeed      func(childComplexity int) int
+		SeedOverride func(childComplexity int) int
+		Shapes       func(childComplexity int) int
+		Subject      func(childComplexity int) int
+		ThreeD       func(childComplexity int) int
+		Turtles      func(childComplexity int) int
+		Voxels       func(childComplexity int) int
+		Width        func(childComplexity int) int
+		WrapX        func(childComplexity int) int
+		WrapY        func(childComplexity int) int
+		WrapZ        func(childComplexity int) int
 	}
 
 	WorldSettings struct {
@@ -349,6 +351,7 @@ type ComplexityRoot struct {
 		MinPzcor     func(childComplexity int) int
 		PatchSize    func(childComplexity int) int
 		RngSeed      func(childComplexity int) int
+		SeedOverride func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
 		WrapX        func(childComplexity int) int
 		WrapY        func(childComplexity int) int
@@ -374,8 +377,9 @@ type MutationResolver interface {
 	SetSwitch(ctx context.Context, sessionID string, index int, on bool) (*model.Session, error)
 	SetChooser(ctx context.Context, sessionID string, index int, current int) (*model.Session, error)
 	SetInput(ctx context.Context, sessionID string, index int, text string) (*model.Session, error)
-	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string) (*model.Session, error)
+	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) (*model.Session, error)
 	GenerateRngSeed(ctx context.Context, sessionID string) (string, error)
+	SetSeedOverride(ctx context.Context, sessionID string, on bool) (*model.Session, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]string, error)
@@ -1033,6 +1037,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.SetInput(childComplexity, args["sessionId"].(string), args["index"].(int), args["text"].(string)), true
 
+	case "Mutation.setSeedOverride":
+		if e.complexity.Mutation.SetSeedOverride == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setSeedOverride_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetSeedOverride(childComplexity, args["sessionId"].(string), args["on"].(bool)), true
+
 	case "Mutation.setSlider":
 		if e.complexity.Mutation.SetSlider == nil {
 			break
@@ -1079,7 +1095,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool), args["minPzcor"].(*int), args["maxPzcor"].(*int), args["wrapZ"].(*bool), args["rngSeed"].(*string)), true
+		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool), args["minPzcor"].(*int), args["maxPzcor"].(*int), args["wrapZ"].(*bool), args["rngSeed"].(*string), args["seedOverride"].(*bool)), true
 
 	case "Mutation.setup":
 		if e.complexity.Mutation.Setup == nil {
@@ -2026,6 +2042,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.RngSeed(childComplexity), true
 
+	case "World.seedOverride":
+		if e.complexity.World.SeedOverride == nil {
+			break
+		}
+
+		return e.complexity.World.SeedOverride(childComplexity), true
+
 	case "World.shapes":
 		if e.complexity.World.Shapes == nil {
 			break
@@ -2151,6 +2174,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.WorldSettings.RngSeed(childComplexity), true
+
+	case "WorldSettings.seedOverride":
+		if e.complexity.WorldSettings.SeedOverride == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.SeedOverride(childComplexity), true
 
 	case "WorldSettings.threeD":
 		if e.complexity.WorldSettings.ThreeD == nil {
@@ -2391,6 +2421,9 @@ type Mutation {
   after the resize. It is an unsigned decimal integer in 0 .. 4294967295,
   the 32 bits the generator keeps. Omit rngSeed to leave the RNG alone.
   An invalid string is rejected and the world is not resized.
+  seedOverride turns the session seed override on or off. When it is on,
+  that seed is applied again before every setup. A seed-only change is
+  still allowed while go is running.
   """
   setWorld(
     sessionId: ID!
@@ -2405,12 +2438,22 @@ type Mutation {
     maxPzcor: Int
     wrapZ: Boolean
     rngSeed: String
+    seedOverride: Boolean
   ): Session!
   """
   Draw a new unsigned 32-bit RNG seed with crypto/rand, seed the world
   RNG with it, and return the decimal text. The world is not resized.
+  This is allowed while go is running.
   """
   generateRngSeed(sessionId: ID!): String!
+  """
+  Turn the session seed override on or off without resizing the world.
+  Allowed while go is running. Turning it on records the low 32 bits of
+  the current world seed and does not reseed by itself. The next setup
+  applies that seed. A random-seed command inside setup still runs after
+  the override and wins for that setup.
+  """
+  setSeedOverride(sessionId: ID!, on: Boolean!): Session!
 }
 
 type Subscription {
@@ -2620,9 +2663,15 @@ type WorldSettings {
   threeD: Boolean!
   """
   World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
-  This is the low 32 bits of the integer last passed to random-seed.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
+  """
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
 }
 
 type World {
@@ -2653,9 +2702,15 @@ type World {
   threeD: Boolean!
   """
   World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
-  This is the low 32 bits of the integer last passed to random-seed.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
+  """
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
   """
   Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b.
@@ -3128,6 +3183,30 @@ func (ec *executionContext) field_Mutation_setInput_args(ctx context.Context, ra
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setSeedOverride_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 bool
+	if tmp, ok := rawArgs["on"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("on"))
+		arg1, err = ec.unmarshalNBoolean2bool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["on"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_setSlider_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
 	var err error
 	args := map[string]interface{}{}
@@ -3329,6 +3408,15 @@ func (ec *executionContext) field_Mutation_setWorld_args(ctx context.Context, ra
 		}
 	}
 	args["rngSeed"] = arg11
+	var arg12 *bool
+	if tmp, ok := rawArgs["seedOverride"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("seedOverride"))
+		arg12, err = ec.unmarshalOBoolean2ᚖbool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["seedOverride"] = arg12
 	return args, nil
 }
 
@@ -5828,6 +5916,8 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_threeD(ctx, field)
 			case "rngSeed":
 				return ec.fieldContext_World_rngSeed(ctx, field)
+			case "seedOverride":
+				return ec.fieldContext_World_seedOverride(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -8425,7 +8515,7 @@ func (ec *executionContext) _Mutation_setWorld(ctx context.Context, field graphq
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool), fc.Args["minPzcor"].(*int), fc.Args["maxPzcor"].(*int), fc.Args["wrapZ"].(*bool), fc.Args["rngSeed"].(*string))
+		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool), fc.Args["minPzcor"].(*int), fc.Args["maxPzcor"].(*int), fc.Args["wrapZ"].(*bool), fc.Args["rngSeed"].(*string), fc.Args["seedOverride"].(*bool))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8563,6 +8653,109 @@ func (ec *executionContext) fieldContext_Mutation_generateRngSeed(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_generateRngSeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setSeedOverride(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setSeedOverride(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetSeedOverride(rctx, fc.Args["sessionId"].(string), fc.Args["on"].(bool))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Session)
+	fc.Result = res
+	return ec.marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setSeedOverride(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setSeedOverride_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -10296,6 +10489,8 @@ func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context
 				return ec.fieldContext_WorldSettings_threeD(ctx, field)
 			case "rngSeed":
 				return ec.fieldContext_WorldSettings_rngSeed(ctx, field)
+			case "seedOverride":
+				return ec.fieldContext_WorldSettings_seedOverride(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type WorldSettings", field.Name)
 		},
@@ -11583,6 +11778,8 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_threeD(ctx, field)
 			case "rngSeed":
 				return ec.fieldContext_World_rngSeed(ctx, field)
+			case "seedOverride":
+				return ec.fieldContext_World_seedOverride(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -14490,6 +14687,50 @@ func (ec *executionContext) fieldContext_World_rngSeed(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _World_seedOverride(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_seedOverride(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SeedOverride, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_seedOverride(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _World_voxels(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_World_voxels(ctx, field)
 	if err != nil {
@@ -15659,6 +15900,50 @@ func (ec *executionContext) fieldContext_WorldSettings_rngSeed(_ context.Context
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_seedOverride(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_seedOverride(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SeedOverride, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_seedOverride(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -18184,6 +18469,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "setSeedOverride":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setSeedOverride(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -19274,6 +19566,11 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "seedOverride":
+			out.Values[i] = ec._World_seedOverride(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "voxels":
 			out.Values[i] = ec._World_voxels(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19419,6 +19716,11 @@ func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.Selectio
 			}
 		case "rngSeed":
 			out.Values[i] = ec._WorldSettings_rngSeed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "seedOverride":
+			out.Values[i] = ec._WorldSettings_seedOverride(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
