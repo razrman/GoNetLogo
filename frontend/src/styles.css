@@ -574,6 +574,18 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   color: var(--muted);
 }
 
+.world-settings .dt-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.world-settings .dt-field input {
+  width: 8ch;
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+}
+
 .world-settings .patch,
 .world-settings .check {
   display: flex;

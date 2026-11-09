@@ -150,6 +150,72 @@ func TestSystemDynamicsLibraryExposure(t *testing.T) {
 	}
 }
 
+func TestChangingDTTakesEffect(t *testing.T) {
+	t.Setenv("MODELS_DIR", filepath.Join("..", "..", "models"))
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	plain := setDT(t, c, s.ID, "0.25")
+	if plain.Ok || plain.Error == nil || !strings.Contains(*plain.Error, "no system dynamics") {
+		t.Fatalf("plain model %+v", plain)
+	}
+
+	path := "library/Sample Models/System Dynamics/Exponential Growth.nlogox"
+	var loaded struct {
+		LoadModelFile struct{ ModelName string }
+	}
+	c.MustPost(`mutation ($id: ID!, $path: String!) {
+		loadModelFile(sessionId: $id, path: $path) { modelName }
+	}`, &loaded, client.Var("id", s.ID), client.Var("path", path))
+	before := sessionDynamics(t, c, s.ID)
+	if before == nil || before.Dt != "0.001" {
+		t.Fatalf("dt before %+v", before)
+	}
+
+	bad := setDT(t, c, s.ID, "0")
+	if bad.Ok || bad.Error == nil || *bad.Error != "dt must be greater than 0." {
+		t.Fatalf("zero dt %+v", bad)
+	}
+	if got := sessionDynamics(t, c, s.ID); got == nil || got.Dt != "0.001" {
+		t.Fatal("rejected dt changed the diagram")
+	}
+
+	changed := setDT(t, c, s.ID, "0.25")
+	if !changed.Ok || changed.Error != nil || changed.Session.Dynamics == nil {
+		t.Fatalf("set dt %+v", changed)
+	}
+	got := changed.Session.Dynamics
+	if got.Dt != "0.25" || !strings.HasPrefix(got.Definition, "dt 0.25\n") || !strings.Contains(got.Source, "set dt 0.25\n") {
+		t.Fatalf("dt text %+v", got)
+	}
+	if len(got.Stocks) != 1 || got.Stocks[0].Name != "stock" || got.Stocks[0].Initial != "1" {
+		t.Fatalf("stocks changed %+v", got.Stocks)
+	}
+	setup(t, c, s.ID)
+	if stock := reporter(t, c, s.ID, "stock"); stock != "1" {
+		t.Fatalf("stock after setup %q", stock)
+	}
+	command(t, c, s.ID, "go")
+	if ticks := reporter(t, c, s.ID, "ticks"); ticks != "0.25" {
+		t.Fatalf("ticks after one go %q, want 0.25", ticks)
+	}
+	command(t, c, s.ID, "go")
+	if ticks := reporter(t, c, s.ID, "ticks"); ticks != "0.5" {
+		t.Fatalf("ticks after two gos %q, want 0.5", ticks)
+	}
+
+	var goResp struct{ Go struct{ ID string } }
+	c.MustPost(`mutation ($id: ID!) { go(sessionId: $id) { id } }`, &goResp, client.Var("id", s.ID))
+	locked := setDT(t, c, s.ID, "1")
+	if locked.Ok || locked.Error == nil || *locked.Error != "Stop the model before changing the system dynamics." {
+		t.Fatalf("lock %+v", locked)
+	}
+	var stopped struct{ Stop struct{ ID string } }
+	c.MustPost(`mutation ($id: ID!) { stop(sessionId: $id) { id } }`, &stopped, client.Var("id", s.ID))
+	if after := sessionDynamics(t, c, s.ID); after == nil || after.Dt != "0.25" {
+		t.Fatalf("dt after a rejected change %+v", after)
+	}
+}
+
 func TestSetDynamicsAppliesAndReportsErrors(t *testing.T) {
 	t.Setenv("MODELS_DIR", filepath.Join("..", "..", "models"))
 	c := newClient(t)
@@ -240,6 +306,29 @@ type dynamicsResult struct {
 	}
 }
 
+func setDT(t *testing.T, c *client.Client, id, dt string) dynamicsResult {
+	t.Helper()
+	var res struct {
+		SetDynamicsDt dynamicsResult
+	}
+	c.MustPost(`mutation ($id: ID!, $dt: String!) {
+		setDynamicsDt(sessionId: $id, dt: $dt) {
+		  ok
+		  error
+		  session {
+		    procedures
+		    dynamics {
+		      dt definition source
+		      stocks { name initial allowNegative }
+		      flows { name expression source sink }
+		      converters { name expression constant }
+		    }
+		  }
+		}
+	}`, &res, client.Var("id", id), client.Var("dt", dt))
+	return res.SetDynamicsDt
+}
+
 func applyDynamics(t *testing.T, c *client.Client, id, definition string) dynamicsResult {
 	t.Helper()
 	var res struct {
@@ -270,6 +359,26 @@ func sessionDynamics(t *testing.T, c *client.Client, id string) *apiDynamics {
 	}
 	c.MustPost(dynamicsQuery, &res, client.Var("id", id))
 	return res.Session.Dynamics
+}
+
+func command(t *testing.T, c *client.Client, id, text string) {
+	t.Helper()
+	var res struct {
+		RunCommand struct {
+			Ok    bool
+			Error *string
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $text: String!) {
+		runCommand(sessionId: $id, text: $text) { ok error }
+	}`, &res, client.Var("id", id), client.Var("text", text))
+	if !res.RunCommand.Ok {
+		errText := ""
+		if res.RunCommand.Error != nil {
+			errText = *res.RunCommand.Error
+		}
+		t.Fatalf("command %s: %s", text, errText)
+	}
 }
 
 func reporter(t *testing.T, c *client.Client, id, text string) string {

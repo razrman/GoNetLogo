@@ -66,6 +66,14 @@ type Mutation {
   keeps the editor buffer. Rejected while go is running.
   """
   setDynamics(sessionId: ID!, definition: String!): CompileResult!
+  """
+  Set the system dynamics time step and recompile.
+  dt is a number greater than 0. It is the same value as the dt line in
+  the Dynamics tab, and the next setup and go use it. Rejected while go
+  is running, because recompiling replaces the world. A model with no
+  system dynamics section is rejected.
+  """
+  setDynamicsDt(sessionId: ID!, dt: String!): CompileResult!
   runCommand(sessionId: ID!, text: String!): CommandResult!
   setup(sessionId: ID!): Session!
   """Start the forever button (go)."""

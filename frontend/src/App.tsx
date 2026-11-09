@@ -16,6 +16,7 @@ import {
   SetChooser,
   SetCode,
   SetDynamics,
+  SetDynamicsDt,
   SetInput,
   SetSlider,
   SetFrameRate,
@@ -40,14 +41,20 @@ import {
   dynamicsApplyEnabled,
   dynamicsDefinitionReadOnly,
   dynamicsErrorTitle,
+  definitionDt,
+  dtApplyBlocked,
   dynamicsLockedMessage,
   generatedProceduresReadOnly,
   hasSystemDynamics,
   mainTabLabel,
   presentDynamicsError,
+  replaceDefinitionDt,
   settleDynamicsApply,
+  showWorldDt,
   tabAfterModelLoad,
   visibleMainTabs,
+  worldDtError,
+  worldDtHelp,
   type MainTab,
 } from './dynamics'
 import { InfoView } from './InfoTab'
@@ -76,6 +83,13 @@ type DynamicsApply = {
     session?: { procedures: string[]; dynamics: SystemDynamics | null }
   }
 }
+type DynamicsDtResult = {
+  setDynamicsDt: {
+    ok: boolean
+    error: string | null
+    session?: { procedures: string[]; dynamics: SystemDynamics | null }
+  }
+}
 type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
 
 export function App() {
@@ -86,6 +100,7 @@ export function App() {
   const [, loadModelSource] = useMutation<SourceResult>(LoadModelSource)
   const [, setCodeMut] = useMutation<CodeResult>(SetCode)
   const [, setDynamicsMut] = useMutation<DynamicsApply>(SetDynamics)
+  const [, setDtMut] = useMutation<DynamicsDtResult>(SetDynamicsDt)
   const [, runCommand] = useMutation<CommandResult>(RunCommand)
   const [, setupMut] = useMutation(Setup)
   const [, goMut] = useMutation(Go)
@@ -481,18 +496,40 @@ export function App() {
     if (res.data?.runCommand.ok) setCommand('')
   }
 
-  async function onWorld(next: WorldView) {
+  async function onWorld(next: WorldView, dt: string | null) {
     if (!sessionId) return 'No session'
     // Size, wrapping, and patch size rebuild the grid. Leave that locked
     // while go is running and say so, instead of stopping and then racing
     // the tick that is still inside the interpreter. A new RNG seed is
     // random-seed: it applies during the run and does not call setup.
+    // dt recompiles the diagram, so it is locked the same way. An unchanged
+    // dt does not block a seed-only apply.
     const running = frame?.running ?? false
     const geometryChanged = frame != null && worldGeometryChanged(next, frame.world)
-    const seedOnly = running && !geometryChanged
-    if (running && geometryChanged) {
-      return worldSizeLockedMessage
+    const serverDt = dynamics?.dt ?? null
+    const dtChanged = dt != null && serverDt != null && dt.trim() !== serverDt.trim()
+    if (running && geometryChanged) return worldSizeLockedMessage
+    const dtLock = dtApplyBlocked(running, dtChanged)
+    if (dtLock) return dtLock
+    if (dtChanged) {
+      const invalid = worldDtError(dt)
+      if (invalid) return invalid
+      const res = await setDtMut({ id: sessionId, dt: dt.trim() })
+      if (res.error) {
+        const message = res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+        if (reportDisconnect(message)) return 'Server disconnected. Reconnecting…'
+        return message || 'Could not apply dt'
+      }
+      const appliedDt = res.data?.setDynamicsDt
+      if (!appliedDt?.ok) return appliedDt?.error ?? 'Could not apply dt'
+      const saved = appliedDt.session?.dynamics
+      if (saved) {
+        setDynamics(saved)
+        setDefinition((current) => replaceDefinitionDt(current, saved.dt))
+      }
+      if (appliedDt.session?.procedures) setProcedures(appliedDt.session.procedures)
     }
+    const seedOnly = running && !geometryChanged
     const applied = await sendWorld(sessionId, next, setWorldMut)
     if (applied.message) return applied.message
     setProcedures(applied.procedures)
@@ -728,7 +765,9 @@ export function App() {
           <section className="code-panel dynamics-panel" aria-label="System dynamics">
             <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
             <p className="dynamics-note">
-              Stocks, flows, and converters. Apply recompiles the model. The procedures below are what the engine adds; the Code tab does not list them.
+              Stocks, flows, and converters. The dt line is the same value as on the World tab.
+              A larger dt runs cycles faster, at an accuracy cost.
+              Apply recompiles the model. The procedures below are what the engine adds; the Code tab does not list them.
             </p>
             {dynamicsError && (
               <div className="compile-error" role="alert">
@@ -809,6 +848,9 @@ export function App() {
             <WorldSettingsForm
               world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
               disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
+              dt={showWorldDt(showDynamics) ? (definitionDt(definition) ?? '') : null}
+              serverDt={dynamics?.dt ?? null}
+              onDtChange={(value) => setDefinition((current) => replaceDefinitionDt(current, value))}
               onApply={onWorld}
               onPopulateSeed={onPopulateSeed}
               onSeedOverride={onSeedOverride}
@@ -1052,6 +1094,9 @@ function FrameCapControl({
 function WorldSettingsForm({
   world,
   disabled,
+  dt,
+  serverDt,
+  onDtChange,
   onApply,
   onPopulateSeed,
   onSeedOverride,
@@ -1062,7 +1107,11 @@ function WorldSettingsForm({
 }: {
   world: WorldView | null
   disabled: boolean
-  onApply: (next: WorldView) => Promise<string | null>
+  // dt is null when this model has no System Dynamics section.
+  dt: string | null
+  serverDt: string | null
+  onDtChange: (value: string) => void
+  onApply: (next: WorldView, dt: string | null) => Promise<string | null>
   onPopulateSeed: () => Promise<{ seed: string | null; message: string | null }>
   onSeedOverride: (on: boolean) => Promise<string | null>
   onFlushSeed: (seed: string) => Promise<string | null>
@@ -1125,7 +1174,8 @@ function WorldSettingsForm({
     setSynced(true)
   }, [signature]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = synced && world != null && worldDraftDirty(draft, world, override)
+  const dtDirty = dt != null && serverDt != null && dt.trim() !== serverDt.trim()
+  const dirty = (synced && world != null && worldDraftDirty(draft, world, override)) || dtDirty
   useEffect(() => {
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
@@ -1144,8 +1194,15 @@ function WorldSettingsForm({
       rngSeed: rngSeedForApply(override, draft.rngSeed),
       seedOverride: override,
     }
+    if (dt != null && dt.trim() !== (serverDt ?? '').trim()) {
+      const invalid = worldDtError(dt)
+      if (invalid) {
+        setError(invalid)
+        return false
+      }
+    }
     setError(null)
-    const message = await onApply(next)
+    const message = await onApply(next, dt)
     setError(message)
     return message == null
   }
@@ -1169,7 +1226,7 @@ function WorldSettingsForm({
   useEffect(() => {
     registerApply(submitDraft)
     return () => registerApply(null)
-  }, [registerApply, draft, showZ, onApply, override]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [registerApply, draft, showZ, onApply, override, dt, serverDt]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     registerFlushSeed(async () => {
@@ -1222,6 +1279,23 @@ function WorldSettingsForm({
         Check Seed override, enter a seed, then press setup and go. Press setup again to repeat the run.
         A random-seed command in the model still runs during that setup.
       </p>
+      {dt != null && (
+        <div className="dt-field">
+          <label className="patch">
+            dt
+            <input
+              aria-label="system dynamics dt"
+              size={8}
+              inputMode="decimal"
+              spellCheck={false}
+              value={dt}
+              disabled={disabled}
+              onChange={(e) => onDtChange(e.target.value)}
+            />
+          </label>
+          <p className="hint">{worldDtHelp}</p>
+        </div>
+      )}
       <div className="axes">
         <span />
         <span className="col">min</span>

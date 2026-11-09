@@ -224,6 +224,19 @@ export const SetDynamics = `
   }
 `
 
+export const SetDynamicsDt = `
+  mutation SetDynamicsDt($id: ID!, $dt: String!) {
+    setDynamicsDt(sessionId: $id, dt: $dt) {
+      ok
+      error
+      session {
+        procedures
+        dynamics {${dynamicsFields}}
+      }
+    }
+  }
+`
+
 export const RunCommand = `
   mutation RunCommand($id: ID!, $text: String!) {
     runCommand(sessionId: $id, text: $text) { ok output error }

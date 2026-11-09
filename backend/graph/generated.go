@@ -173,6 +173,7 @@ type ComplexityRoot struct {
 		SetChooser      func(childComplexity int, sessionID string, index int, current int) int
 		SetCode         func(childComplexity int, sessionID string, code string) int
 		SetDynamics     func(childComplexity int, sessionID string, definition string) int
+		SetDynamicsDt   func(childComplexity int, sessionID string, dt string) int
 		SetFrameRate    func(childComplexity int, sessionID string, fps int) int
 		SetInput        func(childComplexity int, sessionID string, index int, text string) int
 		SetSeedOverride func(childComplexity int, sessionID string, on bool) int
@@ -396,6 +397,7 @@ type MutationResolver interface {
 	LoadModelFile(ctx context.Context, sessionID string, path string) (*model.Session, error)
 	SetCode(ctx context.Context, sessionID string, code string) (*model.CompileResult, error)
 	SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error)
+	SetDynamicsDt(ctx context.Context, sessionID string, dt string) (*model.CompileResult, error)
 	RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error)
 	Setup(ctx context.Context, sessionID string) (*model.Session, error)
 	Go(ctx context.Context, sessionID string) (*model.Session, error)
@@ -1125,6 +1127,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.SetDynamics(childComplexity, args["sessionId"].(string), args["definition"].(string)), true
+
+	case "Mutation.setDynamicsDt":
+		if e.complexity.Mutation.SetDynamicsDt == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setDynamicsDt_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetDynamicsDt(childComplexity, args["sessionId"].(string), args["dt"].(string)), true
 
 	case "Mutation.setFrameRate":
 		if e.complexity.Mutation.SetFrameRate == nil {
@@ -2561,6 +2575,14 @@ type Mutation {
   keeps the editor buffer. Rejected while go is running.
   """
   setDynamics(sessionId: ID!, definition: String!): CompileResult!
+  """
+  Set the system dynamics time step and recompile.
+  dt is a number greater than 0. It is the same value as the dt line in
+  the Dynamics tab, and the next setup and go use it. Rejected while go
+  is running, because recompiling replaces the world. A model with no
+  system dynamics section is rejected.
+  """
+  setDynamicsDt(sessionId: ID!, dt: String!): CompileResult!
   runCommand(sessionId: ID!, text: String!): CommandResult!
   setup(sessionId: ID!): Session!
   """Start the forever button (go)."""
@@ -3344,6 +3366,30 @@ func (ec *executionContext) field_Mutation_setCode_args(ctx context.Context, raw
 		}
 	}
 	args["code"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setDynamicsDt_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 string
+	if tmp, ok := rawArgs["dt"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dt"))
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["dt"] = arg1
 	return args, nil
 }
 
@@ -8057,6 +8103,69 @@ func (ec *executionContext) fieldContext_Mutation_setDynamics(ctx context.Contex
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_setDynamics_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setDynamicsDt(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setDynamicsDt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetDynamicsDt(rctx, fc.Args["sessionId"].(string), fc.Args["dt"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.CompileResult)
+	fc.Result = res
+	return ec.marshalNCompileResult2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐCompileResult(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setDynamicsDt(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "ok":
+				return ec.fieldContext_CompileResult_ok(ctx, field)
+			case "error":
+				return ec.fieldContext_CompileResult_error(ctx, field)
+			case "session":
+				return ec.fieldContext_CompileResult_session(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CompileResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setDynamicsDt_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -19659,6 +19768,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "setDynamics":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setDynamics(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setDynamicsDt":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setDynamicsDt(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
