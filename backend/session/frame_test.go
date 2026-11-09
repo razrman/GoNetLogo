@@ -57,8 +57,9 @@ func TestMaxSpeedWakesOncePerFrame(t *testing.T) {
 	}
 
 	frame := s.Frame()
-	if frame.Ticks == nil || *frame.Ticks != 6 {
-		t.Fatalf("ticks = %v, want 6 (one frame at speed 100)", frame.Ticks)
+	// Speed 100 fills the slot instead of stopping after six steps.
+	if frame.Ticks == nil || *frame.Ticks < 1 {
+		t.Fatalf("ticks = %v, want a warp slot to run", frame.Ticks)
 	}
 	if frame.World.Width != 101 || frame.World.Height != 101 || frame.World.PatchSize != 5 {
 		t.Fatalf("world %+v", frame.World)

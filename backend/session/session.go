@@ -208,12 +208,17 @@ func (s *Session) Close() {
 	}
 }
 
+// stepSlot is one forever-button turn. Speeds below 100 run a fixed
+// number of steps in the slot. Speed 100 fills the slot, then yields so
+// stop, widget edits, and the frame publisher can take the mutex.
+const stepSlot = 30 * time.Millisecond
+
 func (s *Session) loop() {
 	// Steps stay on the speed-slider cadence. A second goroutine publishes
 	// on the frame-rate interval so it can take the latest snapshot between
 	// steps without the step loop waiting on a subscriber.
 	go s.publishLoop()
-	step := time.NewTicker(30 * time.Millisecond)
+	step := time.NewTicker(stepSlot)
 	defer step.Stop()
 	for {
 		select {
@@ -284,9 +289,21 @@ func (s *Session) runStepSlot() {
 		return
 	}
 	s.frame++
-	n := stepsFor(s.speed, s.frame)
+	speed := s.speed
+	n := stepsFor(speed, s.frame)
+	warp := speed >= 100
 	s.mu.Unlock()
-	for i := 0; i < n; i++ {
+	// Speed 100 is NetLogo warp: step until the slot is over instead of
+	// stopping after a handful of gos. The lock is dropped around every
+	// step, and snapshots stay on the frame-rate cap.
+	var deadline time.Time
+	if warp {
+		deadline = time.Now().Add(stepSlot)
+	}
+	for steps := 0; warp || steps < n; steps++ {
+		if warp && steps > 0 && !time.Now().Before(deadline) {
+			return
+		}
 		s.mu.Lock()
 		if !s.busy {
 			s.runPendingOnceLocked()
@@ -326,8 +343,16 @@ func (s *Session) frameTickLocked() {
 	}
 	s.frame++
 	n := stepsFor(s.speed, s.frame)
+	warp := s.speed >= 100
+	var deadline time.Time
+	if warp {
+		deadline = time.Now().Add(stepSlot)
+	}
 	done := 0
-	for i := 0; i < n; i++ {
+	for i := 0; warp || i < n; i++ {
+		if warp && i > 0 && !time.Now().Before(deadline) {
+			break
+		}
 		_, err := s.runIndexLocked(s.running)
 		stopped := s.running < 0
 		if err != nil {
@@ -2110,9 +2135,11 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// stepsFor matches the desktop speed slider.
+// stepsFor matches the desktop speed slider for speeds below 100.
 // At 50 and above, several model steps run per frame.
 // Below 50, frames are skipped so the model slows down.
+// Speed 100 is not used as a step count: the slot runner treats it as
+// warp and fills the 30ms slot instead.
 func stepsFor(speed float64, frame int) int {
 	if speed >= 50 {
 		return 1 + int((speed-50)/10)
