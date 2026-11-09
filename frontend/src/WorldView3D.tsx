@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { penRadius, visiblePenTrails } from './penTrail'
+import { applyPov, type PovMode } from './pov'
 import type { Observer3D, World } from './types'
 import { WorldCanvas } from './WorldCanvas'
 import { wrapSegments, type WrapBounds } from './wrapSegment'
@@ -13,6 +14,12 @@ import { wrapSegments, type WrapBounds } from './wrapSegment'
 // camera follows the model's observer only when an observer camera
 // command runs (observer.revision changes), so a running model never
 // fights the user's own orbiting.
+//
+// follow, ride, and watch are the exception: the camera tracks the
+// subject turtle every frame. follow keeps the user's orbit around the
+// turtle, ride sits on it looking along its heading, and watch leaves
+// the camera put and turns it to face the turtle. reset-perspective
+// clears that and the observer revision sends the camera home.
 //
 // Patches and turtles are InstancedMeshes, so a dense world is a couple
 // of draw calls. Patch instances are rebuilt only when the voxel buffer
@@ -111,6 +118,8 @@ class Scene3D {
   private boundsKey = ''
   private bounds: Bounds | null = null
   private observerRevision = -1
+  private povMode: PovMode = ''
+  private followOffset: { x: number; y: number; z: number } | null = null
   private patchesVisible = true
   private dirty = true
   private scratch = new THREE.Matrix4()
@@ -182,6 +191,15 @@ class Scene3D {
       this.dirty = true
     }
     if (this.controls.update()) this.dirty = true
+    // A drag while following changes the orbit. Keep that offset so the
+    // next world frame does not snap back to the old one.
+    if (this.povMode === 'follow') {
+      this.followOffset = {
+        x: this.camera.position.x - this.controls.target.x,
+        y: this.camera.position.y - this.controls.target.y,
+        z: this.camera.position.z - this.controls.target.z,
+      }
+    }
     if (!this.dirty) return
     this.dirty = false
     this.renderer.render(this.scene, this.camera)
@@ -226,8 +244,12 @@ class Scene3D {
       // it; NetLogo's untouched home pose looks straight down, which is the
       // flat view this replaces, so keep the default view instead.
       const newWorld = this.observerRevision < 0 || obs.revision < this.observerRevision
-      if (!newWorld || obs.revision > 0) this.applyObserver(obs)
-      else if (this.observerRevision >= 0) this.resetView()
+      if (!newWorld || obs.revision > 0) {
+        this.applyObserver(obs)
+        // An observer command (including reset-perspective) chooses a new
+        // orbit. Follow recaptures it around the turtle on this frame.
+        this.followOffset = null
+      } else if (this.observerRevision >= 0) this.resetView()
       this.observerRevision = obs.revision
     }
     if (world.voxels !== this.voxels) {
@@ -237,6 +259,55 @@ class Scene3D {
     this.updateTurtles(world)
     this.updateLinks(world)
     this.updateTrails(world)
+    this.applyPerspective(world)
+  }
+
+  // applyPerspective moves the camera for follow, ride, and watch.
+  // An empty mode restores a free camera without jumping it; reset-perspective
+  // has already placed it via the observer.
+  private applyPerspective(world: World) {
+    const raw = world.perspective ?? ''
+    const mode: PovMode = raw === 'follow' || raw === 'ride' || raw === 'watch' ? raw : ''
+    const who = world.subject
+    const found = who == null ? undefined : world.turtles.find((t) => t.who === who)
+    const turtle = found
+      ? {
+          x: found.x,
+          y: found.y,
+          z: found.z ?? 0,
+          heading: found.heading,
+          pitch: found.pitch ?? 0,
+          roll: found.roll ?? 0,
+        }
+      : null
+    // Keep the saved orbit only while follow continues. Entering follow,
+    // leaving it, or an observer command (which already cleared the offset)
+    // starts from the camera as it is now.
+    if (!(mode === 'follow' && this.povMode === 'follow')) {
+      if (mode !== 'follow') this.followOffset = null
+    }
+    const pose = applyPov(
+      mode,
+      turtle,
+      { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z },
+      { x: this.controls.target.x, y: this.controls.target.y, z: this.controls.target.z },
+      mode === 'follow' ? this.followOffset : null,
+    )
+    const was = this.povMode
+    this.povMode = mode
+    this.followOffset = pose.followOffset
+    if (!mode && !was) return
+    if (mode) {
+      this.camera.position.set(pose.position.x, pose.position.y, pose.position.z)
+      this.camera.up.set(pose.up.x, pose.up.y, pose.up.z)
+      this.controls.target.set(pose.target.x, pose.target.y, pose.target.z)
+    } else {
+      this.camera.up.set(0, 0, 1)
+    }
+    this.controls.enableRotate = !pose.lockOrbit
+    this.controls.enablePan = !pose.lockOrbit
+    this.controls.update()
+    this.dirty = true
   }
 
   // resetView frames the whole world from the south-west, a little above.

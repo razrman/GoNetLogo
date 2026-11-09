@@ -140,6 +140,9 @@ export type World = WorldView & {
   // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b.
   voxels?: string
   observer?: Observer3D | null
+  // follow, ride, watch, or empty. subject is the turtle's who.
+  perspective?: string
+  subject?: number | null
   labelFont: number
   shapes: TurtleShape[]
   patchColors: string

@@ -40,6 +40,31 @@ func TestVoxelsPacking(t *testing.T) {
 
 // TestWorldFrame2DUnchanged pins the 3D fields of a 2D frame to their
 // empty values, so the 2D canvas sees the same data as before.
+func TestWorldFramePerspective(t *testing.T) {
+	w := nl.NewWorld3D(-5, 5, -5, 5, -5, 5)
+	t0 := w.CreateTurtle("", 1, 2, 3, 90)
+	w.SetPerspective("follow", t0)
+	f := worldLocked(w)
+	if f.Perspective != "follow" || f.Subject == nil || *f.Subject != t0.Who {
+		t.Fatalf("follow perspective %q subject %v", f.Perspective, f.Subject)
+	}
+	w.SetPerspective("ride", t0)
+	f = worldLocked(w)
+	if f.Perspective != "ride" || f.Subject == nil || *f.Subject != t0.Who {
+		t.Fatalf("ride perspective %q subject %v", f.Perspective, f.Subject)
+	}
+	w.SetPerspective("watch", t0)
+	f = worldLocked(w)
+	if f.Perspective != "watch" || f.Subject == nil || *f.Subject != t0.Who {
+		t.Fatalf("watch perspective %q subject %v", f.Perspective, f.Subject)
+	}
+	w.ResetPerspective()
+	f = worldLocked(w)
+	if f.Perspective != "" || f.Subject != nil {
+		t.Fatalf("reset perspective %q subject %v", f.Perspective, f.Subject)
+	}
+}
+
 func TestWorldFrame2DUnchanged(t *testing.T) {
 	w := nl.NewWorld(-2, 2, -2, 2, true, false)
 	tt := w.CreateTurtle("", 1, 1, 0, 45)
@@ -50,6 +75,9 @@ func TestWorldFrame2DUnchanged(t *testing.T) {
 	f := worldLocked(w)
 	if f.Depth != 1 || f.MinPzcor != 0 || f.MaxPzcor != 0 || f.WrapZ || f.Voxels != "" || f.Observer != nil {
 		t.Fatalf("2D frame 3D fields %+v", f)
+	}
+	if f.Perspective != "" || f.Subject != nil {
+		t.Fatalf("2D perspective %q subject %v", f.Perspective, f.Subject)
 	}
 	if f.PatchColors == "" || len(f.Turtles) != 2 || f.Turtles[0].Z != 0 || f.Turtles[0].Pitch != 0 || f.Links[0].Z1 != 0 {
 		t.Fatalf("2D frame %+v", f)

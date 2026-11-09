@@ -352,6 +352,14 @@ type World struct {
 	Voxels string `json:"voxels"`
 	// The observer camera of a 3D world. Null for a 2D world.
 	Observer *Observer3d `json:"observer,omitempty"`
+	// follow, ride, watch, or empty. The 3D view aims the camera from this
+	// and the subject turtle. reset-perspective clears it. follow orbits
+	// around the turtle, ride sits on it looking along its heading, and
+	// watch keeps the camera where it is and turns it to face the turtle.
+	Perspective string `json:"perspective"`
+	// who of the turtle being followed, ridden, or watched. Null when
+	// perspective is empty or the subject is not a turtle.
+	Subject *int `json:"subject,omitempty"`
 	// Label point size at patchSize. NetLogo's default is 10.
 	// The view scales it with the patch when the canvas is a different size.
 	LabelFont int `json:"labelFont"`

@@ -326,8 +326,10 @@ type ComplexityRoot struct {
 		Observer    func(childComplexity int) int
 		PatchColors func(childComplexity int) int
 		PatchSize   func(childComplexity int) int
+		Perspective func(childComplexity int) int
 		RngSeed     func(childComplexity int) int
 		Shapes      func(childComplexity int) int
+		Subject     func(childComplexity int) int
 		ThreeD      func(childComplexity int) int
 		Turtles     func(childComplexity int) int
 		Voxels      func(childComplexity int) int
@@ -2010,6 +2012,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.PatchSize(childComplexity), true
 
+	case "World.perspective":
+		if e.complexity.World.Perspective == nil {
+			break
+		}
+
+		return e.complexity.World.Perspective(childComplexity), true
+
 	case "World.rngSeed":
 		if e.complexity.World.RngSeed == nil {
 			break
@@ -2023,6 +2032,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.World.Shapes(childComplexity), true
+
+	case "World.subject":
+		if e.complexity.World.Subject == nil {
+			break
+		}
+
+		return e.complexity.World.Subject(childComplexity), true
 
 	case "World.threeD":
 		if e.complexity.World.ThreeD == nil {
@@ -2652,6 +2668,18 @@ type World {
   voxels: String!
   """The observer camera of a 3D world. Null for a 2D world."""
   observer: Observer3D
+  """
+  follow, ride, watch, or empty. The 3D view aims the camera from this
+  and the subject turtle. reset-perspective clears it. follow orbits
+  around the turtle, ride sits on it looking along its heading, and
+  watch keeps the camera where it is and turns it to face the turtle.
+  """
+  perspective: String!
+  """
+  who of the turtle being followed, ridden, or watched. Null when
+  perspective is empty or the subject is not a turtle.
+  """
+  subject: Int
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -5807,6 +5835,10 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
 				return ec.fieldContext_World_observer(ctx, field)
+			case "perspective":
+				return ec.fieldContext_World_perspective(ctx, field)
+			case "subject":
+				return ec.fieldContext_World_subject(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -11558,6 +11590,10 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
 				return ec.fieldContext_World_observer(ctx, field)
+			case "perspective":
+				return ec.fieldContext_World_perspective(ctx, field)
+			case "subject":
+				return ec.fieldContext_World_subject(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -14553,6 +14589,91 @@ func (ec *executionContext) fieldContext_World_observer(_ context.Context, field
 				return ec.fieldContext_Observer3D_revision(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Observer3D", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_perspective(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_perspective(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Perspective, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_perspective(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subject(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subject(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Subject, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*int)
+	fc.Result = res
+	return ec.marshalOInt2ᚖint(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subject(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -19163,6 +19284,13 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "observer":
 			out.Values[i] = ec._World_observer(ctx, field, obj)
+		case "perspective":
+			out.Values[i] = ec._World_perspective(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "subject":
+			out.Values[i] = ec._World_subject(ctx, field, obj)
 		case "labelFont":
 			out.Values[i] = ec._World_labelFont(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

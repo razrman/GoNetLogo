@@ -600,9 +600,11 @@ func (s *Session) RunCommand(text string) (output string, err error) {
 // Setup runs the setup button, or the setup procedure when there is no button.
 // While go is running the setup button is queued and runs between steps,
 // the same as pressing it on the interface. Go keeps running afterward.
+// After stop, a tick may still be unwinding; this waits for it and then
+// runs setup to completion.
 func (s *Session) Setup() error {
 	s.mu.Lock()
-	if s.busy || s.running >= 0 {
+	if s.running >= 0 {
 		i := s.findButtonLocked("setup")
 		if i >= 0 {
 			if err := s.ensureRunnableLocked(i); err != nil {
@@ -616,7 +618,24 @@ func (s *Session) Setup() error {
 		}
 	}
 	s.mu.Unlock()
+	s.waitUntilQuiet()
 	return s.runNamed("setup", false)
+}
+
+// waitUntilQuiet waits out a halted step. Stop returns before that step
+// leaves the interpreter. A following setup or go waits so it does not
+// race the tick. A model that is still running is not waited on.
+func (s *Session) waitUntilQuiet() {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		quiet := !s.busy || s.running >= 0
+		s.mu.Unlock()
+		if quiet || !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 // HasProcedure reports whether the compiled model defines a procedure
@@ -650,6 +669,9 @@ func procedureNames(vm *nl.VM) []string {
 
 // Go starts the forever button.
 func (s *Session) Go() error {
+	// Stop returns before the halted step leaves the interpreter. Wait
+	// that out so go does not race the tick that is still unwinding.
+	s.waitUntilQuiet()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := s.foreverButtonLocked()
@@ -1740,6 +1762,12 @@ func worldLocked(w *nl.World) model.World {
 			TargetX: o.TX, TargetY: o.TY, TargetZ: o.TZ,
 			Revision: int(o.Revision),
 		}
+	}
+	mode, agent := w.Perspective()
+	out.Perspective = mode
+	if t, ok := agent.(*nl.Turtle); ok && t != nil && !t.IsDead() {
+		who := t.Who
+		out.Subject = &who
 	}
 	if turtles := w.Turtles(); turtles != nil {
 		alive := turtles.Alive()

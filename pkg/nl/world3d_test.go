@@ -427,6 +427,43 @@ to-report approx [ x ] report precision x 6 end
 	}
 }
 
+func TestPerspective3D(t *testing.T) {
+	vm := newTestVM3D(t, "", -4, 4, 1)
+	mustRun(t, vm, `crt 1 [ setxyz 1 2 3 set heading 90 ] follow turtle 0`)
+	mode, agent := vm.World.Perspective()
+	if mode != "follow" || agent == nil || agent.(*Turtle).Who != 0 {
+		t.Fatalf("follow mode %q agent %v", mode, agent)
+	}
+	mustRun(t, vm, `ride turtle 0`)
+	mode, agent = vm.World.Perspective()
+	if mode != "ride" || agent == nil || agent.(*Turtle).Who != 0 {
+		t.Fatalf("ride mode %q agent %v", mode, agent)
+	}
+	mustRun(t, vm, `watch turtle 0`)
+	mode, _ = vm.World.Perspective()
+	if mode != "watch" {
+		t.Fatalf("watch mode %q", mode)
+	}
+	// Move the camera, then reset. The subject is cleared and the camera
+	// goes home, which is where a fresh world of this size starts.
+	mustRun(t, vm, `setxyz 4 0 1 reset-perspective`)
+	mode, agent = vm.World.Perspective()
+	if mode != "" || agent != nil {
+		t.Fatalf("reset left mode %q agent %v", mode, agent)
+	}
+	fresh := NewWorld3D(-4, 4, -4, 4, -4, 4)
+	fx, fy, fz := fresh.ObserverXYZ()
+	x, y, z := vm.World.ObserverXYZ()
+	if !near(x, fx) || !near(y, fy) || !near(z, fz) {
+		t.Fatalf("camera (%v %v %v), home (%v %v %v)", x, y, z, fx, fy, fz)
+	}
+	mustRun(t, vm, `crt 1 [ watch-me die ]`)
+	mode, agent = vm.World.Perspective()
+	if mode != "" || agent != nil {
+		t.Fatalf("die left mode %q agent %v", mode, agent)
+	}
+}
+
 func TestPenTrails3D(t *testing.T) {
 	vm := newTestVM3D(t, "", -4, 4, 1)
 	mustRun(t, vm, `

@@ -384,6 +384,8 @@ export const Frames = `
         rngSeed
         voxels
         observer { x y z targetX targetY targetZ revision }
+        perspective
+        subject
         labelFont
         shapes {
           name
