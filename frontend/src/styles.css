@@ -1017,6 +1017,41 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
 .code-actions { display: flex; gap: 8px; align-items: center; }
 .code-actions .err { color: var(--danger); font-size: 0.85rem; }
 
+.dynamics-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.dynamics-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 8px;
+}
+
+.dynamics-block {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.dynamics-panel .dynamics-block textarea {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  resize: none;
+  background: white;
+}
+
+.dynamics-panel .dynamics-block textarea[readonly] {
+  background: #f7f4ee;
+}
+
 .command {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;

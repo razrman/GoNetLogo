@@ -15,6 +15,7 @@ import {
   RunCommand,
   SetChooser,
   SetCode,
+  SetDynamics,
   SetInput,
   SetSlider,
   SetFrameRate,
@@ -34,7 +35,21 @@ import {
   type LibraryEntry,
   type LibraryListing,
 } from './api'
-import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
+import type { Frame, PlotView, SessionInfo, SystemDynamics, Widget, WorldView } from './types'
+import {
+  dynamicsApplyEnabled,
+  dynamicsDefinitionReadOnly,
+  dynamicsErrorTitle,
+  dynamicsLockedMessage,
+  generatedProceduresReadOnly,
+  hasSystemDynamics,
+  mainTabLabel,
+  presentDynamicsError,
+  settleDynamicsApply,
+  tabAfterModelLoad,
+  visibleMainTabs,
+  type MainTab,
+} from './dynamics'
 import { InfoView } from './InfoTab'
 import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
@@ -54,6 +69,13 @@ type FileResult = { loadModelFile: SessionInfo }
 type SourceResult = { loadModelSource: SessionInfo }
 type LibraryResult = { library: LibraryListing }
 type CodeResult = { setCode: { ok: boolean; error: string | null; session?: { procedures: string[] } } }
+type DynamicsApply = {
+  setDynamics: {
+    ok: boolean
+    error: string | null
+    session?: { procedures: string[]; dynamics: SystemDynamics | null }
+  }
+}
 type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
 
 export function App() {
@@ -63,6 +85,7 @@ export function App() {
   const [, loadModelFile] = useMutation<FileResult>(LoadModelFile)
   const [, loadModelSource] = useMutation<SourceResult>(LoadModelSource)
   const [, setCodeMut] = useMutation<CodeResult>(SetCode)
+  const [, setDynamicsMut] = useMutation<DynamicsApply>(SetDynamics)
   const [, runCommand] = useMutation<CommandResult>(RunCommand)
   const [, setupMut] = useMutation(Setup)
   const [, goMut] = useMutation(Go)
@@ -83,6 +106,9 @@ export function App() {
   const [modelName, setModelName] = useState('fire.nlogo')
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
+  const [dynamics, setDynamics] = useState<SystemDynamics | null>(null)
+  const [definition, setDefinition] = useState('')
+  const [dynamicsError, setDynamicsError] = useState<string | null>(null)
   const [info, setInfo] = useState('')
   const [modelDir, setModelDir] = useState<string | null>(null)
   const [notes, setNotes] = useState<string[]>([])
@@ -170,6 +196,7 @@ export function App() {
       setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
       setProcedures(info.procedures ?? [])
+      rememberDynamics(info.dynamics ?? null)
       await speedMut({ id: info.id, speed: 30 })
       await autoSetup(info.id, info.procedures)
       const go = await goMut({ id: info.id })
@@ -193,6 +220,10 @@ export function App() {
     if (frame && !frame.running) setActive(null)
   }, [frame?.running])
 
+  useEffect(() => {
+    if (tab === 'dynamics' && !hasSystemDynamics(dynamics)) setTab('interface')
+  }, [tab, dynamics])
+
   async function onModel(name: string) {
     if (!sessionId || name === modelName) return
     setBanner(null)
@@ -209,6 +240,7 @@ export function App() {
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setProcedures(info.procedures ?? [])
+    rememberDynamics(info.dynamics ?? null)
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -281,6 +313,37 @@ export function App() {
     if (res.data?.setCode.ok && nextProcedures) setProcedures(nextProcedures)
   }
 
+  function rememberDynamics(next: SystemDynamics | null) {
+    setDynamics(next)
+    setDefinition(next?.definition ?? '')
+    setDynamicsError(null)
+    setTab((cur) => tabAfterModelLoad(cur, hasSystemDynamics(next)))
+  }
+
+  async function applyDynamics() {
+    if (!sessionId || !dynamicsApplyEnabled(true, frame?.running ?? false)) return
+    const res = await setDynamicsMut({ id: sessionId, definition })
+    if (res.error) {
+      const message = res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+      if (!reportDisconnect(message)) setDynamicsError(message)
+      return
+    }
+    const applied = res.data?.setDynamics
+    if (!applied) {
+      setDynamicsError('Could not apply')
+      return
+    }
+    const settled = settleDynamicsApply(definition, {
+      ok: applied.ok,
+      error: applied.error,
+      definition: applied.session?.dynamics?.definition ?? null,
+    })
+    setDefinition(settled.definition)
+    setDynamicsError(settled.error)
+    if (applied.session) setDynamics(applied.session.dynamics)
+    if (applied.ok && applied.session?.procedures) setProcedures(applied.session.procedures)
+  }
+
   async function openSource(filename: string, source: string) {
     if (!sessionId) return
     setBanner(null)
@@ -296,6 +359,7 @@ export function App() {
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setProcedures(info.procedures ?? [])
+    rememberDynamics(info.dynamics ?? null)
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -379,6 +443,7 @@ export function App() {
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setProcedures(info.procedures ?? [])
+    rememberDynamics(info.dynamics ?? null)
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -512,6 +577,10 @@ export function App() {
   const modelOptions = libraryNames.includes(modelName) || !modelName ? libraryNames : [modelName, ...libraryNames]
   const goWidget = widgets.find((w) => w.kind === 'button' && w.display.toLowerCase() === 'go')
   const running = frame?.running ?? false
+  const showDynamics = hasSystemDynamics(dynamics)
+  // A non-SDM model never keeps the Dynamics tab on screen, even for the
+  // render before the tab state catches up.
+  const shownTab: MainTab = tab === 'dynamics' && !showDynamics ? 'interface' : tab
   const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
@@ -655,9 +724,56 @@ export function App() {
         label="Resize command center"
         leading={
       <main className="stage">
-        {tab === 'code' ? (
+        {shownTab === 'dynamics' ? (
+          <section className="code-panel dynamics-panel" aria-label="System dynamics">
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+            <p className="dynamics-note">
+              Stocks, flows, and converters. Apply recompiles the model. The procedures below are what the engine adds; the Code tab does not list them.
+            </p>
+            {dynamicsError && (
+              <div className="compile-error" role="alert">
+                <strong>{dynamicsErrorTitle(dynamicsError)}</strong>
+                <pre>{presentDynamicsError(dynamicsError, definition)}</pre>
+              </div>
+            )}
+            <div className="dynamics-split">
+              <label className="dynamics-block">
+                Definition
+                <textarea
+                  aria-label="System dynamics definition"
+                  spellCheck={false}
+                  readOnly={dynamicsDefinitionReadOnly(running)}
+                  value={definition}
+                  onChange={(e) => {
+                    if (!dynamicsDefinitionReadOnly(running)) setDefinition(e.target.value)
+                  }}
+                />
+              </label>
+              <label className="dynamics-block">
+                Generated procedures
+                <textarea
+                  aria-label="Generated system dynamics procedures"
+                  spellCheck={false}
+                  readOnly={generatedProceduresReadOnly()}
+                  value={dynamics?.source ?? ''}
+                />
+              </label>
+            </div>
+            <div className="code-actions">
+              <button
+                className="act"
+                type="button"
+                disabled={!dynamicsApplyEnabled(!!sessionId, running)}
+                onClick={() => void applyDynamics()}
+              >
+                Apply
+              </button>
+              {running && <span className="err">{dynamicsLockedMessage}</span>}
+            </div>
+          </section>
+        ) : shownTab === 'code' ? (
           <section className="code-panel">
-            <MainTabs tab={tab} onChange={requestTab} />
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
             <textarea
               aria-label="Model code"
               spellCheck={false}
@@ -670,9 +786,9 @@ export function App() {
               </button>
             </div>
           </section>
-        ) : tab === 'info' ? (
+        ) : shownTab === 'info' ? (
           <section className="info-panel" aria-label="Model info">
-            <MainTabs tab={tab} onChange={requestTab} />
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
             <InfoView
               key={`${modelName}\0${modelDir ?? ''}`}
               markdown={info}
@@ -680,9 +796,9 @@ export function App() {
               loading={booting && info === ''}
             />
           </section>
-        ) : tab === 'world' ? (
+        ) : shownTab === 'world' ? (
           <section className="world-panel" aria-label="World settings">
-            <MainTabs tab={tab} onChange={requestTab} />
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
             <FrameCapControl
               fps={frame?.frameRateCap ?? 24}
               disabled={!sessionId}
@@ -735,7 +851,7 @@ export function App() {
               }}
             >
               <div className="view-bar">
-                <MainTabs tab={tab} onChange={requestTab} />
+                <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
                 <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
                   {modelTitle}
                 </h1>
@@ -864,23 +980,22 @@ function interfaceModelTitle(modelName: string): string {
   return base
 }
 
-type MainTab = 'interface' | 'world' | 'info' | 'code'
-
-function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) => void }) {
+function MainTabs({
+  tab,
+  showDynamics,
+  onChange,
+}: {
+  tab: MainTab
+  showDynamics: boolean
+  onChange: (next: MainTab) => void
+}) {
   return (
     <div className="tabs">
-      <button type="button" className={tab === 'interface' ? 'on' : undefined} onClick={() => onChange('interface')}>
-        Interface
-      </button>
-      <button type="button" className={tab === 'world' ? 'on' : undefined} onClick={() => onChange('world')}>
-        World
-      </button>
-      <button type="button" className={tab === 'info' ? 'on' : undefined} onClick={() => onChange('info')}>
-        Info
-      </button>
-      <button type="button" className={tab === 'code' ? 'on' : undefined} onClick={() => onChange('code')}>
-        Code
-      </button>
+      {visibleMainTabs(showDynamics).map((id) => (
+        <button type="button" key={id} className={tab === id ? 'on' : undefined} onClick={() => onChange(id)}>
+          {mainTabLabel(id)}
+        </button>
+      ))}
     </div>
   )
 }

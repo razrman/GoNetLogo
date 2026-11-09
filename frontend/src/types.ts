@@ -218,6 +218,35 @@ export type PlotPenDelta = {
   points: PlotPoint[]
 }
 
+export type DynamicsStock = {
+  name: string
+  initial: string
+  allowNegative: boolean
+}
+
+export type DynamicsFlow = {
+  name: string
+  expression: string
+  source: string
+  sink: string
+}
+
+export type DynamicsConverter = {
+  name: string
+  expression: string
+  constant: boolean
+}
+
+// One System Dynamics diagram. Null on SessionInfo when the file has none.
+export type SystemDynamics = {
+  dt: string
+  definition: string
+  source: string
+  stocks: DynamicsStock[]
+  flows: DynamicsFlow[]
+  converters: DynamicsConverter[]
+}
+
 export type SessionInfo = {
   id: string
   modelName: string
@@ -227,4 +256,5 @@ export type SessionInfo = {
   notes: string[]
   procedures: string[]
   widgets: { index: number; kind: string; display: string; forever: boolean }[]
+  dynamics: SystemDynamics | null
 }
