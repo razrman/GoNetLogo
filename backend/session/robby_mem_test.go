@@ -88,7 +88,10 @@ func TestRobbyDrawingStaysBounded(t *testing.T) {
 	var ignored atomic.Int32
 	bad := make(chan error, 1)
 	note := func(err error) {
-		if err != nil && strings.Contains(err.Error(), "Stop the model before") {
+		if err == nil {
+			return
+		}
+		if strings.Contains(err.Error(), "Stop the model before") {
 			ignored.Add(1)
 			return
 		}
