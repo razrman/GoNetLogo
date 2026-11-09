@@ -85,10 +85,12 @@ type Mutation {
   Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
   on a 2D world. A 3D world keeps wrapping in X and Y.
   rngSeed, when set, reseeds the world RNG the way random-seed does,
-  after the resize. It is 6 digits in the standard base64 alphabet
-  (A-Z, a-z, 0-9, +, /), most significant digit first. The place value
-  is an integer in 0 .. 2^36-1. Omit rngSeed to leave the RNG alone.
+  after the resize. It is an unsigned decimal integer in 0 .. 4294967295,
+  the 32 bits the generator keeps. Omit rngSeed to leave the RNG alone.
   An invalid string is rejected and the world is not resized.
+  seedOverride turns the session seed override on or off. When it is on,
+  that seed is applied again before every setup. A seed-only change is
+  still allowed while go is running.
   """
   setWorld(
     sessionId: ID!
@@ -103,12 +105,22 @@ type Mutation {
     maxPzcor: Int
     wrapZ: Boolean
     rngSeed: String
+    seedOverride: Boolean
   ): Session!
   """
-  Draw a new 6-digit base64 RNG seed with crypto/rand, seed the world
-  RNG with it, and return the text. The world is not resized.
+  Draw a new unsigned 32-bit RNG seed with crypto/rand, seed the world
+  RNG with it, and return the decimal text. The world is not resized.
+  This is allowed while go is running.
   """
   generateRngSeed(sessionId: ID!): String!
+  """
+  Turn the session seed override on or off without resizing the world.
+  Allowed while go is running. Turning it on records the low 32 bits of
+  the current world seed and does not reseed by itself. The next setup
+  applies that seed. A random-seed command inside setup still runs after
+  the override and wins for that setup.
+  """
+  setSeedOverride(sessionId: ID!, on: Boolean!): Session!
 }
 
 type Subscription {
@@ -317,11 +329,16 @@ type WorldSettings {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
+  """
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
 }
 
 type World {
@@ -351,11 +368,16 @@ type World {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
+  """
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
   """
   Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b.

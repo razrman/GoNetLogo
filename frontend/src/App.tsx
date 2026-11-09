@@ -21,6 +21,7 @@ import {
   SetSpeed,
   SetSwitch,
   SetWorld,
+  SetSeedOverride,
   GenerateRngSeed,
   Setup,
   Step,
@@ -38,7 +39,7 @@ import { InfoView } from './InfoTab'
 import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
-import { rngSeedError } from './rngSeed'
+import { readSeedOverride, rngSeedError, rngSeedForApply, seedControlState, writeSeedOverride } from './rngSeed'
 import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
@@ -75,6 +76,7 @@ export function App() {
   const [, chooserMut] = useMutation(SetChooser)
   const [, inputMut] = useMutation(SetInput)
   const [, setWorldMut] = useMutation(SetWorld)
+  const [, setSeedOverrideMut] = useMutation(SetSeedOverride)
   const [, generateSeedMut] = useMutation<{ generateRngSeed: string }>(GenerateRngSeed)
 
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -92,9 +94,13 @@ export function App() {
   const [leaveTo, setLeaveTo] = useState<MainTab | null>(null)
   const [leaving, setLeaving] = useState(false)
   const applyWorldRef = useRef<(() => Promise<boolean>) | null>(null)
+  const flushSeedRef = useRef<(() => Promise<string | null>) | null>(null)
   const onWorldDirty = useCallback((dirty: boolean) => setWorldDirty(dirty), [])
   const registerWorldApply = useCallback((apply: (() => Promise<boolean>) | null) => {
     applyWorldRef.current = apply
+  }, [])
+  const registerFlushSeed = useCallback((flush: (() => Promise<string | null>) | null) => {
+    flushSeedRef.current = flush
   }, [])
   const [banner, setBanner] = useState<string | null>(null)
   const [online, setOnline] = useState(true)
@@ -133,6 +139,17 @@ export function App() {
     variables: { id: sessionId ?? '' },
     pause: !sessionId,
   })
+  const seedPrefFor = useRef<string | null>(null)
+  const worldReady = Boolean(frame?.world || settingsQ.data?.worldSettings)
+  const serverOverride = (frame?.world ?? settingsQ.data?.worldSettings)?.seedOverride === true
+  useEffect(() => {
+    if (!sessionId || !worldReady) return
+    if (seedPrefFor.current === sessionId) return
+    seedPrefFor.current = sessionId
+    const want = readSeedOverride()
+    if (want === serverOverride) return
+    void setSeedOverrideMut({ id: sessionId, on: want })
+  }, [sessionId, worldReady, serverOverride, setSeedOverrideMut])
 
   useEffect(() => {
     let cancel = false
@@ -201,6 +218,11 @@ export function App() {
   async function onSetup() {
     if (!sessionId || !hasProcedure(procedures, 'setup')) return
     setBanner(null)
+    const flushed = await flushSeedRef.current?.()
+    if (flushed) {
+      setBanner(flushed)
+      return
+    }
     const res = await setupMut({ id: sessionId })
     if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
   }
@@ -229,6 +251,13 @@ export function App() {
   async function onPress(widget: Widget) {
     if (!sessionId) return
     setBanner(null)
+    if (!widget.forever && widget.display.trim().toLowerCase() === 'setup') {
+      const flushed = await flushSeedRef.current?.()
+      if (flushed) {
+        setBanner(flushed)
+        return
+      }
+    }
     const res = await pressMut({ id: sessionId, index: widget.index })
     if (res.error) {
       if (!reportDisconnect(res.error.message)) setBanner(res.error.message)
@@ -404,6 +433,23 @@ export function App() {
     setProcedures(applied.procedures)
     if (seedOnly) return null
     return autoSetup(sessionId, applied.procedures)
+  }
+
+  async function onFlushSeed(seed: string): Promise<string | null> {
+    if (!sessionId) return 'No session'
+    const live = frame?.world ?? settingsQ.data?.worldSettings
+    if (!live) return 'No world'
+    const applied = await sendWorld(sessionId, { ...worldGeometry(live), rngSeed: seed, seedOverride: true }, setWorldMut)
+    return applied.message
+  }
+
+  async function onSeedOverride(on: boolean): Promise<string | null> {
+    if (!sessionId) return 'No session'
+    writeSeedOverride(on)
+    const res = await setSeedOverrideMut({ id: sessionId, on })
+    const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
+    if (reportDisconnect(message)) return 'Server disconnected. Reconnecting…'
+    return message || null
   }
 
   async function onPopulateSeed(): Promise<{ seed: string | null; message: string | null }> {
@@ -649,8 +695,11 @@ export function App() {
               disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
               onApply={onWorld}
               onPopulateSeed={onPopulateSeed}
+              onSeedOverride={onSeedOverride}
+              onFlushSeed={onFlushSeed}
               onDirtyChange={onWorldDirty}
               registerApply={registerWorldApply}
+              registerFlushSeed={registerFlushSeed}
             />
           </section>
         ) : (
@@ -890,15 +939,21 @@ function WorldSettingsForm({
   disabled,
   onApply,
   onPopulateSeed,
+  onSeedOverride,
+  onFlushSeed,
   onDirtyChange,
   registerApply,
+  registerFlushSeed,
 }: {
   world: WorldView | null
   disabled: boolean
   onApply: (next: WorldView) => Promise<string | null>
   onPopulateSeed: () => Promise<{ seed: string | null; message: string | null }>
+  onSeedOverride: (on: boolean) => Promise<string | null>
+  onFlushSeed: (seed: string) => Promise<string | null>
   onDirtyChange: (dirty: boolean) => void
   registerApply: (apply: (() => Promise<boolean>) | null) => void
+  registerFlushSeed: (flush: (() => Promise<string | null>) | null) => void
 }) {
   const [draft, setDraft] = useState<WorldDraft>({
     minPxcor: '0',
@@ -927,6 +982,14 @@ function WorldSettingsForm({
     setSeenSeed(serverSeed)
     setDraft((d) => (d.rngSeed === seenSeed ? { ...d, rngSeed: serverSeed } : d))
   }
+  const serverOverride = world?.seedOverride === true
+  const [override, setOverride] = useState(serverOverride)
+  const [seenOverride, setSeenOverride] = useState(serverOverride)
+  if (serverOverride !== seenOverride) {
+    setSeenOverride(serverOverride)
+    setOverride(serverOverride)
+  }
+  const controls = seedControlState(override, disabled)
 
   useEffect(() => {
     if (!world) return
@@ -947,23 +1010,35 @@ function WorldSettingsForm({
     setSynced(true)
   }, [signature]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = synced && world != null && worldDraftDirty(draft, world)
+  const dirty = synced && world != null && worldDraftDirty(draft, world, override)
   useEffect(() => {
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function submitDraft() {
-    const parsed = parseWorldDraft(draft, showZ)
+    const parsed = parseWorldDraft(draft, showZ, override)
     if (typeof parsed === 'string') {
       setError(parsed)
       return false
     }
-    const next = world && parsed.rngSeed === (world.rngSeed ?? '') ? { ...parsed, rngSeed: undefined } : parsed
+    // Override on always sends the seed, even when it matches the server,
+    // so a second Apply cannot skip the reseed. Override off omits it.
+    const next: WorldView = {
+      ...parsed,
+      rngSeed: rngSeedForApply(override, draft.rngSeed),
+      seedOverride: override,
+    }
     setError(null)
     const message = await onApply(next)
     setError(message)
     return message == null
+  }
+
+  async function toggleOverride(on: boolean) {
+    setOverride(on)
+    const message = await onSeedOverride(on)
+    if (message) setError(message)
   }
 
   async function populate() {
@@ -979,7 +1054,18 @@ function WorldSettingsForm({
   useEffect(() => {
     registerApply(submitDraft)
     return () => registerApply(null)
-  }, [registerApply, draft, showZ, onApply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [registerApply, draft, showZ, onApply, override]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    registerFlushSeed(async () => {
+      if (!override || !world) return null
+      const err = rngSeedError(draft.rngSeed)
+      if (err) return err
+      if (draft.rngSeed === (world.rngSeed ?? '') && world.seedOverride === true) return null
+      return onFlushSeed(draft.rngSeed)
+    })
+    return () => registerFlushSeed(null)
+  }, [registerFlushSeed, override, world, draft.rngSeed, onFlushSeed])
 
   async function apply(event: FormEvent) {
     event.preventDefault()
@@ -990,22 +1076,37 @@ function WorldSettingsForm({
     <form className="world-settings" onSubmit={(e) => void apply(e)}>
       <h2>World</h2>
       <div className="seed">
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="Seed override"
+            checked={override}
+            disabled={controls.overrideDisabled}
+            onChange={(e) => void toggleOverride(e.target.checked)}
+          />
+          Seed override
+        </label>
         <span>RNG Seed</span>
         <input
           aria-label="RNG Seed"
-          size={6}
+          size={12}
+          inputMode="numeric"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
           autoComplete="off"
           value={draft.rngSeed}
-          disabled={disabled}
+          disabled={controls.seedDisabled}
           onChange={(e) => setDraft({ ...draft, rngSeed: e.target.value })}
         />
-        <button className="iface" type="button" aria-label="Random RNG seed" disabled={disabled} onClick={() => void populate()}>
+        <button className="iface" type="button" aria-label="Random RNG seed" disabled={controls.randomDisabled} onClick={() => void populate()}>
           Random
         </button>
       </div>
+      <p className="hint">
+        Check Seed override, enter a seed, then press setup and go. Press setup again to repeat the run.
+        A random-seed command in the model still runs during that setup.
+      </p>
       <div className="axes">
         <span />
         <span className="col">min</span>
@@ -1064,7 +1165,7 @@ type WorldDraft = {
   rngSeed: string
 }
 
-function worldDraftDirty(draft: WorldDraft, world: WorldView) {
+function worldDraftDirty(draft: WorldDraft, world: WorldView, seedOverride: boolean) {
   const xy =
     !sameNumber(draft.minPxcor, world.minPxcor) ||
     !sameNumber(draft.maxPxcor, world.maxPxcor) ||
@@ -1073,7 +1174,7 @@ function worldDraftDirty(draft: WorldDraft, world: WorldView) {
     !sameNumber(draft.patchSize, world.patchSize) ||
     draft.wrapX !== world.wrapX ||
     draft.wrapY !== world.wrapY ||
-    draft.rngSeed !== (world.rngSeed ?? '')
+    (seedOverride && draft.rngSeed !== (world.rngSeed ?? ''))
   if (world.threeD !== true) return xy
   return (
     xy ||
@@ -1090,9 +1191,11 @@ function sameNumber(raw: string, live: number) {
   return Number.isFinite(n) && n === live
 }
 
-function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string {
-  const seedError = rngSeedError(draft.rngSeed)
-  if (seedError) return seedError
+function parseWorldDraft(draft: WorldDraft, threeD: boolean, seedOverride: boolean): WorldView | string {
+  if (seedOverride) {
+    const seedError = rngSeedError(draft.rngSeed)
+    if (seedError) return seedError
+  }
   const minPxcor = Number(draft.minPxcor)
   const maxPxcor = Number(draft.maxPxcor)
   const minPycor = Number(draft.minPycor)
@@ -1133,16 +1236,33 @@ function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string
 
 type WorldApply = { message: string | null; procedures: string[] }
 
+function worldGeometry(live: WorldView): WorldView {
+  return {
+    minPxcor: live.minPxcor,
+    maxPxcor: live.maxPxcor,
+    minPycor: live.minPycor,
+    maxPycor: live.maxPycor,
+    patchSize: live.patchSize,
+    wrapX: live.wrapX,
+    wrapY: live.wrapY,
+    minPzcor: live.minPzcor,
+    maxPzcor: live.maxPzcor,
+    wrapZ: live.wrapZ,
+    threeD: live.threeD,
+  }
+}
+
 async function sendWorld(
   sessionId: string,
   next: WorldView,
   setWorldMut: (
-    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ' | 'rngSeed'> & {
+    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ' | 'rngSeed' | 'seedOverride'> & {
       id: string
       minPzcor: number | null
       maxPzcor: number | null
       wrapZ: boolean | null
       rngSeed: string | null
+      seedOverride: boolean | null
     },
   ) => Promise<{
     error?: { message: string }
@@ -1156,6 +1276,7 @@ async function sendWorld(
     maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
     wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
     rngSeed: next.rngSeed ?? null,
+    seedOverride: next.seedOverride ?? null,
   })
   const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
   if (reportDisconnect(message)) return { message: 'Server disconnected. Reconnecting…', procedures: [] }

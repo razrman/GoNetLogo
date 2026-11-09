@@ -11,11 +11,11 @@ const live: WorldView = {
   patchSize: 12,
   wrapX: true,
   wrapY: false,
-  rngSeed: 'AAAAAA',
+  rngSeed: '0',
 }
 
 test('a seed-only edit is not a world-size change', () => {
-  const next = { ...live, rngSeed: 'AAAAAB' }
+  const next = { ...live, rngSeed: '1' }
   assert.equal(worldGeometryChanged(next, live), false)
   assert.equal(worldSizeLockedMessage.includes('model is running'), false)
 })
@@ -30,6 +30,6 @@ test('3D depth and z wrapping count, and a flat world ignores them', () => {
   const box: WorldView = { ...live, threeD: true, minPzcor: -1, maxPzcor: 1, wrapZ: true }
   assert.equal(worldGeometryChanged({ ...box, maxPzcor: 2 }, box), true)
   assert.equal(worldGeometryChanged({ ...box, wrapZ: false }, box), true)
-  assert.equal(worldGeometryChanged({ ...box, rngSeed: 'BBBBBB' }, box), false)
+  assert.equal(worldGeometryChanged({ ...box, rngSeed: '4294967295' }, box), false)
   assert.equal(worldGeometryChanged({ ...live, minPzcor: -4, maxPzcor: 4, wrapZ: true }, live), false)
 })

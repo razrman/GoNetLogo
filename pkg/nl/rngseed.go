@@ -3,99 +3,59 @@ package nl
 import (
 	"crypto/rand"
 	"fmt"
+	"math"
+	"strconv"
 )
 
-// The web World tab shows the RNG seed as a 6-digit base-64 number.
-// The alphabet is the standard base64 digit set from RFC 4648 section 4,
-// in that order:
+// The web World tab shows the RNG seed as an unsigned decimal integer in
+// 0..4294967295. That is the 32 bits MersenneTwisterFast.setSeed keeps.
+// A wider value used to be accepted (six base64 digits, 0..2^36-1) and
+// then truncated, so distinct text could name the same generator state.
 //
-//	A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-//	a b c d e f g h i j k l m n o p q r s t u v w x y z
-//	0 1 2 3 4 5 6 7 8 9 + /
-//
-// A is 0, B is 1, ..., Z is 25, a is 26, ..., z is 51, 0 is 52, ...,
-// 9 is 61, + is 62, and / is 63. The first character is the most
-// significant digit, so the integer is
-//
-//	d0*64^5 + d1*64^4 + d2*64^3 + d3*64^2 + d4*64 + d5
-//
-// and the range of six digits is exactly 0 .. 2^36-1. DecodeRNGSeed
-// produces the integer passed to World.Seed, the same path as the
-// random-seed primitive. MersenneTwisterFast.setSeed keeps only the
-// low 32 bits of that integer.
-const (
-	RNGSeedAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-	RNGSeedDigits   = 6
-	// rngSeedMax is one past the largest 6-digit value, 64^6 = 2^36.
-	rngSeedMax = int64(1) << (6 * RNGSeedDigits)
-)
+// Command-center and model random-seed keep NetLogo's signed int range,
+// -2147483648..2147483647. A seed whose low 32 bits are at least 2^31 is
+// the same Mersenne Twister state as the negative seed with those bits:
+// 4294967295 and -1, and 2147483648 and -2147483648. ParseRNGSeed is the
+// World-tab path and rejects anything outside the unsigned 32-bit range.
+const rngSeedMax = uint64(math.MaxUint32)
 
-var rngSeedIndex = func() [256]int8 {
-	var idx [256]int8
-	for i := range idx {
-		idx[i] = -1
+// ParseRNGSeed parses an unsigned decimal seed. The text must be one or
+// more digits and the value must be in 0..4294967295. Signs, decimals,
+// letters, and values above that range are rejected. Leading zeros are
+// accepted and mean the same integer.
+func ParseRNGSeed(s string) (int64, error) {
+	if s == "" {
+		return 0, fmt.Errorf("RNG seed must be an integer from 0 to 4294967295")
 	}
-	for i := 0; i < len(RNGSeedAlphabet); i++ {
-		idx[RNGSeedAlphabet[i]] = int8(i)
-	}
-	return idx
-}()
-
-// EncodeRNGSeed writes n as six base64 digits. n must be in 0 .. 2^36-1.
-// Values outside that range are an error; they are not truncated.
-func EncodeRNGSeed(n int64) (string, error) {
-	if n < 0 || n >= rngSeedMax {
-		return "", fmt.Errorf("RNG seed integer %d is outside 0..%d", n, rngSeedMax-1)
-	}
-	var b [RNGSeedDigits]byte
-	for i := RNGSeedDigits - 1; i >= 0; i-- {
-		b[i] = RNGSeedAlphabet[n&63]
-		n >>= 6
-	}
-	return string(b[:]), nil
-}
-
-// DecodeRNGSeed parses a 6-digit base64 seed. The text must be exactly
-// six characters, each from RNGSeedAlphabet. Anything else is rejected.
-func DecodeRNGSeed(s string) (int64, error) {
-	if len(s) != RNGSeedDigits {
-		return 0, fmt.Errorf("RNG seed must be 6 characters, not %d", len(s))
-	}
-	var n int64
-	for i := 0; i < RNGSeedDigits; i++ {
-		d := rngSeedIndex[s[i]]
-		if d < 0 {
-			return 0, fmt.Errorf("RNG seed must use only the base64 alphabet A-Za-z0-9+/")
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("RNG seed must be an integer from 0 to 4294967295")
 		}
-		n = n<<6 | int64(d)
 	}
-	return n, nil
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || n > rngSeedMax {
+		return 0, fmt.Errorf("RNG seed must be an integer from 0 to 4294967295")
+	}
+	return int64(n), nil
 }
 
-// FormatRNGSeed encodes the low 36 bits of seed, which is the whole
-// value a 6-digit seed can hold. A clock seed from NewWorld is wider
-// than that; the text still round-trips through DecodeRNGSeed and Seed
-// to the same generator state, because setSeed uses the low 32 bits.
+// FormatRNGSeed writes the low 32 bits of seed as an unsigned decimal
+// integer. A clock seed from NewWorld is wider than that; the text still
+// round-trips through ParseRNGSeed and Seed to the same generator state,
+// because setSeed uses those 32 bits. A negative seed, such as random-seed
+// -1, is shown as the unsigned value of the same bits.
 func FormatRNGSeed(seed int64) string {
-	text, err := EncodeRNGSeed(seed & (rngSeedMax - 1))
-	if err != nil {
-		panic(err)
-	}
-	return text
+	return strconv.FormatUint(uint64(uint32(seed)), 10)
 }
 
-// GenerateRNGSeed draws a new 6-digit seed from crypto/rand.
-// The world's Mersenne Twister is not read or advanced.
+// GenerateRNGSeed draws a new unsigned 32-bit seed from crypto/rand and
+// returns it as a decimal integer. The world's Mersenne Twister is not
+// read or advanced.
 func GenerateRNGSeed() (string, error) {
-	var buf [5]byte
+	var buf [4]byte
 	if _, err := rand.Read(buf[:]); err != nil {
 		return "", fmt.Errorf("generate RNG seed: %w", err)
 	}
-	// Five bytes is 40 bits. The low 36 are one uniform 6-digit value.
-	n := int64(buf[0]&0x0f)<<32 |
-		int64(buf[1])<<24 |
-		int64(buf[2])<<16 |
-		int64(buf[3])<<8 |
-		int64(buf[4])
-	return EncodeRNGSeed(n)
+	n := uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3])
+	return strconv.FormatUint(uint64(n), 10), nil
 }

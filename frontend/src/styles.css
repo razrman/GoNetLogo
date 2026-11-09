@@ -556,9 +556,22 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
 }
 
 .world-settings .seed input {
-  width: 8.5ch;
-  max-width: 8.5ch;
+  width: 12ch;
+  max-width: 12ch;
   font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+}
+
+.world-settings input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.world-settings .hint {
+  margin: 0;
+  max-width: 36rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--muted);
 }
 
 .world-settings .patch,

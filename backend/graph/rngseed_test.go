@@ -31,7 +31,7 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 		}
 	}`, &cur, client.Var("id", s.ID))
 	start := cur.WorldSettings
-	if _, err := nl.DecodeRNGSeed(start.RngSeed); err != nil {
+	if _, err := nl.ParseRNGSeed(start.RngSeed); err != nil {
 		t.Fatalf("initial rngSeed %q: %v", start.RngSeed, err)
 	}
 
@@ -68,19 +68,23 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 		nextMin = start.MinPxcor - 1
 	}
 	bad := "NOPE!!"
-	if _, _, err := setSeed(nextMin, &bad); err == nil || !strings.Contains(err.Error(), "alphabet") {
+	if _, _, err := setSeed(nextMin, &bad); err == nil || !strings.Contains(err.Error(), "4294967295") {
 		t.Fatalf("invalid seed error = %v", err)
 	}
-	short := "ABC"
-	if _, _, err := setSeed(nextMin, &short); err == nil || !strings.Contains(err.Error(), "6 characters") {
-		t.Fatalf("short seed error = %v", err)
+	negative := "-1"
+	if _, _, err := setSeed(nextMin, &negative); err == nil || !strings.Contains(err.Error(), "4294967295") {
+		t.Fatalf("negative seed error = %v", err)
+	}
+	tooBig := "4294967296"
+	if _, _, err := setSeed(nextMin, &tooBig); err == nil || !strings.Contains(err.Error(), "4294967295") {
+		t.Fatalf("overflow seed error = %v", err)
 	}
 	c.MustPost(`query ($id: ID!) { worldSettings(sessionId: $id) { minPxcor rngSeed } }`, &cur, client.Var("id", s.ID))
 	if cur.WorldSettings.MinPxcor != start.MinPxcor || cur.WorldSettings.RngSeed != start.RngSeed {
 		t.Fatalf("invalid seed changed the world: %+v", cur.WorldSettings)
 	}
 
-	known := "AAAAAB" // 1, and random 100 then yields 81
+	known := "1" // random 100 then yields 81
 	gotSeed, gotMin, err := setSeed(nextMin, &known)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +115,7 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		var resp struct{ GenerateRngSeed string }
 		c.MustPost(`mutation ($id: ID!) { generateRngSeed(sessionId: $id) }`, &resp, client.Var("id", s.ID))
-		if _, err := nl.DecodeRNGSeed(resp.GenerateRngSeed); err != nil {
+		if _, err := nl.ParseRNGSeed(resp.GenerateRngSeed); err != nil {
 			t.Fatalf("generated %q: %v", resp.GenerateRngSeed, err)
 		}
 		seen[resp.GenerateRngSeed] = true
@@ -135,7 +139,7 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 	if after.WorldSettings.MinPxcor != nextMin || after.Session.World.MinPxcor != nextMin {
 		t.Fatalf("generate resized the world: %+v", after.WorldSettings)
 	}
-	n, err := nl.DecodeRNGSeed(generated)
+	n, err := nl.ParseRNGSeed(generated)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +151,87 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 	}
 	if got := random100(t, c, s.ID); got != strconv.Itoa(want) {
 		t.Fatalf("random 100 after generate %s = %q, want %d", generated, got, want)
+	}
+}
+
+func TestSeedOverrideRoundTrip(t *testing.T) {
+	c := newClient(t)
+	s := create(t, c, "fire.nlogo")
+	type view struct {
+		MinPxcor, MaxPxcor, MinPycor, MaxPycor int
+		PatchSize                              float64
+		WrapX, WrapY, SeedOverride             bool
+		RngSeed                                string
+	}
+	var cur struct{ WorldSettings view }
+	c.MustPost(`query ($id: ID!) {
+		worldSettings(sessionId: $id) {
+			minPxcor maxPxcor minPycor maxPycor patchSize wrapX wrapY rngSeed seedOverride
+		}
+	}`, &cur, client.Var("id", s.ID))
+	if cur.WorldSettings.SeedOverride {
+		t.Fatal("seed override starts on")
+	}
+
+	var turned struct {
+		SetSeedOverride struct {
+			World struct {
+				SeedOverride bool
+				RngSeed      string
+			}
+		}
+	}
+	c.MustPost(`mutation ($id: ID!, $on: Boolean!) {
+		setSeedOverride(sessionId: $id, on: $on) { world { seedOverride rngSeed } }
+	}`, &turned, client.Var("id", s.ID), client.Var("on", true))
+	if !turned.SetSeedOverride.World.SeedOverride || turned.SetSeedOverride.World.RngSeed == "" {
+		t.Fatalf("override on: %+v", turned.SetSeedOverride.World)
+	}
+
+	start := cur.WorldSettings
+	apply := func(seed string) string {
+		t.Helper()
+		var resp struct {
+			SetWorld struct {
+				World struct {
+					RngSeed      string
+					SeedOverride bool
+					MinPxcor     int
+				}
+			}
+		}
+		c.MustPost(`mutation ($id: ID!, $minPx: Int!, $maxPx: Int!, $minPy: Int!, $maxPy: Int!, $ps: Float!, $wrapX: Boolean!, $wrapY: Boolean!, $seed: String, $on: Boolean) {
+			setWorld(sessionId: $id, minPxcor: $minPx, maxPxcor: $maxPx, minPycor: $minPy, maxPycor: $maxPy, patchSize: $ps, wrapX: $wrapX, wrapY: $wrapY, rngSeed: $seed, seedOverride: $on) {
+				world { rngSeed seedOverride minPxcor }
+			}
+		}`, &resp,
+			client.Var("id", s.ID),
+			client.Var("minPx", start.MinPxcor),
+			client.Var("maxPx", start.MaxPxcor),
+			client.Var("minPy", start.MinPycor),
+			client.Var("maxPy", start.MaxPycor),
+			client.Var("ps", start.PatchSize),
+			client.Var("wrapX", start.WrapX),
+			client.Var("wrapY", start.WrapY),
+			client.Var("seed", seed),
+			client.Var("on", true),
+		)
+		if !resp.SetWorld.World.SeedOverride || resp.SetWorld.World.RngSeed != seed || resp.SetWorld.World.MinPxcor != start.MinPxcor {
+			t.Fatalf("applied %+v", resp.SetWorld.World)
+		}
+		return resp.SetWorld.World.RngSeed
+	}
+	apply("1")
+	if got := random100(t, c, s.ID); got != "81" {
+		t.Fatalf("random 100 = %q, want 81", got)
+	}
+	if got := random100(t, c, s.ID); got != "88" {
+		t.Fatalf("second random 100 = %q, want 88", got)
+	}
+	// The same seed text must reseed again. Omitting it would have left 80.
+	apply("1")
+	if got := random100(t, c, s.ID); got != "81" {
+		t.Fatalf("random 100 after repeat apply = %q, want 81", got)
 	}
 }
 

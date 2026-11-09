@@ -280,6 +280,7 @@ export const WorldSettingsQuery = `
       wrapZ
       threeD
       rngSeed
+      seedOverride
     }
   }
 `
@@ -298,6 +299,7 @@ export const SetWorld = `
     $maxPzcor: Int
     $wrapZ: Boolean
     $rngSeed: String
+    $seedOverride: Boolean
   ) {
     setWorld(
       sessionId: $id
@@ -312,7 +314,14 @@ export const SetWorld = `
       maxPzcor: $maxPzcor
       wrapZ: $wrapZ
       rngSeed: $rngSeed
+      seedOverride: $seedOverride
     ) { id procedures }
+  }
+`
+
+export const SetSeedOverride = `
+  mutation SetSeedOverride($id: ID!, $on: Boolean!) {
+    setSeedOverride(sessionId: $id, on: $on) { id }
   }
 `
 
@@ -382,6 +391,7 @@ export const Frames = `
         wrapZ
         threeD
         rngSeed
+        seedOverride
         voxels
         observer { x y z targetX targetY targetZ revision }
         perspective

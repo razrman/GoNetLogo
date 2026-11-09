@@ -221,7 +221,14 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return fmt.Errorf("random-seed expected a number, got %s", args[0].TypeName())
 		}
-		// NetLogo truncates to a long and accepts only the int range.
+		// Command-center and model random-seed keep NetLogo's signed int
+		// range (-2147483648 to 2147483647). The World tab instead stores
+		// an unsigned 32-bit seed, 0..4294967295. A value >= 2^31 is the
+		// same Mersenne Twister state as the negative seed with those low
+		// 32 bits (4294967295 and -1, 2147483648 and -2147483648), because
+		// setSeed keeps only those bits. This primitive is not a no-op
+		// when a session seed override is also set: model code runs after
+		// that override and replaces it for the rest of the setup.
 		if d <= -2147483649 || d >= 2147483648 {
 			return fmt.Errorf("%s is not in the allowable range for random seeds (-2147483648 to 2147483647)", formatNum(d))
 		}
