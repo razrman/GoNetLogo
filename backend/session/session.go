@@ -1719,6 +1719,7 @@ func (s *Session) sessionLocked() *model.Session {
 	if s.model != nil {
 		out.Code = s.model.Code
 		out.Info = s.model.Info
+		out.Dynamics = dynamicsView(s.model.Dynamics)
 		out.Notes = append([]string(nil), s.model.Notes...)
 		if out.Notes == nil {
 			out.Notes = []string{}
