@@ -178,7 +178,8 @@ type Turtle struct {
 	Hidden         bool
 	Label          Value
 	Breed          string // plural; empty means the default turtles breed
-	PenDown        bool
+	// PenDown is pen-mode "down". New turtles are pen-up (false).
+	PenDown bool
 	// PenErase is pen-mode "erase": movement removes drawing instead of
 	// adding it. PenDown and PenErase are not both true.
 	PenErase bool
@@ -1033,19 +1034,23 @@ func (w *World) CreateTurtle(breed string, x, y float64, colorN, heading int) *T
 // at 0, as for NetLogo 3D's create-turtles and sprout. z must be 0 in a
 // 2D world.
 func (w *World) CreateTurtle3(breed string, x, y, z float64, colorN, heading int) *Turtle {
+	// NetLogo turtles start pen-up with pen-size 1. Only pen-down or
+	// set pen-mode "down"/"erase" draws. Hatch copies the parent's mode.
 	t := &Turtle{
-		Who:     w.nextWho,
-		X:       x,
-		Y:       y,
-		Z:       z,
-		Heading: float64(heading),
-		Color:   float64(5 + 10*colorN),
-		Shape:   w.defaultShapeFor(breed),
-		Size:    1,
-		Breed:   breed,
-		Label:   Str(""),
-		PenSize: 1,
-		world:   w,
+		Who:      w.nextWho,
+		X:        x,
+		Y:        y,
+		Z:        z,
+		Heading:  float64(heading),
+		Color:    float64(5 + 10*colorN),
+		Shape:    w.defaultShapeFor(breed),
+		Size:     1,
+		Breed:    breed,
+		Label:    Str(""),
+		PenDown:  false,
+		PenErase: false,
+		PenSize:  1,
+		world:    w,
 	}
 	w.normalizeHeading(t)
 	w.initTurtleVars(t)

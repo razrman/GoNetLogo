@@ -439,15 +439,20 @@ class Scene3D {
   }
 
   // updateTrails draws pen-down strokes as tubes and leaves out whatever
-  // pen-erase has removed. clear-drawing arrives as an empty list.
+  // pen-erase has removed. clear-drawing arrives as an empty list. Turtles
+  // start pen-up, so a model that never calls pen-down keeps this empty.
   private updateTrails(world: World) {
     const pieces = visiblePenTrails(world.drawing ?? [], linkWrapBounds(world))
     if (pieces.length === 0) {
-      if (this.trails) this.trails.count = 0
+      if (this.trails) {
+        this.trails.count = 0
+        this.trails.visible = false
+      }
       return
     }
     const mesh = this.instanced(this.trails, pieces.length, this.trailGeometry, this.trailMaterial)
     this.trails = mesh
+    mesh.visible = true
     const yAxis = new THREE.Vector3(0, 1, 0)
     const dir = new THREE.Vector3()
     const mid = new THREE.Vector3()
