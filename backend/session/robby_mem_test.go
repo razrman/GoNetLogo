@@ -14,8 +14,10 @@ import (
 // TestRobbyDrawingStaysBounded is the regression for the OOM at tick 133.
 // With visuals on, every fitness action strokes the drawing layer. The
 // layer used to grow by tens of thousands of marks per generation, and
-// every published frame copied the whole layer. Presses during go must
-// be ignored so they neither halt the run nor stack another command.
+// every published frame copied the whole layer. Step stays rejected
+// during go. Slider edits are applied. Neither may halt the run or
+// grow the process without bound. Once-buttons are covered separately:
+// they run between steps instead of being dropped.
 func TestRobbyDrawingStaysBounded(t *testing.T) {
 	raw, err := os.ReadFile("../../models/Robby the Robot.nlogo")
 	if err != nil {
@@ -86,7 +88,7 @@ func TestRobbyDrawingStaysBounded(t *testing.T) {
 	var ignored atomic.Int32
 	bad := make(chan error, 1)
 	note := func(err error) {
-		if err != nil && strings.Contains(err.Error(), "ignored: the model is running") {
+		if err != nil && strings.Contains(err.Error(), "Stop the model before") {
 			ignored.Add(1)
 			return
 		}
@@ -103,9 +105,8 @@ func TestRobbyDrawingStaysBounded(t *testing.T) {
 				return
 			default:
 			}
-			note(s.PressButton(view))
-			note(s.Setup())
 			note(s.Step())
+			note(s.SetSlider(pop, 20))
 			s.SetSpeed(100)
 			time.Sleep(20 * time.Millisecond)
 		}

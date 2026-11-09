@@ -127,6 +127,11 @@ type Session struct {
 	pub       nl.FramePublisher
 	// busy is true while a button is inside the interpreter with s.mu released.
 	busy bool
+	// pendingOnce is a once-button to run between steps of go. -1 means
+	// none. A new press replaces one that has not started, so a burst of
+	// clicks cannot pile up commands. NetLogo runs a once-button during a
+	// forever button; the current step is interrupted and go continues.
+	pendingOnce int
 	// cancelRun asks the button in progress to stop at the next checkpoint.
 	// A one-shot clears it so setup is not aborted by the stop that ended go.
 	cancelRun bool
@@ -159,14 +164,15 @@ type Session struct {
 
 func newSession() *Session {
 	return &Session{
-		id:        newID(),
-		running:   -1,
-		speed:     40,
-		frameRate: nl.DefaultFrameRate,
-		buttons:   map[int][]nl.Stmt{},
-		listeners: map[int]chan struct{}{},
-		rateNote:  make(chan struct{}, 1),
-		stop:      make(chan struct{}),
+		id:          newID(),
+		running:     -1,
+		pendingOnce: -1,
+		speed:       40,
+		frameRate:   nl.DefaultFrameRate,
+		buttons:     map[int][]nl.Stmt{},
+		listeners:   map[int]chan struct{}{},
+		rateNote:    make(chan struct{}, 1),
+		stop:        make(chan struct{}),
 	}
 }
 
@@ -254,13 +260,20 @@ func (s *Session) publishLoop() {
 // runStepSlot runs one speed-slider slot, releasing the lock between
 // steps so the publish timer can snapshot the latest world without
 // waiting for the rest of the slot or for a subscriber.
+// A once-button pressed during go runs at the start of the slot, and
+// again between steps, before another go iteration.
 func (s *Session) runStepSlot() {
 	s.mu.Lock()
-	if s.closed || s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
+	if s.closed || s.model == nil {
 		s.mu.Unlock()
 		return
 	}
 	if s.busy {
+		s.mu.Unlock()
+		return
+	}
+	s.runPendingOnceLocked()
+	if s.closed || s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
 		s.mu.Unlock()
 		return
 	}
@@ -269,6 +282,9 @@ func (s *Session) runStepSlot() {
 	s.mu.Unlock()
 	for i := 0; i < n; i++ {
 		s.mu.Lock()
+		if !s.busy {
+			s.runPendingOnceLocked()
+		}
 		if s.closed || s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) || s.cancelRun {
 			s.syncClockLocked(time.Now())
 			s.mu.Unlock()
@@ -296,6 +312,9 @@ func (s *Session) runStepSlot() {
 // frameTickLocked runs the speed-slider steps for one 30ms slot.
 // It does not publish. Caller holds s.mu for the whole slot.
 func (s *Session) frameTickLocked() {
+	if !s.busy {
+		s.runPendingOnceLocked()
+	}
 	if s.model == nil || s.running < 0 || s.running >= len(s.model.Widgets) {
 		return
 	}
@@ -350,7 +369,7 @@ func (s *Session) armYield(vm *nl.VM) {
 		return
 	}
 	vm.ClearHalt()
-	if s.cancelRun || s.closed {
+	if s.cancelRun || s.closed || s.pendingOnce >= 0 {
 		vm.RequestHalt()
 	}
 	vm.SetYield(func() {
@@ -359,7 +378,7 @@ func (s *Session) armYield(vm *nl.VM) {
 		waited := time.Since(lockAt)
 		now := time.Now()
 		s.sampleTicksLocked()
-		if s.closed || s.cancelRun {
+		if s.closed || s.cancelRun || s.pendingOnce >= 0 {
 			vm.RequestHalt()
 		}
 		if !s.closed {
@@ -579,7 +598,24 @@ func (s *Session) RunCommand(text string) (output string, err error) {
 }
 
 // Setup runs the setup button, or the setup procedure when there is no button.
+// While go is running the setup button is queued and runs between steps,
+// the same as pressing it on the interface. Go keeps running afterward.
 func (s *Session) Setup() error {
+	s.mu.Lock()
+	if s.busy || s.running >= 0 {
+		i := s.findButtonLocked("setup")
+		if i >= 0 {
+			if err := s.ensureRunnableLocked(i); err != nil {
+				s.mu.Unlock()
+				return err
+			}
+			s.queueOnceLocked(i)
+			s.broadcastLocked()
+			s.mu.Unlock()
+			return nil
+		}
+	}
+	s.mu.Unlock()
 	return s.runNamed("setup", false)
 }
 
@@ -699,8 +735,9 @@ func (s *Session) PressButton(index int) error {
 			s.mu.Lock()
 			return nil
 		}
-		if err := s.rejectIfActiveLocked(w.Display); err != nil {
-			return err
+		if s.busy || s.running >= 0 {
+			s.noteIgnoredLocked(w.Display)
+			return fmt.Errorf("Stop the model before starting another forever button.")
 		}
 		if err := s.ensureRunnableLocked(index); err != nil {
 			slog.Warn("button rejected", "session", s.id, "button", w.Display, "err", err)
@@ -712,8 +749,17 @@ func (s *Session) PressButton(index int) error {
 		s.broadcastLocked()
 		return nil
 	}
-	if err := s.rejectIfActiveLocked(w.Display); err != nil {
-		return err
+	// A once-button during go is queued. The step loop interrupts the
+	// current iteration and runs it, then go continues. NetLogo does this
+	// for setup and for every other once-button.
+	if s.busy || s.running >= 0 {
+		if err := s.ensureRunnableLocked(index); err != nil {
+			slog.Warn("button rejected", "session", s.id, "button", w.Display, "err", err)
+			return err
+		}
+		s.queueOnceLocked(index)
+		s.broadcastLocked()
+		return nil
 	}
 	s.cancelRun = false
 	if _, err := s.runIndexLocked(index); err != nil {
@@ -744,9 +790,55 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		seed = &n
 	}
 	s.mu.Lock()
+	if s.vm == nil || s.vm.World == nil {
+		s.mu.Unlock()
+		return fmt.Errorf("no world")
+	}
+	active := s.busy || s.running >= 0
+	vm := s.vm
+	s.mu.Unlock()
+
+	var same bool
+	var geomErr error
+	vm.DoLocked(func() {
+		w := vm.World
+		if w.Is3D() && (minPz != nil || maxPz != nil || wrapZ != nil) {
+			if (minPz == nil) != (maxPz == nil) {
+				geomErr = fmt.Errorf("min-pzcor and max-pzcor must both be set")
+				return
+			}
+		}
+		same = worldGeometrySame(w, minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY, minPz, maxPz, wrapZ)
+	})
+	if geomErr != nil {
+		return geomErr
+	}
+	// Resizing, wrapping, and patch size rebuild the grid. That stays
+	// locked during a tick. A seed by itself is random-seed: it is safe
+	// while go is running and does not touch the grid. When the model is
+	// stopped, an unchanged grid still goes through ApplyView, which
+	// resets patches the way it always has.
+	if active && !same {
+		s.mu.Lock()
+		s.noteIgnoredLocked("set world")
+		s.mu.Unlock()
+		return fmt.Errorf("%s", busyMessage("set world"))
+	}
+	if active && same {
+		if seed != nil {
+			vm.DoLocked(func() { vm.World.Seed(*seed) })
+			s.mu.Lock()
+			s.broadcastLocked()
+			s.mu.Unlock()
+		}
+		return nil
+	}
+
+	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.rejectIfActiveLocked("set world"); err != nil {
-		return err
+	if s.busy || s.running >= 0 {
+		s.noteIgnoredLocked("set world")
+		return fmt.Errorf("%s", busyMessage("set world"))
 	}
 	if s.vm == nil || s.vm.World == nil {
 		return fmt.Errorf("no world")
@@ -779,8 +871,36 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 	return nil
 }
 
+// worldGeometrySame reports whether applying these settings would leave
+// the patch grid, wrapping, and patch size as they are. Caller holds the
+// world lock.
+func worldGeometrySame(w *nl.World, minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool) bool {
+	if w == nil {
+		return false
+	}
+	if w.MinPxcor != minPx || w.MaxPxcor != maxPx || w.MinPycor != minPy || w.MaxPycor != maxPy {
+		return false
+	}
+	if w.PatchSize != patchSize || w.WrapX != wrapX || w.WrapY != wrapY {
+		return false
+	}
+	if !w.Is3D() {
+		return true
+	}
+	if minPz != nil && (maxPz == nil || *minPz != w.MinPzcor || *maxPz != w.MaxPzcor) {
+		return false
+	}
+	if wrapZ != nil && *wrapZ != w.WrapZ {
+		return false
+	}
+	return true
+}
+
 // GenerateRNGSeed draws a 6-digit seed with crypto/rand, seeds the world
 // RNG with it, and returns the text. The patch grid is not resized.
+// random-seed is legal while go is running, so this does not wait for stop.
+// The session lock is not held across the world update: a running button
+// yields by taking the session lock after it drops the world lock.
 func (s *Session) GenerateRNGSeed() (string, error) {
 	text, err := nl.GenerateRNGSeed()
 	if err != nil {
@@ -791,15 +911,16 @@ func (s *Session) GenerateRNGSeed() (string, error) {
 		return "", err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.rejectIfActiveLocked("set RNG seed"); err != nil {
-		return "", err
-	}
 	if s.vm == nil || s.vm.World == nil {
+		s.mu.Unlock()
 		return "", fmt.Errorf("no world")
 	}
-	s.seedWorldLocked(&n)
+	vm := s.vm
+	s.mu.Unlock()
+	vm.DoLocked(func() { vm.World.Seed(n) })
+	s.mu.Lock()
 	s.broadcastLocked()
+	s.mu.Unlock()
 	return text, nil
 }
 
@@ -1064,16 +1185,27 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 		if err != nil {
 			s.appendLogLocked(w.Display + ": " + err.Error())
 			warnNetLogo("button failed", err, "session", s.id, "button", w.Display)
-			s.setRunningLocked(-1, "error")
-			s.cancelRun = false
+			// A once-button error is logged and does not cancel go.
+			if s.running == i {
+				s.setRunningLocked(-1, "error")
+				s.cancelRun = false
+			}
 			stopped = false
 		} else if stopped {
 			reason := "stop"
 			if halted {
 				reason = "halt"
 			}
-			s.setRunningLocked(-1, reason)
-			s.cancelRun = false
+			// A halt that only makes room for a queued once-button leaves
+			// go running. stop inside a once-button does not cancel a
+			// different forever button.
+			keep := halted && s.pendingOnce >= 0 && !s.cancelRun && s.running == i
+			if s.running == i && !keep {
+				s.setRunningLocked(-1, reason)
+			}
+			if !keep {
+				s.cancelRun = false
+			}
 		}
 		if vm != nil {
 			s.sampleTicksLocked()
@@ -1082,6 +1214,42 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	}()
 	stopped, err = vm.RunCompiled(stmts)
 	return
+}
+
+// queueOnceLocked remembers a once-button and asks the current step to
+// stop at the next checkpoint. Caller holds s.mu.
+func (s *Session) queueOnceLocked(index int) {
+	s.pendingOnce = index
+	if s.vm != nil {
+		s.vm.RequestHalt()
+	}
+}
+
+// runPendingOnceLocked runs a queued once-button. Caller holds s.mu and
+// the interpreter is not already inside a button. The lock is dropped
+// while the button runs and held again on return.
+func (s *Session) runPendingOnceLocked() {
+	if s.pendingOnce < 0 || s.busy || s.model == nil {
+		return
+	}
+	idx := s.pendingOnce
+	if idx >= len(s.model.Widgets) || s.model.Widgets[idx].Kind != "button" {
+		s.pendingOnce = -1
+		return
+	}
+	s.pendingOnce = -1
+	if s.vm != nil {
+		s.vm.ClearHalt()
+	}
+	// The halt that opened this gap must not abort the once-button itself.
+	s.cancelRun = false
+	w := s.model.Widgets[idx]
+	_, err := s.runIndexLocked(idx)
+	if err == nil && isSetupName(w.Display, w.Source) {
+		s.pub.Reset()
+	}
+	s.syncClockLocked(time.Now())
+	s.broadcastLocked()
 }
 
 func (s *Session) ensureRunnableLocked(i int) error {
