@@ -152,6 +152,15 @@ export const LibraryQuery = `
   }
 `
 
+const dynamicsFields = `
+  dt
+  definition
+  source
+  stocks { name initial allowNegative }
+  flows { name expression source sink }
+  converters { name expression constant }
+`
+
 const openedModelFields = `
   id
   modelName
@@ -160,6 +169,7 @@ const openedModelFields = `
   modelDir
   notes
   procedures
+  dynamics {${dynamicsFields}}
   widgets { index kind display forever }
 `
 
@@ -198,6 +208,32 @@ export function hasProcedure(procedures: readonly string[] | null | undefined, n
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
     setCode(sessionId: $id, code: $code) { ok error session { procedures } }
+  }
+`
+
+export const SetDynamics = `
+  mutation SetDynamics($id: ID!, $definition: String!) {
+    setDynamics(sessionId: $id, definition: $definition) {
+      ok
+      error
+      session {
+        procedures
+        dynamics {${dynamicsFields}}
+      }
+    }
+  }
+`
+
+export const SetDynamicsDt = `
+  mutation SetDynamicsDt($id: ID!, $dt: String!) {
+    setDynamicsDt(sessionId: $id, dt: $dt) {
+      ok
+      error
+      session {
+        procedures
+        dynamics {${dynamicsFields}}
+      }
+    }
   }
 `
 

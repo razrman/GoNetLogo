@@ -72,6 +72,36 @@ func (r *mutationResolver) SetCode(ctx context.Context, sessionID string, code s
 	return out, nil
 }
 
+// SetDynamics is the resolver for the setDynamics field.
+func (r *mutationResolver) SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	err = s.SetDynamics(definition)
+	out := &model.CompileResult{Ok: err == nil, Session: *s.Session()}
+	if err != nil {
+		msg := err.Error()
+		out.Error = &msg
+	}
+	return out, nil
+}
+
+// SetDynamicsDt is the resolver for the setDynamicsDt field.
+func (r *mutationResolver) SetDynamicsDt(ctx context.Context, sessionID string, dt string) (*model.CompileResult, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	err = s.SetDT(dt)
+	out := &model.CompileResult{Ok: err == nil, Session: *s.Session()}
+	if err != nil {
+		msg := err.Error()
+		out.Error = &msg
+	}
+	return out, nil
+}
+
 // RunCommand is the resolver for the runCommand field.
 func (r *mutationResolver) RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error) {
 	s, err := r.session(sessionID)

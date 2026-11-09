@@ -59,6 +59,30 @@ type DrawingMark struct {
 	B     int    `json:"b"`
 }
 
+type DynamicsConverter struct {
+	Name       string `json:"name"`
+	Expression string `json:"expression"`
+	// True when the expression is one literal.
+	Constant bool `json:"constant"`
+}
+
+// One flow. source and sink name the figures it leaves and enters.
+type DynamicsFlow struct {
+	Name       string `json:"name"`
+	Expression string `json:"expression"`
+	// Empty when the flow leaves a reservoir.
+	Source string `json:"source"`
+	// Empty when the flow enters a reservoir.
+	Sink string `json:"sink"`
+}
+
+type DynamicsStock struct {
+	Name string `json:"name"`
+	// NetLogo expression for the initial value.
+	Initial       string `json:"initial"`
+	AllowNegative bool   `json:"allowNegative"`
+}
+
 type Frame struct {
 	SessionID    string   `json:"sessionId"`
 	Ticks        *float64 `json:"ticks,omitempty"`
@@ -242,6 +266,11 @@ type Session struct {
 	OutputPartial string   `json:"outputPartial"`
 	Widgets       []Widget `json:"widgets"`
 	World         World    `json:"world"`
+	// Stock-and-flow diagram from the model's System Dynamics section.
+	// Null when the file has no such section. definition is the text the
+	// Dynamics tab edits. source is the NetLogo Compile appends; the Code
+	// tab does not show it.
+	Dynamics *SystemDynamics `json:"dynamics,omitempty"`
 }
 
 // One polygon, rectangle, circle, or line in a turtle shape.
@@ -266,6 +295,22 @@ type ShapeElement struct {
 }
 
 type Subscription struct {
+}
+
+// One System Dynamics diagram. flows are the rates. An empty flow end is
+// a reservoir. constant is true when a converter expression is one literal,
+// so the engine makes it a global instead of a reporter.
+type SystemDynamics struct {
+	// dt expression, as stored. The engine uses 1.0 when this is blank.
+	Dt         string              `json:"dt"`
+	Stocks     []DynamicsStock     `json:"stocks"`
+	Flows      []DynamicsFlow      `json:"flows"`
+	Converters []DynamicsConverter `json:"converters"`
+	// Editable definition. setDynamics sends this text back.
+	Definition string `json:"definition"`
+	// NetLogo procedures the engine appends at compile time. This is
+	// SystemDynamics.Source and is not edited directly.
+	Source string `json:"source"`
 }
 
 type Turtle struct {

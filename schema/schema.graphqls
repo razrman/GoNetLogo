@@ -58,6 +58,22 @@ type Mutation {
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
+  """
+  Replace the system dynamics diagram from the Dynamics tab text and recompile.
+  A definition the parser rejects leaves the diagram unchanged. A diagram that
+  parses but whose generated procedures do not compile stays on the model, the
+  previous world keeps running, and the error is returned, the same way setCode
+  keeps the editor buffer. Rejected while go is running.
+  """
+  setDynamics(sessionId: ID!, definition: String!): CompileResult!
+  """
+  Set the system dynamics time step and recompile.
+  dt is a number greater than 0. It is the same value as the dt line in
+  the Dynamics tab, and the next setup and go use it. Rejected while go
+  is running, because recompiling replaces the world. A model with no
+  system dynamics section is rejected.
+  """
+  setDynamicsDt(sessionId: ID!, dt: String!): CompileResult!
   runCommand(sessionId: ID!, text: String!): CommandResult!
   setup(sessionId: ID!): Session!
   """Start the forever button (go)."""
@@ -175,6 +191,57 @@ type Session {
   outputPartial: String!
   widgets: [Widget!]!
   world: World!
+  """
+  Stock-and-flow diagram from the model's System Dynamics section.
+  Null when the file has no such section. definition is the text the
+  Dynamics tab edits. source is the NetLogo Compile appends; the Code
+  tab does not show it.
+  """
+  dynamics: SystemDynamics
+}
+
+"""
+One System Dynamics diagram. flows are the rates. An empty flow end is
+a reservoir. constant is true when a converter expression is one literal,
+so the engine makes it a global instead of a reporter.
+"""
+type SystemDynamics {
+  """dt expression, as stored. The engine uses 1.0 when this is blank."""
+  dt: String!
+  stocks: [DynamicsStock!]!
+  flows: [DynamicsFlow!]!
+  converters: [DynamicsConverter!]!
+  """Editable definition. setDynamics sends this text back."""
+  definition: String!
+  """
+  NetLogo procedures the engine appends at compile time. This is
+  SystemDynamics.Source and is not edited directly.
+  """
+  source: String!
+}
+
+type DynamicsStock {
+  name: String!
+  """NetLogo expression for the initial value."""
+  initial: String!
+  allowNegative: Boolean!
+}
+
+"""One flow. source and sink name the figures it leaves and enters."""
+type DynamicsFlow {
+  name: String!
+  expression: String!
+  """Empty when the flow leaves a reservoir."""
+  source: String!
+  """Empty when the flow enters a reservoir."""
+  sink: String!
+}
+
+type DynamicsConverter {
+  name: String!
+  expression: String!
+  """True when the expression is one literal."""
+  constant: Boolean!
 }
 
 type CompileResult {
