@@ -1,6 +1,7 @@
 package nl
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -512,7 +513,7 @@ func TestPlotHistogramAndPenSettings(t *testing.T) {
 	}
 
 	mustRun(t, vm, "set-plot-pen-mode 1")
-	mustRun(t, vm, "set-plot-pen-interval 2")  // set-plot-pen-interval overrides: interval = 2
+	mustRun(t, vm, "set-plot-pen-interval 2") // set-plot-pen-interval overrides: interval = 2
 	mustRun(t, vm, "set-plot-pen-color 15")
 	if pen.interval != 2 {
 		t.Fatalf("pen interval after set-plot-pen-interval = %f, want 2", pen.interval)
@@ -566,5 +567,56 @@ func TestPlotHistogramLineModeZeroPoints(t *testing.T) {
 				t.Fatalf("pt[%d].Y = %f, want 0", i, pt.Y)
 			}
 		}
+	}
+}
+
+func TestPlotDecimateKeepsAFullRun(t *testing.T) {
+	vm := plotVM(t, onePlot("p", true, 0, 10, -2, 2, penSpec("wave", "")))
+	mustRun(t, vm, "plotxy 0 0")
+	_, cur := vm.PlotDeltas(nil)
+	pen := vm.plots.plots[0].pens[0]
+	const n = 81500
+	for i := 1; i <= n; i++ {
+		pen.add(float64(i), math.Sin(float64(i)*2*math.Pi/2000))
+	}
+	pts, ok := vm.PlotPoints("p", "wave")
+	if !ok {
+		t.Fatal("missing pen")
+	}
+	if len(pts) > PlotPointCap || len(pts) < 2 {
+		t.Fatalf("retained %d points, cap %d", len(pts), PlotPointCap)
+	}
+	if pts[0].X != 0 || pts[len(pts)-1].X != float64(n) {
+		t.Fatalf("span %+v .. %+v, want 0 .. %d", pts[0], pts[len(pts)-1], n)
+	}
+	minY, maxY := pts[0].Y, pts[0].Y
+	for _, pt := range pts {
+		if pt.Y < minY {
+			minY = pt.Y
+		}
+		if pt.Y > maxY {
+			maxY = pt.Y
+		}
+	}
+	if maxY < 0.95 || minY > -0.95 {
+		t.Fatalf("decimated wave lost its peaks: min %v max %v", minY, maxY)
+	}
+	delta, _ := vm.PlotDeltas(cur)
+	if len(delta) != 1 || !delta[0].Reset || len(delta[0].Points) != len(pts) {
+		t.Fatalf("subscriber was not given the decimated history: %+v", delta)
+	}
+}
+
+func TestDecimateKeepsAPenUpGap(t *testing.T) {
+	src := []PlotPoint{
+		{X: 0, Y: 0, Down: true},
+		{X: 1, Y: 1, Down: false},
+		{X: 2, Y: 2, Down: true},
+		{X: 3, Y: 3, Down: true},
+		{X: 4, Y: 4, Down: true},
+	}
+	out := decimatePoints(src, 2)
+	if len(out) != 2 || out[0].X != 0 || out[1].X != 4 || out[1].Down {
+		t.Fatalf("gap %+v", out)
 	}
 }
