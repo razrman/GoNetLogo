@@ -975,7 +975,7 @@ func TestSetFrameRateClampAndDrops(t *testing.T) {
 	}
 	at24 := run(24)
 	// Stop returns before the halted step leaves the interpreter. Setup
-	// during that window is ignored, same as a press during go.
+	// waits that out. If it is still refused, retry until the tick ends.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		err := c.Post(`mutation ($id: ID!) { setup(sessionId: $id) { id } }`, &struct {
@@ -984,7 +984,7 @@ func TestSetFrameRateClampAndDrops(t *testing.T) {
 		if err == nil {
 			break
 		}
-		if !strings.Contains(err.Error(), "ignored") || time.Now().After(deadline) {
+		if !strings.Contains(err.Error(), "Stop the model before") || time.Now().After(deadline) {
 			t.Fatal(err)
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -1152,7 +1152,7 @@ func containsLine(lines []string, want string) bool {
 }
 
 // commandWhenIdle retries a command-center line while a halted step is
-// still inside the interpreter. A press during that window is ignored.
+// still inside the interpreter. A command during that window is refused.
 func commandWhenIdle(t *testing.T, c *client.Client, id, text string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -1173,7 +1173,7 @@ func commandWhenIdle(t *testing.T, c *client.Client, id, text string) {
 		if cmd.RunCommand.Error != nil {
 			last = *cmd.RunCommand.Error
 		}
-		if !strings.Contains(last, "ignored") || time.Now().After(deadline) {
+		if !strings.Contains(last, "Stop the model before") || time.Now().After(deadline) {
 			t.Fatalf("%s: %s", text, last)
 		}
 		time.Sleep(20 * time.Millisecond)

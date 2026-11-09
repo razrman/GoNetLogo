@@ -268,6 +268,89 @@ func paintShape(t *testing.T, shape string) *image.RGBA {
 	return RenderWorld(w, 8)
 }
 
+func TestPenEraseClearsTrail(t *testing.T) {
+	vm := newTestVM(t, "", -4, 4, true, 1)
+	mustRun(t, vm, `
+create-turtles 1 [
+  set color red
+  set pen-size 2
+  pen-down
+  fd 2
+  pen-up
+  fd 1
+  pen-erase
+  bk 3
+]
+`)
+	marks := vm.World.Marks()
+	// fd 2 is two pen steps. The pen-up step draws nothing. bk 3 is three
+	// erase steps, back over the trail and one step past the start.
+	pens, erases := 0, 0
+	for _, m := range marks {
+		if !m.Pen {
+			t.Fatalf("pen trail recorded as a stamp: %+v", m)
+		}
+		if m.Z != 0 || m.Z2 != 0 {
+			t.Fatalf("2D stroke has z %+v", m)
+		}
+		if m.Erase {
+			erases++
+		} else {
+			pens++
+			if m.Size != 2 {
+				t.Fatalf("pen size %+v", m)
+			}
+		}
+	}
+	if pens != 2 || erases != 3 {
+		t.Fatalf("pens %d erases %d, marks %+v", pens, erases, marks)
+	}
+	if _, ok := vm.World.DrawingAt(0, 1); ok {
+		t.Fatal("pen-erase left ink on the trail")
+	}
+	if _, ok := vm.World.DrawingAt(0, 2); ok {
+		t.Fatal("pen-erase left ink at the end of the trail")
+	}
+	if got := mustEval(t, vm, "[pen-mode] of turtle 0"); got != "erase" {
+		t.Fatalf("pen-mode %s", got)
+	}
+	mustRun(t, vm, "clear-drawing")
+	if len(vm.World.Marks()) != 0 {
+		t.Fatal("clear-drawing left the erased trail")
+	}
+}
+
+func TestPenErasePaintsAway(t *testing.T) {
+	w := NewWorld(-4, 4, -4, 4, true, true)
+	for _, a := range w.Patches().Agents {
+		a.(*Patch).PColor = 9.9
+	}
+	turt := w.CreateTurtle("", 0, 0, 0, 0)
+	turt.Color = 15
+	turt.PenDown = true
+	turt.PenSize = 2
+	if err := w.MoveTo(turt, 0, 2); err != nil {
+		t.Fatal(err)
+	}
+	inked := RenderWorld(w, 10)
+	if !mostlyRed(inked, 45, 35) {
+		t.Fatal("pen-down stroke is not visible")
+	}
+	turt.PenDown = false
+	turt.PenErase = true
+	if err := w.MoveTo(turt, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.dirty.Store(true)
+	erased := RenderWorld(w, 10)
+	if mostlyRed(erased, 45, 35) {
+		t.Fatal("pen-erase left the red stroke")
+	}
+	if !mostlyWhite(erased, 45, 35) {
+		t.Fatal("pen-erase did not reveal the white patch")
+	}
+}
+
 func TestDrawingMarkCapDropsOldest(t *testing.T) {
 	w := NewWorld(-2, 2, -2, 2, true, true)
 	turt := w.CreateTurtle("", 0, 0, 0, 0)

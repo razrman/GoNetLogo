@@ -178,13 +178,17 @@ type Turtle struct {
 	Hidden         bool
 	Label          Value
 	Breed          string // plural; empty means the default turtles breed
-	PenDown        bool
-	PenSize        float64
-	Vars           map[string]Value
-	links          []*Link
-	dead           bool
-	world          *World
-	patch          *Patch
+	// PenDown is pen-mode "down". New turtles are pen-up (false).
+	PenDown bool
+	// PenErase is pen-mode "erase": movement removes drawing instead of
+	// adding it. PenDown and PenErase are not both true.
+	PenErase bool
+	PenSize  float64
+	Vars     map[string]Value
+	links    []*Link
+	dead     bool
+	world    *World
+	patch    *Patch
 }
 
 func (t *Turtle) AgentKind() AgentKind { return KindTurtle }
@@ -1030,19 +1034,23 @@ func (w *World) CreateTurtle(breed string, x, y float64, colorN, heading int) *T
 // at 0, as for NetLogo 3D's create-turtles and sprout. z must be 0 in a
 // 2D world.
 func (w *World) CreateTurtle3(breed string, x, y, z float64, colorN, heading int) *Turtle {
+	// NetLogo turtles start pen-up with pen-size 1. Only pen-down or
+	// set pen-mode "down"/"erase" draws. Hatch copies the parent's mode.
 	t := &Turtle{
-		Who:     w.nextWho,
-		X:       x,
-		Y:       y,
-		Z:       z,
-		Heading: float64(heading),
-		Color:   float64(5 + 10*colorN),
-		Shape:   w.defaultShapeFor(breed),
-		Size:    1,
-		Breed:   breed,
-		Label:   Str(""),
-		PenSize: 1,
-		world:   w,
+		Who:      w.nextWho,
+		X:        x,
+		Y:        y,
+		Z:        z,
+		Heading:  float64(heading),
+		Color:    float64(5 + 10*colorN),
+		Shape:    w.defaultShapeFor(breed),
+		Size:     1,
+		Breed:    breed,
+		Label:    Str(""),
+		PenDown:  false,
+		PenErase: false,
+		PenSize:  1,
+		world:    w,
 	}
 	w.normalizeHeading(t)
 	w.initTurtleVars(t)
@@ -1069,24 +1077,25 @@ func (w *World) Hatch(parent *Turtle, breed string) *Turtle {
 		b = breed
 	}
 	t := &Turtle{
-		Who:     w.nextWho,
-		X:       parent.X,
-		Y:       parent.Y,
-		Z:       parent.Z,
-		Heading: parent.Heading,
-		Pitch:   parent.Pitch,
-		Roll:    parent.Roll,
-		Color:   parent.Color,
-		RGB:     parent.RGB,
-		HasRGB:  parent.HasRGB,
-		Shape:   parent.Shape,
-		Size:    parent.Size,
-		Hidden:  parent.Hidden,
-		Label:   parent.Label,
-		Breed:   b,
-		PenDown: parent.PenDown,
-		PenSize: parent.PenSize,
-		world:   w,
+		Who:      w.nextWho,
+		X:        parent.X,
+		Y:        parent.Y,
+		Z:        parent.Z,
+		Heading:  parent.Heading,
+		Pitch:    parent.Pitch,
+		Roll:     parent.Roll,
+		Color:    parent.Color,
+		RGB:      parent.RGB,
+		HasRGB:   parent.HasRGB,
+		Shape:    parent.Shape,
+		Size:     parent.Size,
+		Hidden:   parent.Hidden,
+		Label:    parent.Label,
+		Breed:    b,
+		PenDown:  parent.PenDown,
+		PenErase: parent.PenErase,
+		PenSize:  parent.PenSize,
+		world:    w,
 	}
 	t.Vars = make(map[string]Value, len(parent.Vars))
 	for k, v := range parent.Vars {
@@ -1240,8 +1249,8 @@ func (w *World) moveToMarked(t *Turtle, x, y, z float64, visited map[*Turtle]boo
 	dy := ny - oldY
 	dz := nz - oldZ
 
-	if t.PenDown {
-		w.drawLine(t.X, t.Y, nx, ny, t.Color, t.PenSize)
+	if t.PenDown || t.PenErase {
+		w.drawLine(oldX, oldY, oldZ, nx, ny, nz, t.Color, t.PenSize, t.PenErase)
 	}
 	// Like NetLogo, a turtle changes its patch's turtle list only when it
 	// crosses into another patch, so turtles-here keeps arrival order.
@@ -1959,10 +1968,14 @@ func (d *drawingLog) snapshot() []Mark {
 }
 
 // Mark is one operation on the drawing layer. Pen is a stroke from
-// (X, Y) to (X2, Y2). A stamp leaves the turtle's shape at (X, Y).
+// (X, Y, Z) to (X2, Y2, Z2). Z is 0 in a 2D world. Erase on a pen stroke
+// is pen-mode "erase": it removes earlier drawing along the stroke.
+// A stamp leaves the turtle's shape at (X, Y, Z). Erase on a stamp is
+// stamp-erase.
 type Mark struct {
 	Pen, Erase    bool
-	X, Y, X2, Y2  float64
+	X, Y, Z       float64
+	X2, Y2, Z2    float64
 	Heading, Size float64
 	Color         float64
 	Shape         string
@@ -1982,8 +1995,10 @@ func (w *World) Stamp(t *Turtle, erase bool) {
 		Erase:   erase,
 		X:       t.X,
 		Y:       t.Y,
+		Z:       t.Z,
 		X2:      t.X,
 		Y2:      t.Y,
+		Z2:      t.Z,
 		Heading: t.Heading,
 		Size:    t.Size,
 		Color:   t.Color,
@@ -2002,16 +2017,22 @@ func (w *World) ClearDrawing() {
 	w.drawing = drawingLog{}
 }
 
-func (w *World) drawLine(x1, y1, x2, y2, col, size float64) {
+func (w *World) drawLine(x1, y1, z1, x2, y2, z2, col, size float64, erase bool) {
 	if size <= 0 {
 		size = 1
 	}
+	if x1 == x2 && y1 == y2 && z1 == z2 {
+		return
+	}
 	w.drawing.add(Mark{
 		Pen:   true,
+		Erase: erase,
 		X:     x1,
 		Y:     y1,
+		Z:     z1,
 		X2:    x2,
 		Y2:    y2,
+		Z2:    z2,
 		Size:  size,
 		Color: col,
 	})
@@ -2029,6 +2050,11 @@ func (w *World) DrawingAt(px, py int) (colorRGBA, bool) {
 		m := w.drawing.at(i)
 		if m.Pen {
 			if !w.segmentHitsPatch(m, px, py) {
+				continue
+			}
+			if m.Erase {
+				cur = colorRGBA{}
+				hit = false
 				continue
 			}
 			c := ColorRGBA(m.Color)

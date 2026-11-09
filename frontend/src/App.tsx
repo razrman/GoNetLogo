@@ -39,6 +39,7 @@ import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
 import { rngSeedError } from './rngSeed'
+import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
 // first time one is shown. 2D models never fetch it.
@@ -388,41 +389,32 @@ export function App() {
 
   async function onWorld(next: WorldView) {
     if (!sessionId) return 'No session'
-    if (frame?.running) {
-      const stopped = await stopMut({ id: sessionId })
-      if (reportDisconnect(stopped.error?.message)) return 'Server disconnected. Reconnecting…'
-      if (stopped.error) return stopped.error.message
-      setActive(null)
+    // Size, wrapping, and patch size rebuild the grid. Leave that locked
+    // while go is running and say so, instead of stopping and then racing
+    // the tick that is still inside the interpreter. A new RNG seed is
+    // random-seed: it applies during the run and does not call setup.
+    const running = frame?.running ?? false
+    const geometryChanged = frame != null && worldGeometryChanged(next, frame.world)
+    const seedOnly = running && !geometryChanged
+    if (running && geometryChanged) {
+      return worldSizeLockedMessage
     }
     const applied = await sendWorld(sessionId, next, setWorldMut)
     if (applied.message) return applied.message
     setProcedures(applied.procedures)
+    if (seedOnly) return null
     return autoSetup(sessionId, applied.procedures)
   }
 
   async function onPopulateSeed(): Promise<{ seed: string | null; message: string | null }> {
     if (!sessionId) return { seed: null, message: 'No session' }
-    if (frame?.running) {
-      const stopped = await stopMut({ id: sessionId })
-      if (reportDisconnect(stopped.error?.message)) return { seed: null, message: 'Server disconnected. Reconnecting…' }
-      if (stopped.error) return { seed: null, message: stopped.error.message }
-      setActive(null)
-    }
-    let last = 'Could not generate an RNG seed'
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const res = await generateSeedMut({ id: sessionId })
-      const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
-      if (reportDisconnect(message)) return { seed: null, message: 'Server disconnected. Reconnecting…' }
-      if (!message) {
-        const seed = res.data?.generateRngSeed ?? ''
-        if (rngSeedError(seed)) return { seed: null, message: 'Could not generate an RNG seed' }
-        return { seed, message: null }
-      }
-      last = message
-      if (!/model is running|running a command/i.test(message)) return { seed: null, message }
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    return { seed: null, message: last }
+    const res = await generateSeedMut({ id: sessionId })
+    const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
+    if (reportDisconnect(message)) return { seed: null, message: 'Server disconnected. Reconnecting…' }
+    if (message) return { seed: null, message }
+    const seed = res.data?.generateRngSeed ?? ''
+    if (rngSeedError(seed)) return { seed: null, message: 'Could not generate an RNG seed' }
+    return { seed, message: null }
   }
 
   async function autoSetup(id: string, procedures: readonly string[] | undefined): Promise<string | null> {
@@ -1141,7 +1133,7 @@ function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string
 
 type WorldApply = { message: string | null; procedures: string[] }
 
-function sendWorld(
+async function sendWorld(
   sessionId: string,
   next: WorldView,
   setWorldMut: (
@@ -1157,30 +1149,18 @@ function sendWorld(
     data?: { setWorld: { procedures?: string[] } }
   }>,
 ): Promise<WorldApply> {
-  return retryWhileRunning(async () => {
-    const res = await setWorldMut({
-      id: sessionId,
-      ...next,
-      minPzcor: next.threeD ? (next.minPzcor ?? 0) : null,
-      maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
-      wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
-      rngSeed: next.rngSeed ?? null,
-    })
-    if (res.error?.message) return { message: res.error.message, procedures: [] }
-    return { message: null, procedures: res.data?.setWorld.procedures ?? [] }
+  const res = await setWorldMut({
+    id: sessionId,
+    ...next,
+    minPzcor: next.threeD ? (next.minPzcor ?? 0) : null,
+    maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
+    wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
+    rngSeed: next.rngSeed ?? null,
   })
-}
-
-async function retryWhileRunning(run: () => Promise<WorldApply>): Promise<WorldApply> {
-  let last: WorldApply = { message: null, procedures: [] }
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const got = await run()
-    if (reportDisconnect(got.message)) return { message: 'Server disconnected. Reconnecting…', procedures: [] }
-    last = got
-    if (!got.message || !/model is running|running a command/i.test(got.message)) return got
-    await new Promise((resolve) => setTimeout(resolve, 50))
-  }
-  return last
+  const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
+  if (reportDisconnect(message)) return { message: 'Server disconnected. Reconnecting…', procedures: [] }
+  if (message) return { message, procedures: [] }
+  return { message: null, procedures: res.data?.setWorld.procedures ?? [] }
 }
 
 function dragHasFiles(event: DragEvent) {

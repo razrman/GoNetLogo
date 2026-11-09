@@ -227,7 +227,7 @@ func (s *ViewSnap) paintDrawing(patchPx int) *image.RGBA {
 	p := &painter{img: layer}
 	for _, m := range s.marks {
 		if m.pen {
-			p.erase = false
+			p.erase = m.erase
 			p.c = ColorRGBA(m.color)
 			x1, y1 := worldToPx(s.minPx, s.maxPy, m.x, m.y, patchPx)
 			x2, y2 := worldToPx(s.minPx, s.maxPy, m.x2, m.y2, patchPx)

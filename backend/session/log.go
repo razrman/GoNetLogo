@@ -90,14 +90,41 @@ func (s *Session) haltVM(vm *nl.VM, reason string) {
 	}
 }
 
-// rejectIfActiveLocked reports that a button or command cannot start.
-// Caller holds s.mu. Stop of the running forever button does not come here.
+// rejectIfActiveLocked reports that an operation cannot start while go is
+// running. Caller holds s.mu. Stop of the running forever button does not
+// come here. Slider, switch, chooser, input, speed, the RNG seed, and
+// once-buttons do not come here either: NetLogo applies those during a run.
 func (s *Session) rejectIfActiveLocked(action string) error {
 	if !s.busy && s.running < 0 {
 		return nil
 	}
 	s.noteIgnoredLocked(action)
-	return fmt.Errorf("%s ignored: the model is running", action)
+	return fmt.Errorf("%s", busyMessage(action))
+}
+
+// busyMessage is the sentence a locked operation shows. It names what to
+// stop for, so the World tab and the command center are not the same
+// "the model is running" error as a slider that should have worked.
+func busyMessage(action string) string {
+	switch action {
+	case "load model":
+		return "Stop the model before loading another model."
+	case "set code":
+		return "Stop the model before changing the code."
+	case "command":
+		return "Stop the model before running a command."
+	case "step":
+		return "Stop the model before stepping."
+	case "set world":
+		return "Stop the model before changing the world."
+	case "go":
+		return "Stop the model before starting another forever button."
+	default:
+		if action == "" {
+			return "Stop the model before doing that."
+		}
+		return fmt.Sprintf("Stop the model before using %s.", action)
+	}
 }
 
 func (s *Session) noteIgnoredLocked(action string) {
