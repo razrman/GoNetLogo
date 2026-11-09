@@ -800,12 +800,13 @@ func (s *Session) PressButton(index int) error {
 // minPz, maxPz, and wrapZ change the Z axis of a 3D world. Pass both Z
 // bounds or neither. A nil wrapZ leaves Z wrapping as it is. On a 2D
 // world the Z arguments are ignored. A non-nil rngSeed reseeds the world
-// RNG after a successful resize. An invalid seed is rejected first, so
-// the grid is left alone.
+// RNG after a successful resize. It is an unsigned decimal integer in
+// 0..4294967295, the 32 bits setSeed uses. An invalid seed is rejected
+// first, so the grid is left alone.
 func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool, rngSeed *string) error {
 	var seed *int64
 	if rngSeed != nil {
-		n, err := nl.DecodeRNGSeed(*rngSeed)
+		n, err := nl.ParseRNGSeed(*rngSeed)
 		if err != nil {
 			return err
 		}
@@ -918,8 +919,9 @@ func worldGeometrySame(w *nl.World, minPx, maxPx, minPy, maxPy int, patchSize fl
 	return true
 }
 
-// GenerateRNGSeed draws a 6-digit seed with crypto/rand, seeds the world
-// RNG with it, and returns the text. The patch grid is not resized.
+// GenerateRNGSeed draws an unsigned 32-bit seed with crypto/rand, seeds
+// the world RNG with it, and returns the decimal text. The patch grid is
+// not resized.
 // random-seed is legal while go is running, so this does not wait for stop.
 // The session lock is not held across the world update: a running button
 // yields by taking the session lock after it drops the world lock.
@@ -928,7 +930,7 @@ func (s *Session) GenerateRNGSeed() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	n, err := nl.DecodeRNGSeed(text)
+	n, err := nl.ParseRNGSeed(text)
 	if err != nil {
 		return "", err
 	}

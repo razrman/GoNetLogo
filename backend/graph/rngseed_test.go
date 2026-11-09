@@ -31,7 +31,7 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 		}
 	}`, &cur, client.Var("id", s.ID))
 	start := cur.WorldSettings
-	if _, err := nl.DecodeRNGSeed(start.RngSeed); err != nil {
+	if _, err := nl.ParseRNGSeed(start.RngSeed); err != nil {
 		t.Fatalf("initial rngSeed %q: %v", start.RngSeed, err)
 	}
 
@@ -68,19 +68,23 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 		nextMin = start.MinPxcor - 1
 	}
 	bad := "NOPE!!"
-	if _, _, err := setSeed(nextMin, &bad); err == nil || !strings.Contains(err.Error(), "alphabet") {
+	if _, _, err := setSeed(nextMin, &bad); err == nil || !strings.Contains(err.Error(), "4294967295") {
 		t.Fatalf("invalid seed error = %v", err)
 	}
-	short := "ABC"
-	if _, _, err := setSeed(nextMin, &short); err == nil || !strings.Contains(err.Error(), "6 characters") {
-		t.Fatalf("short seed error = %v", err)
+	negative := "-1"
+	if _, _, err := setSeed(nextMin, &negative); err == nil || !strings.Contains(err.Error(), "4294967295") {
+		t.Fatalf("negative seed error = %v", err)
+	}
+	tooBig := "4294967296"
+	if _, _, err := setSeed(nextMin, &tooBig); err == nil || !strings.Contains(err.Error(), "4294967295") {
+		t.Fatalf("overflow seed error = %v", err)
 	}
 	c.MustPost(`query ($id: ID!) { worldSettings(sessionId: $id) { minPxcor rngSeed } }`, &cur, client.Var("id", s.ID))
 	if cur.WorldSettings.MinPxcor != start.MinPxcor || cur.WorldSettings.RngSeed != start.RngSeed {
 		t.Fatalf("invalid seed changed the world: %+v", cur.WorldSettings)
 	}
 
-	known := "AAAAAB" // 1, and random 100 then yields 81
+	known := "1" // random 100 then yields 81
 	gotSeed, gotMin, err := setSeed(nextMin, &known)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +115,7 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		var resp struct{ GenerateRngSeed string }
 		c.MustPost(`mutation ($id: ID!) { generateRngSeed(sessionId: $id) }`, &resp, client.Var("id", s.ID))
-		if _, err := nl.DecodeRNGSeed(resp.GenerateRngSeed); err != nil {
+		if _, err := nl.ParseRNGSeed(resp.GenerateRngSeed); err != nil {
 			t.Fatalf("generated %q: %v", resp.GenerateRngSeed, err)
 		}
 		seen[resp.GenerateRngSeed] = true
@@ -135,7 +139,7 @@ func TestRNGSeedApplyAndGenerate(t *testing.T) {
 	if after.WorldSettings.MinPxcor != nextMin || after.Session.World.MinPxcor != nextMin {
 		t.Fatalf("generate resized the world: %+v", after.WorldSettings)
 	}
-	n, err := nl.DecodeRNGSeed(generated)
+	n, err := nl.ParseRNGSeed(generated)
 	if err != nil {
 		t.Fatal(err)
 	}

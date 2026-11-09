@@ -95,7 +95,7 @@ export type WorldView = {
   wrapZ?: boolean
   // True for a NetLogo 3D world, including one whose Z bounds are both 0.
   threeD?: boolean
-  // 6-digit base64 RNG seed. Omitted when this change does not reseed.
+  // Unsigned decimal RNG seed, 0..4294967295. Omitted when this change does not reseed.
   rngSeed?: string
 }
 

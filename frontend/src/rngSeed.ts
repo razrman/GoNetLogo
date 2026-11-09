@@ -1,16 +1,16 @@
-// Six-digit base64 seed for the World tab. The alphabet is RFC 4648
-// section 4, and the first character is the most significant digit.
+// Unsigned decimal seed for the World tab. The value is an integer in
+// 0..4294967295, the 32 bits the world generator actually uses.
 // Decoding to an integer and seeding lives on the server.
-export const rngSeedAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+export const rngSeedMax = 4294967295
 
 export function rngSeedError(seed: string): string | null {
-  if (seed.length !== 6) {
-    return `RNG seed must be 6 characters, not ${seed.length}.`
+  if (!/^[0-9]+$/.test(seed)) {
+    return 'RNG seed must be an integer from 0 to 4294967295.'
   }
-  for (const ch of seed) {
-    if (!rngSeedAlphabet.includes(ch)) {
-      return 'RNG seed must use only the base64 alphabet A-Za-z0-9+/.'
-    }
+  const n = Number(seed)
+  if (!Number.isSafeInteger(n) || n > rngSeedMax) {
+    return 'RNG seed must be an integer from 0 to 4294967295.'
   }
   return null
 }

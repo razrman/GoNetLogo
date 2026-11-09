@@ -993,7 +993,8 @@ function WorldSettingsForm({
         <span>RNG Seed</span>
         <input
           aria-label="RNG Seed"
-          size={6}
+          size={12}
+          inputMode="numeric"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"

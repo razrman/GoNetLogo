@@ -556,8 +556,8 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
 }
 
 .world-settings .seed input {
-  width: 8.5ch;
-  max-width: 8.5ch;
+  width: 12ch;
+  max-width: 12ch;
   font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
 }
 

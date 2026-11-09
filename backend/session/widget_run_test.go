@@ -311,10 +311,7 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedText, err := nl.EncodeRNGSeed(42)
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedText := nl.FormatRNGSeed(42)
 	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, &seedText); err != nil {
 		t.Fatalf("seed during go: %v", err)
 	}

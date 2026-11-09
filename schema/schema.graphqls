@@ -85,9 +85,8 @@ type Mutation {
   Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
   on a 2D world. A 3D world keeps wrapping in X and Y.
   rngSeed, when set, reseeds the world RNG the way random-seed does,
-  after the resize. It is 6 digits in the standard base64 alphabet
-  (A-Z, a-z, 0-9, +, /), most significant digit first. The place value
-  is an integer in 0 .. 2^36-1. Omit rngSeed to leave the RNG alone.
+  after the resize. It is an unsigned decimal integer in 0 .. 4294967295,
+  the 32 bits the generator keeps. Omit rngSeed to leave the RNG alone.
   An invalid string is rejected and the world is not resized.
   """
   setWorld(
@@ -105,8 +104,8 @@ type Mutation {
     rngSeed: String
   ): Session!
   """
-  Draw a new 6-digit base64 RNG seed with crypto/rand, seed the world
-  RNG with it, and return the text. The world is not resized.
+  Draw a new unsigned 32-bit RNG seed with crypto/rand, seed the world
+  RNG with it, and return the decimal text. The world is not resized.
   """
   generateRngSeed(sessionId: ID!): String!
 }
@@ -317,9 +316,8 @@ type WorldSettings {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  This is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
 }
@@ -351,9 +349,8 @@ type World {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  This is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
   """

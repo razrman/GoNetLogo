@@ -2,24 +2,22 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { rngSeedError } from './rngSeed.ts'
 
-test('a 6-character base64 seed is accepted', () => {
-  assert.equal(rngSeedError('AAAAAA'), null)
-  assert.equal(rngSeedError('AAAAAB'), null)
-  assert.equal(rngSeedError('zzzzzz'), null)
-  assert.equal(rngSeedError('0123+/'), null)
-  assert.equal(rngSeedError('//////'), null)
+test('0 and 4294967295 are accepted', () => {
+  assert.equal(rngSeedError('0'), null)
+  assert.equal(rngSeedError('4294967295'), null)
+  assert.equal(rngSeedError('1'), null)
+  assert.equal(rngSeedError('2147483648'), null)
 })
 
-test('wrong length is rejected and not clamped', () => {
-  assert.match(rngSeedError(''), /6 characters, not 0/)
-  assert.match(rngSeedError('AAAAA'), /6 characters, not 5/)
-  assert.match(rngSeedError('AAAAAAA'), /6 characters, not 7/)
-  assert.match(rngSeedError('AAAAA '), /alphabet/)
-})
-
-test('characters outside the alphabet are rejected', () => {
-  assert.match(rngSeedError('AAAAA='), /alphabet/)
-  assert.match(rngSeedError('AAA*AA'), /alphabet/)
-  assert.match(rngSeedError('AAAAAé'), /alphabet/)
-  assert.match(rngSeedError('aaaaa\n'), /6 characters|alphabet/)
+test('negatives, decimals, letters, overflow, and empty are rejected', () => {
+  assert.match(rngSeedError(''), /0 to 4294967295/)
+  assert.match(rngSeedError('-1'), /0 to 4294967295/)
+  assert.match(rngSeedError('-0'), /0 to 4294967295/)
+  assert.match(rngSeedError('1.5'), /0 to 4294967295/)
+  assert.match(rngSeedError('1.0'), /0 to 4294967295/)
+  assert.match(rngSeedError('abc'), /0 to 4294967295/)
+  assert.match(rngSeedError('12a'), /0 to 4294967295/)
+  assert.match(rngSeedError('4294967296'), /0 to 4294967295/)
+  assert.match(rngSeedError(' 1'), /0 to 4294967295/)
+  assert.match(rngSeedError('+1'), /0 to 4294967295/)
 })
