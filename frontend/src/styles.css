@@ -566,6 +566,14 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   cursor: not-allowed;
 }
 
+.world-settings .hint {
+  margin: 0;
+  max-width: 36rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
 .world-settings .patch,
 .world-settings .check {
   display: flex;

@@ -4,6 +4,7 @@ import {
   readSeedOverride,
   rngSeedError,
   rngSeedForApply,
+  seedControlState,
   seedOverrideStorageKey,
   writeSeedOverride,
   type KeyValueStore,
@@ -27,6 +28,20 @@ test('negatives, decimals, letters, overflow, and empty are rejected', () => {
   assert.match(rngSeedError('4294967296'), /0 to 4294967295/)
   assert.match(rngSeedError(' 1'), /0 to 4294967295/)
   assert.match(rngSeedError('+1'), /0 to 4294967295/)
+})
+
+test('the seed box and Random are disabled when override is off', () => {
+  const off = seedControlState(false, false)
+  assert.equal(off.seedDisabled, true)
+  assert.equal(off.randomDisabled, true)
+  assert.equal(off.overrideDisabled, false)
+  const on = seedControlState(true, false)
+  assert.equal(on.seedDisabled, false)
+  assert.equal(on.randomDisabled, false)
+  const noSession = seedControlState(true, true)
+  assert.equal(noSession.seedDisabled, true)
+  assert.equal(noSession.randomDisabled, true)
+  assert.equal(noSession.overrideDisabled, true)
 })
 
 test('override on always sends the seed, including an unchanged one', () => {
