@@ -290,7 +290,9 @@ class Scene3D {
     const mode: PovMode = raw === 'follow' || raw === 'ride' || raw === 'watch' ? raw : ''
     const who = world.subject
     const found = who == null ? undefined : world.turtles.find((t) => t.who === who)
-    const turtle = found
+    // follow and ride need the turtle's heading. watch only needs a point,
+    // so a watched patch or link (no who) still turns the camera.
+    let turtle = found
       ? {
           x: found.x,
           y: found.y,
@@ -300,6 +302,9 @@ class Scene3D {
           roll: found.roll ?? 0,
         }
       : null
+    if (!turtle && mode === 'watch' && world.subjectX != null && world.subjectY != null && world.subjectZ != null) {
+      turtle = { x: world.subjectX, y: world.subjectY, z: world.subjectZ, heading: 0, pitch: 0, roll: 0 }
+    }
     // Keep the saved orbit only while follow continues. Entering follow,
     // leaving it, or an observer command (which already cleared the offset)
     // starts from the camera as it is now.

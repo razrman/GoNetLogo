@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"image/color"
+	"math"
 	"testing"
 
 	"gonetlogo/pkg/nl"
@@ -69,10 +70,14 @@ func TestVoxelAlpha(t *testing.T) {
 func TestWorldFramePerspective(t *testing.T) {
 	w := nl.NewWorld3D(-5, 5, -5, 5, -5, 5)
 	t0 := w.CreateTurtle("", 1, 2, 3, 90)
+	t0.Z = 4
 	w.SetPerspective("follow", t0)
 	f := worldLocked(w)
 	if f.Perspective != "follow" || f.Subject == nil || *f.Subject != t0.Who {
 		t.Fatalf("follow perspective %q subject %v", f.Perspective, f.Subject)
+	}
+	if f.SubjectX == nil || f.SubjectY == nil || f.SubjectZ == nil || *f.SubjectX != 1 || *f.SubjectY != 2 || *f.SubjectZ != 4 {
+		t.Fatalf("follow point %v %v %v", deref(f.SubjectX), deref(f.SubjectY), deref(f.SubjectZ))
 	}
 	w.SetPerspective("ride", t0)
 	f = worldLocked(w)
@@ -86,9 +91,22 @@ func TestWorldFramePerspective(t *testing.T) {
 	}
 	w.ResetPerspective()
 	f = worldLocked(w)
-	if f.Perspective != "" || f.Subject != nil {
-		t.Fatalf("reset perspective %q subject %v", f.Perspective, f.Subject)
+	if f.Perspective != "" || f.Subject != nil || f.SubjectX != nil {
+		t.Fatalf("reset perspective %q subject %v point %v", f.Perspective, f.Subject, f.SubjectX)
 	}
+	patch := w.GetPatch3(-2, 4, -1)
+	w.SetPerspective("watch", patch)
+	f = worldLocked(w)
+	if f.Perspective != "watch" || f.Subject != nil || f.SubjectX == nil || *f.SubjectX != -2 || *f.SubjectY != 4 || *f.SubjectZ != -1 {
+		t.Fatalf("watch patch subject %v point %v %v %v", f.Subject, deref(f.SubjectX), deref(f.SubjectY), deref(f.SubjectZ))
+	}
+}
+
+func deref(p *float64) float64 {
+	if p == nil {
+		return math.NaN()
+	}
+	return *p
 }
 
 func TestWorldFrame2DUnchanged(t *testing.T) {

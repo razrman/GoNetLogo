@@ -432,6 +432,9 @@ export const Frames = `
         observer { x y z targetX targetY targetZ revision }
         perspective
         subject
+        subjectX
+        subjectY
+        subjectZ
         labelFont
         shapes {
           name

@@ -411,6 +411,14 @@ type World struct {
 	// who of the turtle being followed, ridden, or watched. Null when
 	// perspective is empty or the subject is not a turtle.
 	Subject *int `json:"subject,omitempty"`
+	// World position of the followed, ridden, or watched agent.
+	// A patch is at its center and a link at its midpoint. Null when
+	// perspective is empty. The 2D view centers on this point. follow
+	// and ride also rotate so the turtle's heading points up. The 3D
+	// view turns to face it when watching a patch or a link.
+	SubjectX *float64 `json:"subjectX,omitempty"`
+	SubjectY *float64 `json:"subjectY,omitempty"`
+	SubjectZ *float64 `json:"subjectZ,omitempty"`
 	// Label point size at patchSize. NetLogo's default is 10.
 	// The view scales it with the patch when the canvas is a different size.
 	LabelFont int `json:"labelFont"`

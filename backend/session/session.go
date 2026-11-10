@@ -1861,6 +1861,33 @@ func (s *Session) widgetsLocked() []model.Widget {
 	return out
 }
 
+// setPerspectiveSubject publishes who for a turtle and the world point
+// for a turtle, patch, or link. follow and ride are turtles only.
+// watch can sit on any of the three.
+func setPerspectiveSubject(out *model.World, agent nl.Agent) {
+	if agent == nil || agent.IsDead() {
+		return
+	}
+	switch a := agent.(type) {
+	case *nl.Turtle:
+		who := a.Who
+		out.Subject = &who
+		x, y, z := a.X, a.Y, a.Z
+		out.SubjectX, out.SubjectY, out.SubjectZ = &x, &y, &z
+	case *nl.Patch:
+		x, y, z := float64(a.PX), float64(a.PY), float64(a.PZ)
+		out.SubjectX, out.SubjectY, out.SubjectZ = &x, &y, &z
+	case *nl.Link:
+		if a.End1 == nil || a.End2 == nil || a.End1.IsDead() || a.End2.IsDead() {
+			return
+		}
+		x := (a.End1.X + a.End2.X) / 2
+		y := (a.End1.Y + a.End2.Y) / 2
+		z := (a.End1.Z + a.End2.Z) / 2
+		out.SubjectX, out.SubjectY, out.SubjectZ = &x, &y, &z
+	}
+}
+
 func labelFontOf(w *nl.World) int {
 	if w == nil || w.LabelFont <= 0 {
 		return 10
@@ -1934,10 +1961,7 @@ func worldLocked(w *nl.World) model.World {
 	}
 	mode, agent := w.Perspective()
 	out.Perspective = mode
-	if t, ok := agent.(*nl.Turtle); ok && t != nil && !t.IsDead() {
-		who := t.Who
-		out.Subject = &who
-	}
+	setPerspectiveSubject(&out, agent)
 	if turtles := w.Turtles(); turtles != nil {
 		alive := turtles.Alive()
 		if w.Is3D() {

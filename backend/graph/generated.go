@@ -364,6 +364,9 @@ type ComplexityRoot struct {
 		SeedOverride func(childComplexity int) int
 		Shapes       func(childComplexity int) int
 		Subject      func(childComplexity int) int
+		SubjectX     func(childComplexity int) int
+		SubjectY     func(childComplexity int) int
+		SubjectZ     func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
 		Turtles      func(childComplexity int) int
 		Voxels       func(childComplexity int) int
@@ -2247,6 +2250,27 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Subject(childComplexity), true
 
+	case "World.subjectX":
+		if e.complexity.World.SubjectX == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectX(childComplexity), true
+
+	case "World.subjectY":
+		if e.complexity.World.SubjectY == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectY(childComplexity), true
+
+	case "World.subjectZ":
+		if e.complexity.World.SubjectZ == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectZ(childComplexity), true
+
 	case "World.threeD":
 		if e.complexity.World.ThreeD == nil {
 			break
@@ -2983,6 +3007,16 @@ type World {
   perspective is empty or the subject is not a turtle.
   """
   subject: Int
+  """
+  World position of the followed, ridden, or watched agent.
+  A patch is at its center and a link at its midpoint. Null when
+  perspective is empty. The 2D view centers on this point. follow
+  and ride also rotate so the turtle's heading points up. The 3D
+  view turns to face it when watching a patch or a link.
+  """
+  subjectX: Float
+  subjectY: Float
+  subjectZ: Float
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -6718,6 +6752,12 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_perspective(ctx, field)
 			case "subject":
 				return ec.fieldContext_World_subject(ctx, field)
+			case "subjectX":
+				return ec.fieldContext_World_subjectX(ctx, field)
+			case "subjectY":
+				return ec.fieldContext_World_subjectY(ctx, field)
+			case "subjectZ":
+				return ec.fieldContext_World_subjectZ(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -12742,6 +12782,12 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_perspective(ctx, field)
 			case "subject":
 				return ec.fieldContext_World_subject(ctx, field)
+			case "subjectX":
+				return ec.fieldContext_World_subjectX(ctx, field)
+			case "subjectY":
+				return ec.fieldContext_World_subjectY(ctx, field)
+			case "subjectZ":
+				return ec.fieldContext_World_subjectZ(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -16211,6 +16257,129 @@ func (ec *executionContext) fieldContext_World_subject(_ context.Context, field 
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectX(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectX(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectX, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectX(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectY(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectY(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectY, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectZ(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectZ(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectZ, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectZ(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -21123,6 +21292,12 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "subject":
 			out.Values[i] = ec._World_subject(ctx, field, obj)
+		case "subjectX":
+			out.Values[i] = ec._World_subjectX(ctx, field, obj)
+		case "subjectY":
+			out.Values[i] = ec._World_subjectY(ctx, field, obj)
+		case "subjectZ":
+			out.Values[i] = ec._World_subjectZ(ctx, field, obj)
 		case "labelFont":
 			out.Values[i] = ec._World_labelFont(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

@@ -147,6 +147,11 @@ export type World = WorldView & {
   // follow, ride, watch, or empty. subject is the turtle's who.
   perspective?: string
   subject?: number | null
+  // World position of the followed, ridden, or watched agent.
+  // A patch is at its center. Null when perspective is empty.
+  subjectX?: number | null
+  subjectY?: number | null
+  subjectZ?: number | null
   labelFont: number
   shapes: TurtleShape[]
   patchColors: string
