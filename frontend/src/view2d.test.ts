@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { canvasTransform, view2dPose, worldToScreen, type View2DWorld } from './view2d.ts'
+import { beginPatchBlit, canvasTransform, patchImageRect, view2dPose, worldToScreen, type View2DWorld } from './view2d.ts'
 
 function world(partial: Partial<View2DWorld> = {}): View2DWorld {
   return {
@@ -63,4 +63,27 @@ test('watch centers without rotating, including a patch', () => {
   const p = worldToScreen(-2, 2, patch, 8, 40, 40)
   near(m[0] * -2 + m[2] * 2 + m[4], p.x)
   near(m[1] * -2 + m[3] * 2 + m[5], p.y)
+})
+
+test('beginPatchBlit maps a y-down bitmap with a positive dest height', () => {
+  const calls: unknown[][] = []
+  const ctx = {
+    translate: (x: number, y: number) => calls.push(['translate', x, y]),
+    scale: (x: number, y: number) => calls.push(['scale', x, y]),
+  }
+  const w = { minPxcor: -125, maxPxcor: 125, minPycor: -125, maxPycor: 125 }
+  const size = beginPatchBlit(ctx, w)
+  const rect = patchImageRect(w)
+  near(rect.x, -125.5)
+  near(rect.y, 125.5)
+  near(rect.w, 251)
+  near(rect.h, -251)
+  // Positive height: a negative drawImage dest height flips the grid
+  // under the y-up world transform.
+  near(size.w, 251)
+  near(size.h, 251)
+  assert.deepEqual(calls, [
+    ['translate', -125.5, 125.5],
+    ['scale', 1, -1],
+  ])
 })

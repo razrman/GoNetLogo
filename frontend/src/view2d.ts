@@ -81,8 +81,12 @@ export function canvasTransform(
   return [a, b, c, d, e, f]
 }
 
-// patchImageRect is where the patch bitmap sits in world coordinates.
-// Row 0 of the bitmap is maxPycor, so the image height is negative.
+// patchImageRect is the top-left of the patch bitmap in world coordinates.
+// Row 0 of the bitmap is maxPycor. The stored height is negative so that
+// (x, y) + (w, h) is the bottom-right corner, but do not pass that height
+// to canvas drawImage. Under the y-up world transform, a negative dest
+// height is treated as a second vertical flip, and patches no longer sit
+// under turtles. Use beginPatchBlit instead.
 export function patchImageRect(world: { minPxcor: number; maxPxcor: number; minPycor: number; maxPycor: number }) {
   return {
     x: world.minPxcor - 0.5,
@@ -90,4 +94,22 @@ export function patchImageRect(world: { minPxcor: number; maxPxcor: number; minP
     w: world.maxPxcor - world.minPxcor + 1,
     h: -(world.maxPycor - world.minPycor + 1),
   }
+}
+
+export type PatchBlitContext = {
+  translate(x: number, y: number): void
+  scale(x: number, y: number): void
+}
+
+// beginPatchBlit maps a y-down patch or drawing bitmap into world space.
+// Call it after setTransform(canvasTransform(...)), then drawImage at
+// (0, 0, size.w, size.h) with a positive height.
+export function beginPatchBlit(
+  ctx: PatchBlitContext,
+  world: { minPxcor: number; maxPxcor: number; minPycor: number; maxPycor: number },
+): { w: number; h: number } {
+  const r = patchImageRect(world)
+  ctx.translate(r.x, r.y)
+  ctx.scale(1, -1)
+  return { w: r.w, h: -r.h }
 }

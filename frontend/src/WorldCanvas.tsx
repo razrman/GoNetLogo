@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { TurtleShape, World } from './types'
-import { canvasTransform, patchImageRect, view2dPose, worldToScreen } from './view2d'
+import { beginPatchBlit, canvasTransform, view2dPose, worldToScreen } from './view2d'
 import { wrapSegments2D } from './wrapSegment'
 
 // Draw the patch grid, links, and turtles. NetLogo y grows upward and
@@ -71,11 +71,14 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   const pose = view2dPose(world)
   const screenOf = (x: number, y: number) => worldToScreen(x, y, pose, scale, w, h)
   const shapes = shapeMap(world)
-  const image = patchImageRect(world)
 
   ctx.save()
   ctx.imageSmoothingEnabled = pose.rotation !== 0
   ctx.setTransform(...canvasTransform(pose, scale, w, h))
+  // Map the y-down patch bitmap into y-up world space. A negative
+  // drawImage height flips a second time under this transform and
+  // draws burned patches away from the turtles that made them.
+  const blit = beginPatchBlit(ctx, world)
 
   const rgb = decodeRGB(world.patchColors)
   const need = world.width * world.height * 3
@@ -95,7 +98,7 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
         data[j + 3] = 255
       }
       sctx.putImageData(img, 0, 0)
-      ctx.drawImage(scratch, image.x, image.y, image.w, image.h)
+      ctx.drawImage(scratch, 0, 0, blit.w, blit.h)
     }
   }
 
@@ -114,7 +117,7 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
       lctx.clearRect(0, 0, lw, lh)
       lctx.imageSmoothingEnabled = false
       drawDrawing(lctx, world, dw / world.width, shapes)
-      ctx.drawImage(layer, image.x, image.y, image.w, image.h)
+      ctx.drawImage(layer, 0, 0, blit.w, blit.h)
     }
   }
   ctx.restore()
