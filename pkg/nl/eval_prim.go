@@ -699,6 +699,8 @@ func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstV
 	nodeSet := make(map[*Turtle]bool, len(nodes))
 	fx := make(map[*Turtle]float64, len(nodes))
 	fy := make(map[*Turtle]float64, len(nodes))
+	fz := make(map[*Turtle]float64, len(nodes))
+	threeD := vm.World.threeD
 	for _, t := range nodes {
 		nodeSet[t] = true
 	}
@@ -709,7 +711,11 @@ func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstV
 			t2 := nodes[j]
 			dx := t2.X - t1.X
 			dy := t2.Y - t1.Y
-			d := math.Hypot(dx, dy)
+			dz := 0.0
+			if threeD {
+				dz = t2.Z - t1.Z
+			}
+			d := math.Sqrt(dx*dx + dy*dy + dz*dz)
 			if d < 0.001 {
 				d = 0.001
 				dx = 0.001
@@ -722,6 +728,10 @@ func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstV
 			fy[t1] -= repForce * (dy / d)
 			fx[t2] += repForce * (dx / d)
 			fy[t2] += repForce * (dy / d)
+			if threeD {
+				fz[t1] -= repForce * (dz / d)
+				fz[t2] += repForce * (dz / d)
+			}
 		}
 	}
 
@@ -732,7 +742,11 @@ func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstV
 		}
 		dx := t2.X - t1.X
 		dy := t2.Y - t1.Y
-		d := math.Hypot(dx, dy)
+		dz := 0.0
+		if threeD {
+			dz = t2.Z - t1.Z
+		}
+		d := math.Sqrt(dx*dx + dy*dy + dz*dz)
 		if d < 0.001 {
 			d = 0.001
 		}
@@ -747,11 +761,22 @@ func (vm *VM) layoutSpring(nodesVal, linksVal, sprConstVal, sprLenVal, repConstV
 		fy[t1] += springForce * (dy / d)
 		fx[t2] -= springForce * (dx / d)
 		fy[t2] -= springForce * (dy / d)
+		if threeD {
+			fz[t1] += springForce * (dz / d)
+			fz[t2] -= springForce * (dz / d)
+		}
 	}
 
 	for _, t := range nodes {
 		newX := clampInside(t.X+fx[t]*0.1, vm.World.MinPxcor, vm.World.MaxPxcor, vm.World.WrapX)
 		newY := clampInside(t.Y+fy[t]*0.1, vm.World.MinPycor, vm.World.MaxPycor, vm.World.WrapY)
+		if threeD {
+			newZ := clampInside(t.Z+fz[t]*0.1, vm.World.MinPzcor, vm.World.MaxPzcor, vm.World.WrapZ)
+			if err := vm.World.MoveTo3(t, newX, newY, newZ); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := vm.World.MoveTo(t, newX, newY); err != nil {
 			return err
 		}
@@ -779,6 +804,69 @@ func clampInside(x float64, minP, maxP int, wrap bool) float64 {
 		return min
 	}
 	return x
+}
+
+// layoutSphere places turtles on a sphere of the given radius centered
+// at the origin. The points follow a Fibonacci lattice so they are not
+// piled on one plane. It is a NetLogo 3D command.
+func (vm *VM) layoutSphere(agents, radius Value) error {
+	if vm.World == nil || !vm.World.threeD {
+		return fmt.Errorf("layout-sphere is only available in NetLogo 3D")
+	}
+	live, err := layoutTurtles(agents, "layout-sphere")
+	if err != nil {
+		return err
+	}
+	r, err := radius.Num()
+	if err != nil {
+		return err
+	}
+	n := len(live)
+	if n == 0 {
+		return nil
+	}
+	// Fibonacci lattice. The pole is on z, which is up in NetLogo 3D.
+	golden := math.Pi * (3 - math.Sqrt(5))
+	for i, t := range live {
+		var x, y, z float64
+		if n == 1 {
+			z = 1
+		} else {
+			z = 1 - (float64(i)/float64(n-1))*2
+			ring := math.Sqrt(math.Max(0, 1-z*z))
+			phi := float64(i) * golden
+			x = math.Cos(phi) * ring
+			y = math.Sin(phi) * ring
+		}
+		if err := vm.World.MoveTo3(t, r*x, r*y, r*z); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func layoutTurtles(agents Value, cmd string) ([]*Turtle, error) {
+	var live []Agent
+	if agents.K == KindAgentset && agents.Set != nil {
+		live = agents.Set.Alive()
+	} else if agents.K == KindList {
+		for _, v := range agents.L {
+			if v.K == KindAgent && v.A != nil && !v.A.IsDead() {
+				live = append(live, v.A)
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("%s expected a turtle agentset or list of turtles", cmd)
+	}
+	out := make([]*Turtle, 0, len(live))
+	for _, a := range live {
+		t, ok := a.(*Turtle)
+		if !ok {
+			return nil, fmt.Errorf("%s expected turtles", cmd)
+		}
+		out = append(out, t)
+	}
+	return out, nil
 }
 
 func (vm *VM) layoutCircle(agents, radius Value) error {
