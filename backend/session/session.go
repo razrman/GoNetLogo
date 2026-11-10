@@ -127,11 +127,10 @@ type Session struct {
 	pub       nl.FramePublisher
 	// busy is true while a button is inside the interpreter with s.mu released.
 	busy bool
-	// pendingOnce is a once-button to run between steps of go. -1 means
-	// none. A new press replaces one that has not started, so a burst of
-	// clicks cannot pile up commands. NetLogo runs a once-button during a
-	// forever button; the current step is interrupted and go continues.
-	pendingOnce int
+	// pendingOnce is the once-buttons waiting to run between steps of go,
+	// oldest first. Every click is kept. NetLogo runs a once-button during
+	// a forever button; the current step is interrupted and go continues.
+	pendingOnce []int
 	// cancelRun asks the button in progress to stop at the next checkpoint.
 	// A one-shot clears it so setup is not aborted by the stop that ended go.
 	cancelRun bool
@@ -172,7 +171,7 @@ func newSession() *Session {
 	return &Session{
 		id:          newID(),
 		running:     -1,
-		pendingOnce: -1,
+		pendingOnce: nil,
 		speed:       40,
 		frameRate:   nl.DefaultFrameRate,
 		buttons:     map[int][]nl.Stmt{},
@@ -400,7 +399,7 @@ func (s *Session) armYield(vm *nl.VM) {
 		return
 	}
 	vm.ClearHalt()
-	if s.cancelRun || s.closed || s.pendingOnce >= 0 {
+	if s.cancelRun || s.closed || len(s.pendingOnce) > 0 {
 		vm.RequestHalt()
 	}
 	vm.SetYield(func() {
@@ -409,7 +408,7 @@ func (s *Session) armYield(vm *nl.VM) {
 		waited := time.Since(lockAt)
 		now := time.Now()
 		s.sampleTicksLocked()
-		if s.closed || s.cancelRun || s.pendingOnce >= 0 {
+		if s.closed || s.cancelRun || len(s.pendingOnce) > 0 {
 			vm.RequestHalt()
 		}
 		if !s.closed {
@@ -488,6 +487,7 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	if old != nil && old != vm {
 		old.Close()
 	}
+	s.pendingOnce = nil
 	s.setRunningLocked(-1, "load")
 	s.frame = 0
 	s.clock = nl.RunClock{}
@@ -1388,7 +1388,7 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 			// A halt that only makes room for a queued once-button leaves
 			// go running. stop inside a once-button does not cancel a
 			// different forever button.
-			keep := halted && s.pendingOnce >= 0 && !s.cancelRun && s.running == i
+			keep := halted && len(s.pendingOnce) > 0 && !s.cancelRun && s.running == i
 			if s.running == i && !keep {
 				s.setRunningLocked(-1, reason)
 			}
@@ -1406,27 +1406,31 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 }
 
 // queueOnceLocked remembers a once-button and asks the current step to
-// stop at the next checkpoint. Caller holds s.mu.
+// stop at the next checkpoint. Caller holds s.mu. Clicks queue in order;
+// a later click does not replace an earlier one that has not started.
 func (s *Session) queueOnceLocked(index int) {
-	s.pendingOnce = index
+	s.pendingOnce = append(s.pendingOnce, index)
 	if s.vm != nil {
 		s.vm.RequestHalt()
 	}
 }
 
-// runPendingOnceLocked runs a queued once-button. Caller holds s.mu and
-// the interpreter is not already inside a button. The lock is dropped
-// while the button runs and held again on return.
+// runPendingOnceLocked runs the oldest queued once-button. Caller holds
+// s.mu and the interpreter is not already inside a button. The lock is
+// dropped while the button runs and held again on return. One button
+// runs per call so go can continue between them; the rest stay queued.
 func (s *Session) runPendingOnceLocked() {
-	if s.pendingOnce < 0 || s.busy || s.model == nil {
+	if len(s.pendingOnce) == 0 || s.busy || s.model == nil {
 		return
 	}
-	idx := s.pendingOnce
+	idx := s.pendingOnce[0]
+	s.pendingOnce = s.pendingOnce[1:]
+	if len(s.pendingOnce) == 0 {
+		s.pendingOnce = nil
+	}
 	if idx >= len(s.model.Widgets) || s.model.Widgets[idx].Kind != "button" {
-		s.pendingOnce = -1
 		return
 	}
-	s.pendingOnce = -1
 	if s.vm != nil {
 		s.vm.ClearHalt()
 	}
