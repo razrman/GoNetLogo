@@ -11,6 +11,10 @@ export type TrailMark = {
   y2: number
   z2: number
   size: number
+  heading?: number
+  pitch?: number
+  roll?: number
+  shape?: string
   r: number
   g: number
   b: number
@@ -38,26 +42,107 @@ export function penRadius(size: number): number {
   return s * 0.275
 }
 
+// A turtle stamp that is still on the drawing layer.
+export type DrawnStamp = {
+  x: number
+  y: number
+  z: number
+  heading: number
+  pitch: number
+  roll: number
+  size: number
+  shape: string
+  r: number
+  g: number
+  b: number
+}
+
+// stampRadius is how far a stamp's ink reaches. Size 1 fills one patch.
+export function stampRadius(size: number): number {
+  const s = Math.abs(size) > 0 ? Math.abs(size) : 1
+  return s * 0.5
+}
+
 // visiblePenTrails replays the drawing layer and returns the pen ink that
 // is still there. Stamps are not trails. clear-drawing is an empty list.
 export function visiblePenTrails(marks: readonly TrailMark[], bounds: WrapBounds): TrailPiece[] {
-  const active: TrailPiece[] = []
+  return visibleDrawing(marks, bounds).trails
+}
+
+// visibleDrawing replays pen strokes and stamps. pen-erase and stamp-erase
+// remove earlier ink they cover. A stamp-erase does not leave a shape.
+export function visibleDrawing(
+  marks: readonly TrailMark[],
+  bounds: WrapBounds,
+): { trails: TrailPiece[]; stamps: DrawnStamp[] } {
+  let trails: TrailPiece[] = []
+  const stamps: DrawnStamp[] = []
   for (const m of marks) {
-    if (!m.pen) continue
-    const parts = splitMark(m, bounds)
-    if (!m.erase) {
-      active.push(...parts)
+    if (m.pen) {
+      const parts = splitMark(m, bounds)
+      if (!m.erase) {
+        trails.push(...parts)
+        continue
+      }
+      for (const eraser of parts) {
+        trails = eraseTrails(trails, eraser, penRadius(eraser.size))
+        const keep: DrawnStamp[] = []
+        for (const stamp of stamps) {
+          const hit =
+            pointSegmentDistance(vec(stamp.x, stamp.y, stamp.z), vec(eraser.ax, eraser.ay, eraser.az), vec(eraser.bx, eraser.by, eraser.bz)) <=
+            penRadius(eraser.size) + stampRadius(stamp.size)
+          if (!hit) keep.push(stamp)
+        }
+        stamps.length = 0
+        stamps.push(...keep)
+      }
       continue
     }
-    for (const eraser of parts) {
-      const radius = penRadius(eraser.size)
-      const next: TrailPiece[] = []
-      for (const piece of active) next.push(...clipPiece(piece, eraser, radius))
-      active.length = 0
-      active.push(...next)
+    const radius = stampRadius(m.size)
+    if (m.erase) {
+      const eraser: TrailPiece = {
+        ax: m.x,
+        ay: m.y,
+        az: m.z,
+        bx: m.x,
+        by: m.y,
+        bz: m.z,
+        size: m.size,
+        r: 0,
+        g: 0,
+        b: 0,
+      }
+      trails = eraseTrails(trails, eraser, radius)
+      const keep: DrawnStamp[] = []
+      for (const stamp of stamps) {
+        const d = Math.hypot(stamp.x - m.x, stamp.y - m.y, stamp.z - m.z)
+        if (d > radius + stampRadius(stamp.size)) keep.push(stamp)
+      }
+      stamps.length = 0
+      stamps.push(...keep)
+      continue
     }
+    stamps.push({
+      x: m.x,
+      y: m.y,
+      z: m.z,
+      heading: m.heading ?? 0,
+      pitch: m.pitch ?? 0,
+      roll: m.roll ?? 0,
+      size: m.size || 1,
+      shape: m.shape && m.shape.length > 0 ? m.shape : 'default',
+      r: m.r,
+      g: m.g,
+      b: m.b,
+    })
   }
-  return active
+  return { trails, stamps }
+}
+
+function eraseTrails(trails: TrailPiece[], eraser: TrailPiece, radius: number): TrailPiece[] {
+  const next: TrailPiece[] = []
+  for (const piece of trails) next.push(...clipPiece(piece, eraser, radius))
+  return next
 }
 
 function splitMark(m: TrailMark, bounds: WrapBounds): TrailPiece[] {

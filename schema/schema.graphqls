@@ -526,6 +526,9 @@ type DrawingMark {
   """z of the end. 0 in a 2D world."""
   z2: Float!
   heading: Float!
+  """Pitch and roll of a stamp. 0 for a pen stroke and in a 2D world."""
+  pitch: Float!
+  roll: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
   shape: String!

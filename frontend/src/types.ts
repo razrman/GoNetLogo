@@ -33,6 +33,8 @@ export type DrawingMark = {
   y2: number
   z2: number
   heading: number
+  pitch?: number
+  roll?: number
   size: number
   shape: string
   r: number

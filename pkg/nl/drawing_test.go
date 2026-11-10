@@ -255,6 +255,29 @@ ask turtle 0 [ hide-turtle ]
 	}
 }
 
+func TestStamp3DKeepsOrientation(t *testing.T) {
+	vm := newTestVM3D(t, "", -3, 3, 1)
+	mustEval(t, vm, `
+crt 1 [
+  setxyz 1 2 3
+  set heading 90
+  set pitch 30
+  set roll 15
+  set shape "circle"
+  set size 2
+  stamp
+]
+`)
+	marks := vm.World.Marks()
+	if len(marks) != 1 {
+		t.Fatalf("marks %d", len(marks))
+	}
+	m := marks[0]
+	if m.Pen || m.Erase || m.Shape != "circle" || m.X != 1 || m.Y != 2 || m.Z != 3 || m.Heading != 90 || m.Pitch != 30 || m.Roll != 15 || m.Size != 2 {
+		t.Fatalf("stamp %+v", m)
+	}
+}
+
 func TestViewLabels3D(t *testing.T) {
 	vm := newTestVM3D(t, "", -3, 3, 1)
 	mustEval(t, vm, `

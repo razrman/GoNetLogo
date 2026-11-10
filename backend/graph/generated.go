@@ -81,7 +81,9 @@ type ComplexityRoot struct {
 		G       func(childComplexity int) int
 		Heading func(childComplexity int) int
 		Pen     func(childComplexity int) int
+		Pitch   func(childComplexity int) int
 		R       func(childComplexity int) int
+		Roll    func(childComplexity int) int
 		Shape   func(childComplexity int) int
 		Size    func(childComplexity int) int
 		X       func(childComplexity int) int
@@ -601,12 +603,26 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.DrawingMark.Pen(childComplexity), true
 
+	case "DrawingMark.pitch":
+		if e.complexity.DrawingMark.Pitch == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Pitch(childComplexity), true
+
 	case "DrawingMark.r":
 		if e.complexity.DrawingMark.R == nil {
 			break
 		}
 
 		return e.complexity.DrawingMark.R(childComplexity), true
+
+	case "DrawingMark.roll":
+		if e.complexity.DrawingMark.Roll == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Roll(childComplexity), true
 
 	case "DrawingMark.shape":
 		if e.complexity.DrawingMark.Shape == nil {
@@ -3067,6 +3083,9 @@ type DrawingMark {
   """z of the end. 0 in a 2D world."""
   z2: Float!
   heading: Float!
+  """Pitch and roll of a stamp. 0 for a pen stroke and in a 2D world."""
+  pitch: Float!
+  roll: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
   shape: String!
@@ -5124,6 +5143,94 @@ func (ec *executionContext) _DrawingMark_heading(ctx context.Context, field grap
 }
 
 func (ec *executionContext) fieldContext_DrawingMark_heading(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DrawingMark_pitch(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_pitch(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Pitch, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_pitch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DrawingMark_roll(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_roll(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Roll, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_roll(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "DrawingMark",
 		Field:      field,
@@ -16582,6 +16689,10 @@ func (ec *executionContext) fieldContext_World_drawing(_ context.Context, field 
 				return ec.fieldContext_DrawingMark_z2(ctx, field)
 			case "heading":
 				return ec.fieldContext_DrawingMark_heading(ctx, field)
+			case "pitch":
+				return ec.fieldContext_DrawingMark_pitch(ctx, field)
+			case "roll":
+				return ec.fieldContext_DrawingMark_roll(ctx, field)
 			case "size":
 				return ec.fieldContext_DrawingMark_size(ctx, field)
 			case "shape":
@@ -19416,6 +19527,16 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			}
 		case "heading":
 			out.Values[i] = ec._DrawingMark_heading(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pitch":
+			out.Values[i] = ec._DrawingMark_pitch(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "roll":
+			out.Values[i] = ec._DrawingMark_roll(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { labelAnchors } from './labels3d'
 import { patchCube, patchOpacity, voxelStride } from './patchStyle'
-import { penRadius, visiblePenTrails } from './penTrail'
+import { penRadius, visibleDrawing, type DrawnStamp } from './penTrail'
 import { applyPov, type PovMode } from './pov'
 import { ShapeLibrary, groupTurtles, shapeScale } from './turtleShape'
 import type { Observer3D, World } from './types'
@@ -102,6 +102,19 @@ const maxCapacity = 1 << 20
 
 type Bounds = { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number }
 
+type PlacedAgent = {
+  x: number
+  y: number
+  z?: number
+  heading: number
+  pitch?: number
+  roll?: number
+  size: number
+  r: number
+  g: number
+  b: number
+}
+
 class Scene3D {
   private renderer: THREE.WebGLRenderer
   private labels: CSS2DRenderer
@@ -121,6 +134,7 @@ class Scene3D {
   private patchMaterial = patchMaterial()
   private shapes = new ShapeLibrary()
   private shapeBatches = new Map<string, { marked: THREE.InstancedMesh | null; fixed: THREE.InstancedMesh | null }>()
+  private stampBatches = new Map<string, { marked: THREE.InstancedMesh | null; fixed: THREE.InstancedMesh | null }>()
   private markedMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })
   private fixedMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
   private billboards = 0
@@ -231,6 +245,7 @@ class Scene3D {
     this.trailGeometry.dispose()
     this.trailMaterial.dispose()
     this.clearShapeBatches()
+    this.clearStampBatches()
     this.shapes.dispose()
     this.markedMaterial.dispose()
     this.fixedMaterial.dispose()
@@ -443,7 +458,10 @@ class Scene3D {
   }
 
   private updateTurtles(world: World) {
-    if (this.shapes.sync(world.shapes)) this.clearShapeBatches()
+    if (this.shapes.sync(world.shapes)) {
+      this.clearShapeBatches()
+      this.clearStampBatches()
+    }
     const groups = groupTurtles(world.turtles, this.shapes)
     const used = new Set<string>()
     this.billboards = 0
@@ -468,7 +486,7 @@ class Scene3D {
   private paintTurtles(
     current: THREE.InstancedMesh | null,
     geometry: THREE.BufferGeometry | null,
-    turtles: World['turtles'],
+    turtles: PlacedAgent[],
     colored: boolean,
     billboard: boolean,
   ): THREE.InstancedMesh | null {
@@ -547,6 +565,48 @@ class Scene3D {
     this.billboards = 0
   }
 
+  // updateStamps draws turtle stamps with the same cached shapes as live
+  // turtles. stamp-erase has already removed whatever it covered.
+  private updateStamps(stamps: DrawnStamp[]) {
+    const agents = stamps.map((s) => ({
+      shape: s.shape,
+      hidden: false,
+      x: s.x,
+      y: s.y,
+      z: s.z,
+      heading: s.heading,
+      pitch: s.pitch,
+      roll: s.roll,
+      size: s.size,
+      r: s.r,
+      g: s.g,
+      b: s.b,
+    }))
+    const groups = groupTurtles(agents, this.shapes)
+    const used = new Set<string>()
+    for (const [key, group] of groups) {
+      used.add(key)
+      const built = this.shapes.resolve(group[0].shape)
+      const batch = this.stampBatches.get(key) ?? { marked: null, fixed: null }
+      this.stampBatches.set(key, batch)
+      batch.marked = this.paintTurtles(batch.marked, built.marked, group, true, built.billboard)
+      batch.fixed = this.paintTurtles(batch.fixed, built.fixed, group, false, built.billboard)
+    }
+    for (const [key, batch] of this.stampBatches) {
+      if (used.has(key)) continue
+      hideMesh(batch.marked)
+      hideMesh(batch.fixed)
+    }
+  }
+
+  private clearStampBatches() {
+    for (const batch of this.stampBatches.values()) {
+      this.dropMesh(batch.marked)
+      this.dropMesh(batch.fixed)
+    }
+    this.stampBatches.clear()
+  }
+
   private dropMesh(mesh: THREE.InstancedMesh | null) {
     if (!mesh) return
     this.scene.remove(mesh)
@@ -557,7 +617,9 @@ class Scene3D {
   // pen-erase has removed. clear-drawing arrives as an empty list. Turtles
   // start pen-up, so a model that never calls pen-down keeps this empty.
   private updateTrails(world: World) {
-    const pieces = visiblePenTrails(world.drawing ?? [], linkWrapBounds(world))
+    const drawn = visibleDrawing(world.drawing ?? [], linkWrapBounds(world))
+    const pieces = drawn.trails
+    this.updateStamps(drawn.stamps)
     if (pieces.length === 0) {
       if (this.trails) {
         this.trails.count = 0

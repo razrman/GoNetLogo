@@ -54,7 +54,10 @@ type DrawingMark struct {
 	// z of the end. 0 in a 2D world.
 	Z2      float64 `json:"z2"`
 	Heading float64 `json:"heading"`
-	Size    float64 `json:"size"`
+	// Pitch and roll of a stamp. 0 for a pen stroke and in a 2D world.
+	Pitch float64 `json:"pitch"`
+	Roll  float64 `json:"roll"`
+	Size  float64 `json:"size"`
 	// Empty for a pen stroke. Turtle shape name for a stamp.
 	Shape string `json:"shape"`
 	R     int    `json:"r"`
