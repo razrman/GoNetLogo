@@ -343,6 +343,129 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	}
 }
 
+func TestOnceButtonsKeepEveryClick(t *testing.T) {
+	const model = `globals [seen]
+to setup
+  clear-all
+  set seen 0
+  reset-ticks
+end
+to go
+  wait 0.02
+end
+to click [n]
+  set seen seen * 10 + n
+end
+@#$#@#$#@
+BUTTON
+0
+0
+10
+10
+setup
+setup
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+0
+20
+10
+30
+go
+go
+T
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+0
+
+BUTTON
+0
+40
+10
+50
+a
+click 1
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+0
+60
+10
+70
+b
+click 2
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+@#$#@#$#@
+`
+	s := newSession()
+	defer s.Close()
+	if err := s.useModel("queue.nlogo", model); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	go s.loop()
+	if err := s.Go(); err != nil {
+		t.Fatal(err)
+	}
+	waitRunning(t, s)
+	for _, name := range []string{"a", "b", "a"} {
+		i := widgetIndex(s, "button", name)
+		if i < 0 {
+			t.Fatalf("button %s missing", name)
+		}
+		if err := s.PressButton(i); err != nil {
+			t.Fatalf("press %s: %v", name, err)
+		}
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	var got float64
+	for {
+		n, ok := globalNum(s, "seen")
+		got = n
+		if ok && n == 121 {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("seen %v, want 121", got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !s.Session().Running {
+		t.Fatal("queued once-buttons stopped go")
+	}
+}
+
 func globalNum(s *Session, name string) (float64, bool) {
 	s.mu.Lock()
 	vm := s.vm

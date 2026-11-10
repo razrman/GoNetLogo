@@ -624,8 +624,26 @@ canvas.world {
 
 .world3d-canvas:active { cursor: grabbing; }
 
+.world3d-labels {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.world3d-label {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.15;
+  white-space: pre;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  user-select: none;
+}
+
 .world3d-overlay {
   position: absolute;
+  z-index: 2;
   top: 8px;
   left: 8px;
   display: flex;

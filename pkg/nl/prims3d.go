@@ -22,6 +22,8 @@ var reporters3D = map[string]primSpec{
 	"towards-pitch-nowrap":                {argc: 1, prec: precNormal},
 	"towards-pitch-xyz":                   {argc: 3, prec: precNormal},
 	"towards-pitch-xyz-nowrap":            {argc: 3, prec: precNormal},
+	"towardsxyz":                          {argc: 3, prec: precNormal},
+	"towardsxyz-nowrap":                   {argc: 3, prec: precNormal},
 	"patch-at-heading-pitch-and-distance": {argc: 3, prec: precNormal},
 }
 
@@ -56,6 +58,7 @@ var commands3D = map[string]primSpec{
 	"zoom":           {argc: 1},
 	"resize-world":   {argc: 6},
 	"load-shapes-3d": {argc: 1},
+	"layout-sphere":  {argc: 2},
 }
 
 // isZeroArgReporter reports whether name is a zero-argument reporter in
@@ -262,6 +265,8 @@ func (vm *VM) primCmd3D(name string, args []Value, pos Pos) (handled bool, err e
 			w.ObserverZoom(n)
 		}
 		return true, nil
+	case "layout-sphere":
+		return true, vm.layoutSphere(args[0], args[1])
 	case "load-shapes-3d":
 		// 3D shapes only change how turtles are drawn by a 3D renderer,
 		// which GoNetLogo does not have yet. Turtle shape names are not
@@ -380,6 +385,17 @@ func (vm *VM) evalReporter3D(name string, args []Value, pos Pos) (Value, bool, e
 		}
 		p, err := w.PitchTowards(sx, sy, sz, n[0], n[1], n[2], name == "towards-pitch-xyz")
 		return Num(p), true, err
+	case "towardsxyz", "towardsxyz-nowrap":
+		n, err := nums(args, name)
+		if err != nil {
+			return Value{}, true, err
+		}
+		sx, sy, sz, err := vm.selfPoint3()
+		if err != nil {
+			return Value{}, true, err
+		}
+		h, err := w.HeadingTowards3(sx, sy, sz, n[0], n[1], n[2], name == "towardsxyz")
+		return Num(h), true, err
 	case "patch-ahead":
 		d, err := args[0].Num()
 		if err != nil {

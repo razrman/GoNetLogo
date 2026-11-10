@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { penRadius, visiblePenTrails, type TrailMark } from './penTrail.ts'
+import { penRadius, stampRadius, visibleDrawing, visiblePenTrails, type TrailMark } from './penTrail.ts'
 import type { WrapBounds } from './wrapSegment.ts'
 
 function bounds(wrap = false): WrapBounds {
@@ -81,4 +81,116 @@ test('a wrapped pen stroke is split at the wall instead of cutting across', () =
 
 test('clear-drawing is an empty layer', () => {
   assert.deepEqual(visiblePenTrails([], bounds()), [])
+})
+
+test('a 3D stamp is drawn, and stamp-erase removes the ink it covers', () => {
+  assert.equal(stampRadius(2), 1)
+  const drawn = visibleDrawing(
+    [
+      stroke({ x: 0, y: 0, z: 0, x2: 4, y2: 0, z2: 0 }),
+      {
+        pen: false,
+        erase: false,
+        x: 1,
+        y: 0,
+        z: 1,
+        x2: 1,
+        y2: 0,
+        z2: 1,
+        size: 2,
+        heading: 90,
+        pitch: 20,
+        roll: 5,
+        shape: 'circle',
+        r: 1,
+        g: 2,
+        b: 3,
+      },
+      {
+        pen: false,
+        erase: true,
+        x: 1,
+        y: 0,
+        z: 1,
+        x2: 1,
+        y2: 0,
+        z2: 1,
+        size: 2,
+        shape: 'circle',
+        r: 0,
+        g: 0,
+        b: 0,
+      },
+      {
+        pen: false,
+        erase: false,
+        x: 8,
+        y: 0,
+        z: 0,
+        x2: 8,
+        y2: 0,
+        z2: 0,
+        size: 1,
+        heading: 0,
+        shape: 'square',
+        r: 9,
+        g: 8,
+        b: 7,
+      },
+    ],
+    bounds(),
+  )
+  assert.equal(drawn.stamps.length, 1)
+  assert.equal(drawn.stamps[0].shape, 'square')
+  assert.equal(drawn.stamps[0].x, 8)
+  // The erased stamp sat on the trail, so that part of the stroke is gone
+  // and the far end remains.
+  assert.ok(drawn.trails.length >= 1)
+  for (const piece of drawn.trails) {
+    assert.ok(piece.ax > 1.5 || piece.bx > 1.5)
+  }
+})
+
+test('pen-erase removes a stamp the stroke crosses, and a later stamp stays', () => {
+  const drawn = visibleDrawing(
+    [
+      {
+        pen: false,
+        erase: false,
+        x: 0,
+        y: 0,
+        z: 0,
+        x2: 0,
+        y2: 0,
+        z2: 0,
+        size: 1,
+        shape: 'circle',
+        r: 1,
+        g: 0,
+        b: 0,
+      },
+      stroke({ x: -2, y: 0, z: 0, x2: 2, y2: 0, z2: 0, erase: true }),
+      {
+        pen: false,
+        erase: false,
+        x: 5,
+        y: 0,
+        z: 2,
+        x2: 5,
+        y2: 0,
+        z2: 2,
+        size: 1,
+        pitch: 40,
+        shape: 'default',
+        r: 4,
+        g: 5,
+        b: 6,
+      },
+    ],
+    bounds(),
+  )
+  assert.equal(drawn.stamps.length, 1)
+  assert.equal(drawn.stamps[0].shape, 'default')
+  assert.equal(drawn.stamps[0].z, 2)
+  assert.equal(drawn.stamps[0].pitch, 40)
 })

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { TurtleShape, World } from './types'
+import { canvasTransform, patchImageRect, view2dPose, worldToScreen } from './view2d'
 import { wrapSegments2D } from './wrapSegment'
 
 // Draw the patch grid, links, and turtles. NetLogo y grows upward and
@@ -65,11 +66,16 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   if (!world || world.width === 0 || world.height === 0) return
 
   // Square patches, letterboxed into the canvas. A wide world stays wide.
+  // follow, ride, and watch keep that scale and move the center.
   const scale = Math.min(w / world.width, h / world.height)
-  const dw = world.width * scale
-  const dh = world.height * scale
-  const ox = Math.floor((w - dw) / 2)
-  const oy = Math.floor((h - dh) / 2)
+  const pose = view2dPose(world)
+  const screenOf = (x: number, y: number) => worldToScreen(x, y, pose, scale, w, h)
+  const shapes = shapeMap(world)
+  const image = patchImageRect(world)
+
+  ctx.save()
+  ctx.imageSmoothingEnabled = pose.rotation !== 0
+  ctx.setTransform(...canvasTransform(pose, scale, w, h))
 
   const rgb = decodeRGB(world.patchColors)
   const need = world.width * world.height * 3
@@ -89,16 +95,14 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
         data[j + 3] = 255
       }
       sctx.putImageData(img, 0, 0)
-      ctx.drawImage(scratch, ox, oy, dw, dh)
+      ctx.drawImage(scratch, image.x, image.y, image.w, image.h)
     }
   }
 
-  const xOf = (x: number) => ox + (x - (world.minPxcor - 0.5)) * scale
-  const yOf = (y: number) => oy + (world.maxPycor + 0.5 - y) * scale
-
-  const shapes = shapeMap(world)
   const marks = world.drawing ?? []
   if (marks.length > 0) {
+    const dw = world.width * scale
+    const dh = world.height * scale
     const lw = Math.max(1, Math.round(dw))
     const lh = Math.max(1, Math.round(dh))
     if (layer.width !== lw || layer.height !== lh) {
@@ -110,9 +114,10 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
       lctx.clearRect(0, 0, lw, lh)
       lctx.imageSmoothingEnabled = false
       drawDrawing(lctx, world, dw / world.width, shapes)
-      ctx.drawImage(layer, ox, oy, dw, dh)
+      ctx.drawImage(layer, image.x, image.y, image.w, image.h)
     }
   }
+  ctx.restore()
 
   ctx.lineWidth = Math.max(1, scale * 0.12)
   ctx.textBaseline = 'middle'
@@ -129,15 +134,19 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
     const segs = wrapSegments2D({ x: link.x1, y: link.y1 }, { x: link.x2, y: link.y2 }, linkBounds)
     ctx.beginPath()
     for (const s of segs) {
-      ctx.moveTo(xOf(s.a.x), yOf(s.a.y))
-      ctx.lineTo(xOf(s.b.x), yOf(s.b.y))
+      const a = screenOf(s.a.x, s.a.y)
+      const b = screenOf(s.b.x, s.b.y)
+      ctx.moveTo(a.x, a.y)
+      ctx.lineTo(b.x, b.y)
     }
     ctx.stroke()
   }
 
+  const turn = (pose.rotation * 180) / Math.PI
   for (const t of world.turtles) {
     if (t.hidden) continue
-    drawAgent(ctx, xOf(t.x), yOf(t.y), t.size, t.heading, t.shape, t.r, t.g, t.b, scale, shapes)
+    const p = screenOf(t.x, t.y)
+    drawAgent(ctx, p.x, p.y, t.size, t.heading - turn, t.shape, t.r, t.g, t.b, scale, shapes)
   }
 
   const labels = world.labels ?? []
@@ -154,20 +163,36 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
         const t = byWho.get(label.who)
         if (!t || t.hidden) continue
         const size = t.size || 1
-        paintLabel(ctx, xOf(t.x + size * 0.5), yOf(t.y - size * 0.5), label.text, fontPx)
+        const p = screenOf(t.x + size * 0.5, t.y - size * 0.5)
+        paintLabel(ctx, p.x, p.y, label.text, fontPx)
       } else if (label.px != null && label.py != null) {
-        paintLabel(ctx, xOf(label.px + 0.5), yOf(label.py - 0.5), label.text, fontPx)
+        const p = screenOf(label.px + 0.5, label.py - 0.5)
+        paintLabel(ctx, p.x, p.y, label.text, fontPx)
       } else if (label.lx != null && label.ly != null) {
-        paintLabel(ctx, xOf(label.lx), yOf(label.ly), label.text, fontPx)
+        const p = screenOf(label.lx, label.ly)
+        paintLabel(ctx, p.x, p.y, label.text, fontPx)
       }
     }
   }
+
+  if (pose.spotlight) paintSpotlight(ctx, w / 2, h / 2, scale)
 
   // A 3D world is shown from above: the server projects each column to
   // its highest colored patch and sends turtles low to high. Say so, so
   // the flat picture is not mistaken for the whole world.
   const depth = world.depth ?? 1
-  if (depth > 1) paintBadge(ctx, ox, oy, `3D · top-down view · ${depth} layers`, dpr)
+  if (depth > 1) {
+    const corner = screenOf(world.minPxcor - 0.5, world.maxPycor + 0.5)
+    paintBadge(ctx, corner.x, corner.y, `3D · top-down view · ${depth} layers`, dpr)
+  }
+}
+
+function paintSpotlight(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  const g = ctx.createRadialGradient(x, y, scale * 1.4, x, y, scale * 7)
+  g.addColorStop(0, 'rgba(0, 0, 0, 0)')
+  g.addColorStop(1, 'rgba(0, 0, 0, 0.62)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
 }
 
 function paintBadge(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, dpr: number) {

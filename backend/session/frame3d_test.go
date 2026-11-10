@@ -3,6 +3,8 @@ package session
 import (
 	"encoding/base64"
 	"encoding/binary"
+	"image/color"
+	"math"
 	"testing"
 
 	"gonetlogo/pkg/nl"
@@ -30,11 +32,36 @@ func TestVoxelsPacking(t *testing.T) {
 		t.Fatalf("voxel 1 at %d %d %d", at(1, 0), at(1, 2), at(1, 4))
 	}
 	green := nl.ColorRGBA(55)
-	if raw[6] != green.R || raw[7] != green.G || raw[8] != green.B {
-		t.Fatalf("voxel 0 color %v, want %v", raw[6:9], green)
+	if raw[6] != green.R || raw[7] != green.G || raw[8] != green.B || raw[9] != 255 {
+		t.Fatalf("voxel 0 color %v, want %v alpha 255", raw[6:10], green)
 	}
 	if got := voxels(nl.NewWorld(-3, 3, -3, 3, true, true)); got != "" {
 		t.Fatalf("2D world voxels %q", got)
+	}
+}
+
+// TestVoxelAlpha checks that an RGBA patch keeps its alpha and that a
+// fully transparent patch is left out of the 3D buffer.
+func TestVoxelAlpha(t *testing.T) {
+	w := nl.NewWorld3D(-1, 1, -1, 1, -1, 1)
+	glass := w.GetPatch3(1, 0, 1)
+	glass.HasRGB = true
+	glass.RGB = color.RGBA{R: 10, G: 20, B: 30, A: 128}
+	clear := w.GetPatch3(-1, 0, 0)
+	clear.HasRGB = true
+	clear.RGB = color.RGBA{R: 9, G: 9, B: 9, A: 0}
+	raw, err := base64.StdEncoding.DecodeString(voxels(w))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != voxelBytes {
+		t.Fatalf("%d bytes, want one voxel (%d)", len(raw), voxelBytes)
+	}
+	if int(int16(binary.LittleEndian.Uint16(raw[0:]))) != 1 || raw[9] != 128 {
+		t.Fatalf("voxel %v", raw)
+	}
+	if raw[6] != 10 || raw[7] != 20 || raw[8] != 30 {
+		t.Fatalf("rgb %v", raw[6:9])
 	}
 }
 
@@ -43,10 +70,14 @@ func TestVoxelsPacking(t *testing.T) {
 func TestWorldFramePerspective(t *testing.T) {
 	w := nl.NewWorld3D(-5, 5, -5, 5, -5, 5)
 	t0 := w.CreateTurtle("", 1, 2, 3, 90)
+	t0.Z = 4
 	w.SetPerspective("follow", t0)
 	f := worldLocked(w)
 	if f.Perspective != "follow" || f.Subject == nil || *f.Subject != t0.Who {
 		t.Fatalf("follow perspective %q subject %v", f.Perspective, f.Subject)
+	}
+	if f.SubjectX == nil || f.SubjectY == nil || f.SubjectZ == nil || *f.SubjectX != 1 || *f.SubjectY != 2 || *f.SubjectZ != 4 {
+		t.Fatalf("follow point %v %v %v", deref(f.SubjectX), deref(f.SubjectY), deref(f.SubjectZ))
 	}
 	w.SetPerspective("ride", t0)
 	f = worldLocked(w)
@@ -60,9 +91,22 @@ func TestWorldFramePerspective(t *testing.T) {
 	}
 	w.ResetPerspective()
 	f = worldLocked(w)
-	if f.Perspective != "" || f.Subject != nil {
-		t.Fatalf("reset perspective %q subject %v", f.Perspective, f.Subject)
+	if f.Perspective != "" || f.Subject != nil || f.SubjectX != nil {
+		t.Fatalf("reset perspective %q subject %v point %v", f.Perspective, f.Subject, f.SubjectX)
 	}
+	patch := w.GetPatch3(-2, 4, -1)
+	w.SetPerspective("watch", patch)
+	f = worldLocked(w)
+	if f.Perspective != "watch" || f.Subject != nil || f.SubjectX == nil || *f.SubjectX != -2 || *f.SubjectY != 4 || *f.SubjectZ != -1 {
+		t.Fatalf("watch patch subject %v point %v %v %v", f.Subject, deref(f.SubjectX), deref(f.SubjectY), deref(f.SubjectZ))
+	}
+}
+
+func deref(p *float64) float64 {
+	if p == nil {
+		return math.NaN()
+	}
+	return *p
 }
 
 func TestWorldFrame2DUnchanged(t *testing.T) {

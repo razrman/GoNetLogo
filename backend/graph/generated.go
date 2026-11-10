@@ -59,6 +59,7 @@ type ComplexityRoot struct {
 		R    func(childComplexity int) int
 		Text func(childComplexity int) int
 		Who  func(childComplexity int) int
+		Z    func(childComplexity int) int
 	}
 
 	CommandResult struct {
@@ -80,7 +81,9 @@ type ComplexityRoot struct {
 		G       func(childComplexity int) int
 		Heading func(childComplexity int) int
 		Pen     func(childComplexity int) int
+		Pitch   func(childComplexity int) int
 		R       func(childComplexity int) int
+		Roll    func(childComplexity int) int
 		Shape   func(childComplexity int) int
 		Size    func(childComplexity int) int
 		X       func(childComplexity int) int
@@ -363,6 +366,9 @@ type ComplexityRoot struct {
 		SeedOverride func(childComplexity int) int
 		Shapes       func(childComplexity int) int
 		Subject      func(childComplexity int) int
+		SubjectX     func(childComplexity int) int
+		SubjectY     func(childComplexity int) int
+		SubjectZ     func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
 		Turtles      func(childComplexity int) int
 		Voxels       func(childComplexity int) int
@@ -506,6 +512,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.AgentLabel.Who(childComplexity), true
 
+	case "AgentLabel.z":
+		if e.complexity.AgentLabel.Z == nil {
+			break
+		}
+
+		return e.complexity.AgentLabel.Z(childComplexity), true
+
 	case "CommandResult.error":
 		if e.complexity.CommandResult.Error == nil {
 			break
@@ -590,12 +603,26 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.DrawingMark.Pen(childComplexity), true
 
+	case "DrawingMark.pitch":
+		if e.complexity.DrawingMark.Pitch == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Pitch(childComplexity), true
+
 	case "DrawingMark.r":
 		if e.complexity.DrawingMark.R == nil {
 			break
 		}
 
 		return e.complexity.DrawingMark.R(childComplexity), true
+
+	case "DrawingMark.roll":
+		if e.complexity.DrawingMark.Roll == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Roll(childComplexity), true
 
 	case "DrawingMark.shape":
 		if e.complexity.DrawingMark.Shape == nil {
@@ -2239,6 +2266,27 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Subject(childComplexity), true
 
+	case "World.subjectX":
+		if e.complexity.World.SubjectX == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectX(childComplexity), true
+
+	case "World.subjectY":
+		if e.complexity.World.SubjectY == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectY(childComplexity), true
+
+	case "World.subjectZ":
+		if e.complexity.World.SubjectZ == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectZ(childComplexity), true
+
 	case "World.threeD":
 		if e.complexity.World.ThreeD == nil {
 			break
@@ -2955,9 +3003,9 @@ type World {
   """
   seedOverride: Boolean!
   """
-  Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
-  pxcor, pycor, pzcor as little-endian int16, then r, g, b.
-  Patch order (highest layer first). Black patches are omitted.
+  Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
+  pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
+  Patch order (highest layer first). Black patches and alpha 0 are omitted.
   Empty for a 2D world, whose patches are in patchColors.
   """
   voxels: String!
@@ -2975,6 +3023,16 @@ type World {
   perspective is empty or the subject is not a turtle.
   """
   subject: Int
+  """
+  World position of the followed, ridden, or watched agent.
+  A patch is at its center and a link at its midpoint. Null when
+  perspective is empty. The 2D view centers on this point. follow
+  and ride also rotate so the turtle's heading points up. The 3D
+  view turns to face it when watching a patch or a link.
+  """
+  subjectX: Float
+  subjectY: Float
+  subjectZ: Float
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -3025,6 +3083,9 @@ type DrawingMark {
   """z of the end. 0 in a 2D world."""
   z2: Float!
   heading: Float!
+  """Pitch and roll of a stamp. 0 for a pen stroke and in a 2D world."""
+  pitch: Float!
+  roll: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
   shape: String!
@@ -3048,6 +3109,11 @@ type AgentLabel {
   lx: Float
   """Link midpoint y. Null for a turtle or patch label."""
   ly: Float
+  """
+  z of the anchor. A turtle uses its zcor, a link the midpoint z, and a
+  patch its pzcor. 0 in a 2D world.
+  """
+  z: Float!
   text: String!
   r: Int!
   g: Int!
@@ -4074,6 +4140,50 @@ func (ec *executionContext) fieldContext_AgentLabel_ly(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _AgentLabel_z(ctx context.Context, field graphql.CollectedField, obj *model.AgentLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AgentLabel_z(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AgentLabel_z(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AgentLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _AgentLabel_text(ctx context.Context, field graphql.CollectedField, obj *model.AgentLabel) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_AgentLabel_text(ctx, field)
 	if err != nil {
@@ -5033,6 +5143,94 @@ func (ec *executionContext) _DrawingMark_heading(ctx context.Context, field grap
 }
 
 func (ec *executionContext) fieldContext_DrawingMark_heading(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DrawingMark_pitch(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_pitch(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Pitch, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_pitch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DrawingMark_roll(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_roll(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Roll, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_roll(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "DrawingMark",
 		Field:      field,
@@ -6661,6 +6859,12 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_perspective(ctx, field)
 			case "subject":
 				return ec.fieldContext_World_subject(ctx, field)
+			case "subjectX":
+				return ec.fieldContext_World_subjectX(ctx, field)
+			case "subjectY":
+				return ec.fieldContext_World_subjectY(ctx, field)
+			case "subjectZ":
+				return ec.fieldContext_World_subjectZ(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -12685,6 +12889,12 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_perspective(ctx, field)
 			case "subject":
 				return ec.fieldContext_World_subject(ctx, field)
+			case "subjectX":
+				return ec.fieldContext_World_subjectX(ctx, field)
+			case "subjectY":
+				return ec.fieldContext_World_subjectY(ctx, field)
+			case "subjectZ":
+				return ec.fieldContext_World_subjectZ(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -16159,6 +16369,129 @@ func (ec *executionContext) fieldContext_World_subject(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _World_subjectX(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectX(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectX, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectX(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectY(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectY(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectY, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectZ(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectZ(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectZ, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectZ(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _World_labelFont(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_World_labelFont(ctx, field)
 	if err != nil {
@@ -16356,6 +16689,10 @@ func (ec *executionContext) fieldContext_World_drawing(_ context.Context, field 
 				return ec.fieldContext_DrawingMark_z2(ctx, field)
 			case "heading":
 				return ec.fieldContext_DrawingMark_heading(ctx, field)
+			case "pitch":
+				return ec.fieldContext_DrawingMark_pitch(ctx, field)
+			case "roll":
+				return ec.fieldContext_DrawingMark_roll(ctx, field)
 			case "size":
 				return ec.fieldContext_DrawingMark_size(ctx, field)
 			case "shape":
@@ -16422,6 +16759,8 @@ func (ec *executionContext) fieldContext_World_labels(_ context.Context, field g
 				return ec.fieldContext_AgentLabel_lx(ctx, field)
 			case "ly":
 				return ec.fieldContext_AgentLabel_ly(ctx, field)
+			case "z":
+				return ec.fieldContext_AgentLabel_z(ctx, field)
 			case "text":
 				return ec.fieldContext_AgentLabel_text(ctx, field)
 			case "r":
@@ -18993,6 +19332,11 @@ func (ec *executionContext) _AgentLabel(ctx context.Context, sel ast.SelectionSe
 			out.Values[i] = ec._AgentLabel_lx(ctx, field, obj)
 		case "ly":
 			out.Values[i] = ec._AgentLabel_ly(ctx, field, obj)
+		case "z":
+			out.Values[i] = ec._AgentLabel_z(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "text":
 			out.Values[i] = ec._AgentLabel_text(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19183,6 +19527,16 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			}
 		case "heading":
 			out.Values[i] = ec._DrawingMark_heading(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pitch":
+			out.Values[i] = ec._DrawingMark_pitch(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "roll":
+			out.Values[i] = ec._DrawingMark_roll(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -21059,6 +21413,12 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "subject":
 			out.Values[i] = ec._World_subject(ctx, field, obj)
+		case "subjectX":
+			out.Values[i] = ec._World_subjectX(ctx, field, obj)
+		case "subjectY":
+			out.Values[i] = ec._World_subjectY(ctx, field, obj)
+		case "subjectZ":
+			out.Values[i] = ec._World_subjectZ(ctx, field, obj)
 		case "labelFont":
 			out.Values[i] = ec._World_labelFont(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
