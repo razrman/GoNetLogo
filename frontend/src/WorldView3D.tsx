@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { penRadius, visiblePenTrails } from './penTrail'
 import { applyPov, type PovMode } from './pov'
+import { ShapeLibrary, groupTurtles, shapeScale } from './turtleShape'
 import type { Observer3D, World } from './types'
 import { WorldCanvas } from './WorldCanvas'
 import { wrapSegments, type WrapBounds } from './wrapSegment'
@@ -22,8 +23,10 @@ import { wrapSegments, type WrapBounds } from './wrapSegment'
 // clears that and the observer revision sends the camera home.
 //
 // Patches and turtles are InstancedMeshes, so a dense world is a couple
-// of draw calls. Patch instances are rebuilt only when the voxel buffer
-// changes.
+// of draw calls per shape. Patch instances are rebuilt only when the voxel
+// buffer changes. Turtle geometry is cached per shape and is not rebuilt
+// when a turtle moves or changes color; a shape change only moves that
+// turtle onto another cached mesh.
 
 export default function WorldView3D({ world }: { world: World }) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -104,15 +107,17 @@ class Scene3D {
   private controls: OrbitControls
   private box: THREE.LineSegments | null = null
   private patches: THREE.InstancedMesh | null = null
-  private turtles: THREE.InstancedMesh | null = null
   private links: THREE.LineSegments
   private trails: THREE.InstancedMesh | null = null
   private trailGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 5)
   private trailMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
   private patchGeometry = new THREE.BoxGeometry(patchSize, patchSize, patchSize)
   private patchMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
-  private turtleGeometry: THREE.BufferGeometry
-  private turtleMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
+  private shapes = new ShapeLibrary()
+  private shapeBatches = new Map<string, { marked: THREE.InstancedMesh | null; fixed: THREE.InstancedMesh | null }>()
+  private markedMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+  private fixedMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
+  private billboards = 0
   private painted: World | null = null
   private voxels: string | undefined
   private boundsKey = ''
@@ -151,12 +156,6 @@ class Scene3D {
     sun.position.set(0.4, -0.6, 1)
     this.scene.add(sun)
 
-    // A flat dart: the tip points along heading and pitch, and the flat
-    // side shows roll. ConeGeometry points along +y; flatten it on z.
-    this.turtleGeometry = new THREE.ConeGeometry(0.42, 1, 4, 1)
-    this.turtleGeometry.rotateY(Math.PI / 4)
-    this.turtleGeometry.scale(1, 1, 0.4)
-
     this.links = new THREE.LineSegments(
       new THREE.BufferGeometry(),
       new THREE.LineBasicMaterial({ vertexColors: true }),
@@ -190,7 +189,11 @@ class Scene3D {
       this.painted = world
       this.dirty = true
     }
-    if (this.controls.update()) this.dirty = true
+    const cameraMoved = this.controls.update()
+    if (cameraMoved) this.dirty = true
+    // Side-view shapes face the camera, so an orbit redraws them even
+    // when the world itself has not changed.
+    if (cameraMoved && this.billboards > 0 && this.painted) this.updateTurtles(this.painted)
     // A drag while following changes the orbit. Keep that offset so the
     // next world frame does not snap back to the old one.
     if (this.povMode === 'follow') {
@@ -213,8 +216,10 @@ class Scene3D {
     this.patchMaterial.dispose()
     this.trailGeometry.dispose()
     this.trailMaterial.dispose()
-    this.turtleGeometry.dispose()
-    this.turtleMaterial.dispose()
+    this.clearShapeBatches()
+    this.shapes.dispose()
+    this.markedMaterial.dispose()
+    this.fixedMaterial.dispose()
     this.links.geometry.dispose()
     ;(this.links.material as THREE.Material).dispose()
     this.box?.geometry.dispose()
@@ -376,18 +381,19 @@ class Scene3D {
     n: number,
     geometry: THREE.BufferGeometry,
     material: THREE.Material,
+    colored = true,
   ): THREE.InstancedMesh {
-    if (current && current.instanceMatrix.count >= n) return current
-    if (current) {
-      this.scene.remove(current)
-      current.dispose()
+    if (current && current.geometry === geometry && current.material === material && current.instanceMatrix.count >= n) {
+      return current
     }
+    if (current) this.dropMesh(current)
     let cap = 64
     while (cap < n && cap < maxCapacity) cap *= 2
     const mesh = new THREE.InstancedMesh(geometry, material, cap)
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     // Create the color attribute now so the shader is built with it.
-    mesh.setColorAt(0, this.color.set(0xffffff))
+    // Shape parts that carry their own colors must not be tinted.
+    if (colored) mesh.setColorAt(0, this.color.set(0xffffff))
     mesh.count = 0
     mesh.frustumCulled = false
     this.scene.add(mesh)
@@ -414,28 +420,79 @@ class Scene3D {
   }
 
   private updateTurtles(world: World) {
-    const visible = world.turtles.filter((t) => !t.hidden)
-    const mesh = this.instanced(this.turtles, visible.length, this.turtleGeometry, this.turtleMaterial)
-    this.turtles = mesh
+    if (this.shapes.sync(world.shapes)) this.clearShapeBatches()
+    const groups = groupTurtles(world.turtles, this.shapes)
+    const used = new Set<string>()
+    this.billboards = 0
+    for (const [key, turtles] of groups) {
+      used.add(key)
+      const built = this.shapes.resolve(turtles[0].shape)
+      if (built.billboard) this.billboards += turtles.length
+      const batch = this.shapeBatches.get(key) ?? { marked: null, fixed: null }
+      this.shapeBatches.set(key, batch)
+      batch.marked = this.paintTurtles(batch.marked, built.marked, turtles, true, built.billboard)
+      batch.fixed = this.paintTurtles(batch.fixed, built.fixed, turtles, false, built.billboard)
+    }
+    for (const [key, batch] of this.shapeBatches) {
+      if (used.has(key)) continue
+      hideMesh(batch.marked)
+      hideMesh(batch.fixed)
+    }
+  }
+
+  // paintTurtles writes one instanced mesh for a shared geometry. colored
+  // meshes take the turtle color; the others use colors baked into the shape.
+  private paintTurtles(
+    current: THREE.InstancedMesh | null,
+    geometry: THREE.BufferGeometry | null,
+    turtles: World['turtles'],
+    colored: boolean,
+    billboard: boolean,
+  ): THREE.InstancedMesh | null {
+    if (!geometry || turtles.length === 0) {
+      hideMesh(current)
+      return current
+    }
+    const material = colored ? this.markedMaterial : this.fixedMaterial
+    const mesh = this.instanced(current, turtles.length, geometry, material, colored)
+    mesh.visible = true
     const right = new THREE.Vector3()
     const forward = new THREE.Vector3()
     const up = new THREE.Vector3()
-    const n = Math.min(visible.length, mesh.instanceMatrix.count)
+    const cam = this.camera.position
+    const n = Math.min(turtles.length, mesh.instanceMatrix.count)
     for (let i = 0; i < n; i++) {
-      const t = visible[i]
-      orientationBasis(t.heading, t.pitch ?? 0, t.roll ?? 0, right, forward, up)
-      const s = t.size || 1
-      // Columns: local x -> right, local y (the cone's tip) -> forward,
-      // local z (the flat side's normal) -> up.
+      const t = turtles[i]
+      const s = shapeScale(t.size)
+      if (billboard) billboardBasis(cam, t.x, t.y, t.z ?? 0, this.camera.up, right, forward, up)
+      else orientationBasis(t.heading, t.pitch ?? 0, t.roll ?? 0, right, forward, up)
       this.scratch.makeBasis(right.multiplyScalar(s), forward.multiplyScalar(s), up.multiplyScalar(s))
       this.scratch.setPosition(t.x, t.y, t.z ?? 0)
       mesh.setMatrixAt(i, this.scratch)
-      this.color.setRGB(t.r / 255, t.g / 255, t.b / 255, THREE.SRGBColorSpace)
-      mesh.setColorAt(i, this.color)
+      if (colored) {
+        this.color.setRGB(t.r / 255, t.g / 255, t.b / 255, THREE.SRGBColorSpace)
+        mesh.setColorAt(i, this.color)
+      }
     }
     mesh.count = n
     mesh.instanceMatrix.needsUpdate = true
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    if (colored && mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    return mesh
+  }
+
+  private clearShapeBatches() {
+    for (const batch of this.shapeBatches.values()) {
+      this.dropMesh(batch.marked)
+      this.dropMesh(batch.fixed)
+    }
+    this.shapeBatches.clear()
+    this.billboards = 0
+  }
+
+  private dropMesh(mesh: THREE.InstancedMesh | null) {
+    if (!mesh) return
+    this.scene.remove(mesh)
+    mesh.dispose()
   }
 
   // updateTrails draws pen-down strokes as tubes and leaves out whatever
@@ -550,6 +607,39 @@ function orientationBasis(
   const ry = -sh
   up.set(ux * cr + rx * sr, uy * cr + ry * sr, uz * cr)
   right.set(rx * cr - ux * sr, ry * cr - uy * sr, -uz * sr)
+}
+
+function hideMesh(mesh: THREE.InstancedMesh | null) {
+  if (!mesh) return
+  mesh.count = 0
+  mesh.visible = false
+}
+
+// billboardBasis faces a flat shape at the camera and keeps it upright.
+// local y is the normal toward the camera, local z is up.
+function billboardBasis(
+  cam: THREE.Vector3,
+  x: number,
+  y: number,
+  z: number,
+  camUp: THREE.Vector3,
+  right: THREE.Vector3,
+  normal: THREE.Vector3,
+  up: THREE.Vector3,
+) {
+  normal.set(cam.x - x, cam.y - y, cam.z - z)
+  if (normal.lengthSq() < 1e-8) normal.set(0, -1, 0)
+  else normal.normalize()
+  up.set(0, 0, 1)
+  if (Math.abs(normal.dot(up)) > 0.98) {
+    up.copy(camUp)
+    if (up.lengthSq() < 1e-8) up.set(0, 1, 0)
+    else up.normalize()
+  }
+  right.crossVectors(up, normal)
+  if (right.lengthSq() < 1e-8) right.set(1, 0, 0)
+  else right.normalize()
+  up.crossVectors(normal, right).normalize()
 }
 
 function webglAvailable(): boolean {
