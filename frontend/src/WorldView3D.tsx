@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { patchCube, patchOpacity, voxelStride } from './patchStyle'
 import { penRadius, visiblePenTrails } from './penTrail'
 import { applyPov, type PovMode } from './pov'
 import { ShapeLibrary, groupTurtles, shapeScale } from './turtleShape'
@@ -95,7 +96,6 @@ export default function WorldView3D({ world }: { world: World }) {
 }
 
 const background = 0x0c0e0a
-const patchSize = 0.86
 const maxCapacity = 1 << 20
 
 type Bounds = { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number }
@@ -111,8 +111,8 @@ class Scene3D {
   private trails: THREE.InstancedMesh | null = null
   private trailGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 5)
   private trailMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
-  private patchGeometry = new THREE.BoxGeometry(patchSize, patchSize, patchSize)
-  private patchMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
+  private patchGeometry = new THREE.BoxGeometry(patchCube, patchCube, patchCube)
+  private patchMaterial = patchMaterial()
   private shapes = new ShapeLibrary()
   private shapeBatches = new Map<string, { marked: THREE.InstancedMesh | null; fixed: THREE.InstancedMesh | null }>()
   private markedMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })
@@ -402,21 +402,24 @@ class Scene3D {
 
   private updatePatches(encoded: string) {
     const bytes = decodeBase64(encoded)
-    const n = Math.min(Math.floor(bytes.length / 9), maxCapacity)
+    const n = Math.min(Math.floor(bytes.length / voxelStride), maxCapacity)
     const mesh = this.instanced(this.patches, n, this.patchGeometry, this.patchMaterial)
     this.patches = mesh
     mesh.visible = this.patchesVisible
+    const alphas = patchAlphas(this.patchGeometry, mesh.instanceMatrix.count)
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     for (let i = 0; i < n; i++) {
-      const o = i * 9
+      const o = i * voxelStride
       this.scratch.makeTranslation(view.getInt16(o, true), view.getInt16(o + 2, true), view.getInt16(o + 4, true))
       mesh.setMatrixAt(i, this.scratch)
       this.color.setRGB(bytes[o + 6] / 255, bytes[o + 7] / 255, bytes[o + 8] / 255, THREE.SRGBColorSpace)
       mesh.setColorAt(i, this.color)
+      alphas.setX(i, patchOpacity(bytes[o + 9]))
     }
     mesh.count = n
     mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    alphas.needsUpdate = true
   }
 
   private updateTurtles(world: World) {
@@ -607,6 +610,31 @@ function orientationBasis(
   const ry = -sh
   up.set(ux * cr + rx * sr, uy * cr + ry * sr, uz * cr)
   right.set(rx * cr - ux * sr, ry * cr - uy * sr, -uz * sr)
+}
+
+// patchMaterial draws cubes with a per-instance alpha so an RGBA pcolor
+// stays as transparent as the model asked, and a normal color stays
+// see-through. Depth is not written, so turtles inside the volume show.
+function patchMaterial(): THREE.MeshLambertMaterial {
+  const material = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, depthWrite: false })
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float patchAlpha;\nvarying float vPatchAlpha;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatchAlpha = patchAlpha;')
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vPatchAlpha;')
+      .replace('#include <opaque_fragment>', 'diffuseColor.a *= vPatchAlpha;\n#include <opaque_fragment>')
+  }
+  return material
+}
+
+function patchAlphas(geometry: THREE.BufferGeometry, cap: number): THREE.InstancedBufferAttribute {
+  const prev = geometry.getAttribute('patchAlpha')
+  if (prev instanceof THREE.InstancedBufferAttribute && prev.count >= cap) return prev
+  const attr = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(cap, 1)), 1)
+  attr.setUsage(THREE.DynamicDrawUsage)
+  geometry.setAttribute('patchAlpha', attr)
+  return attr
 }
 
 function hideMesh(mesh: THREE.InstancedMesh | null) {

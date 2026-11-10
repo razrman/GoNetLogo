@@ -139,7 +139,7 @@ export type World = WorldView & {
   // Patch layers: 1 for a 2D world. A 3D world (depth > 1) is drawn by
   // WorldView3D from voxels, turtle z/pitch/roll, and link z.
   depth?: number
-  // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b.
+  // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b, a.
   voxels?: string
   observer?: Observer3D | null
   // follow, ride, watch, or empty. subject is the turtle's who.

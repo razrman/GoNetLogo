@@ -393,9 +393,9 @@ type World struct {
 	// When true, rngSeed is applied before every setup and after a model load.
 	// A random-seed command in the model still runs afterward.
 	SeedOverride bool `json:"seedOverride"`
-	// Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
-	// pxcor, pycor, pzcor as little-endian int16, then r, g, b.
-	// Patch order (highest layer first). Black patches are omitted.
+	// Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
+	// pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
+	// Patch order (highest layer first). Black patches and alpha 0 are omitted.
 	// Empty for a 2D world, whose patches are in patchColors.
 	Voxels string `json:"voxels"`
 	// The observer camera of a 3D world. Null for a 2D world.

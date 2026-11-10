@@ -1987,13 +1987,15 @@ func worldLocked(w *nl.World) model.World {
 }
 
 // voxelBytes is the size of one packed voxel: three int16 coordinates and
-// an RGB color.
-const voxelBytes = 9
+// an RGBA color. Alpha is the color's own alpha; the 3D view turns a
+// fully opaque NetLogo color into a translucent cube.
+const voxelBytes = 10
 
 // voxels packs the non-black patches of a 3D world for the 3D view:
-// pxcor, pycor, pzcor as little-endian int16, then r, g, b. A world is
+// pxcor, pycor, pzcor as little-endian int16, then r, g, b, a. A world is
 // at most nl.MaxWorldSide patches on a side, so coordinates fit in int16.
 // A 2D world sends an empty string; its patches are in patchColors.
+// Alpha 0 is omitted: that patch would not be drawn.
 func voxels(w *nl.World) string {
 	if !w.Is3D() {
 		return ""
@@ -2001,6 +2003,9 @@ func voxels(w *nl.World) string {
 	var raw []byte
 	var rec [voxelBytes]byte
 	w.EachVoxel(func(v nl.Voxel) {
+		if v.C.A == 0 {
+			return
+		}
 		if raw == nil {
 			// Most colored 3D worlds color a good share of their patches;
 			// start at a quarter of the grid to skip early regrowth.
@@ -2009,7 +2014,7 @@ func voxels(w *nl.World) string {
 		binary.LittleEndian.PutUint16(rec[0:], uint16(int16(v.X)))
 		binary.LittleEndian.PutUint16(rec[2:], uint16(int16(v.Y)))
 		binary.LittleEndian.PutUint16(rec[4:], uint16(int16(v.Z)))
-		rec[6], rec[7], rec[8] = v.C.R, v.C.G, v.C.B
+		rec[6], rec[7], rec[8], rec[9] = v.C.R, v.C.G, v.C.B, v.C.A
 		raw = append(raw, rec[:]...)
 	})
 	if len(raw) == 0 {

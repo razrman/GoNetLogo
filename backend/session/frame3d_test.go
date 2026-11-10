@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/base64"
 	"encoding/binary"
+	"image/color"
 	"testing"
 
 	"gonetlogo/pkg/nl"
@@ -30,11 +31,36 @@ func TestVoxelsPacking(t *testing.T) {
 		t.Fatalf("voxel 1 at %d %d %d", at(1, 0), at(1, 2), at(1, 4))
 	}
 	green := nl.ColorRGBA(55)
-	if raw[6] != green.R || raw[7] != green.G || raw[8] != green.B {
-		t.Fatalf("voxel 0 color %v, want %v", raw[6:9], green)
+	if raw[6] != green.R || raw[7] != green.G || raw[8] != green.B || raw[9] != 255 {
+		t.Fatalf("voxel 0 color %v, want %v alpha 255", raw[6:10], green)
 	}
 	if got := voxels(nl.NewWorld(-3, 3, -3, 3, true, true)); got != "" {
 		t.Fatalf("2D world voxels %q", got)
+	}
+}
+
+// TestVoxelAlpha checks that an RGBA patch keeps its alpha and that a
+// fully transparent patch is left out of the 3D buffer.
+func TestVoxelAlpha(t *testing.T) {
+	w := nl.NewWorld3D(-1, 1, -1, 1, -1, 1)
+	glass := w.GetPatch3(1, 0, 1)
+	glass.HasRGB = true
+	glass.RGB = color.RGBA{R: 10, G: 20, B: 30, A: 128}
+	clear := w.GetPatch3(-1, 0, 0)
+	clear.HasRGB = true
+	clear.RGB = color.RGBA{R: 9, G: 9, B: 9, A: 0}
+	raw, err := base64.StdEncoding.DecodeString(voxels(w))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != voxelBytes {
+		t.Fatalf("%d bytes, want one voxel (%d)", len(raw), voxelBytes)
+	}
+	if int(int16(binary.LittleEndian.Uint16(raw[0:]))) != 1 || raw[9] != 128 {
+		t.Fatalf("voxel %v", raw)
+	}
+	if raw[6] != 10 || raw[7] != 20 || raw[8] != 30 {
+		t.Fatalf("rgb %v", raw[6:9])
 	}
 }
 
