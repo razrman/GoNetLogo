@@ -72,6 +72,36 @@ func (r *mutationResolver) SetCode(ctx context.Context, sessionID string, code s
 	return out, nil
 }
 
+// SetDynamics is the resolver for the setDynamics field.
+func (r *mutationResolver) SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	err = s.SetDynamics(definition)
+	out := &model.CompileResult{Ok: err == nil, Session: *s.Session()}
+	if err != nil {
+		msg := err.Error()
+		out.Error = &msg
+	}
+	return out, nil
+}
+
+// SetDynamicsDt is the resolver for the setDynamicsDt field.
+func (r *mutationResolver) SetDynamicsDt(ctx context.Context, sessionID string, dt string) (*model.CompileResult, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	err = s.SetDT(dt)
+	out := &model.CompileResult{Ok: err == nil, Session: *s.Session()}
+	if err != nil {
+		msg := err.Error()
+		out.Error = &msg
+	}
+	return out, nil
+}
+
 // RunCommand is the resolver for the runCommand field.
 func (r *mutationResolver) RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error) {
 	s, err := r.session(sessionID)
@@ -161,9 +191,9 @@ func (r *mutationResolver) SetInput(ctx context.Context, sessionID string, index
 }
 
 // SetWorld is the resolver for the setWorld field.
-func (r *mutationResolver) SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string) (*model.Session, error) {
+func (r *mutationResolver) SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) (*model.Session, error) {
 	return r.run(sessionID, func(s *session.Session) error {
-		return s.SetWorld(minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX, wrapY, minPzcor, maxPzcor, wrapZ, rngSeed)
+		return s.SetWorld(minPxcor, maxPxcor, minPycor, maxPycor, patchSize, wrapX, wrapY, minPzcor, maxPzcor, wrapZ, rngSeed, seedOverride)
 	})
 }
 
@@ -174,6 +204,13 @@ func (r *mutationResolver) GenerateRngSeed(ctx context.Context, sessionID string
 		return "", err
 	}
 	return s.GenerateRNGSeed()
+}
+
+// SetSeedOverride is the resolver for the setSeedOverride field.
+func (r *mutationResolver) SetSeedOverride(ctx context.Context, sessionID string, on bool) (*model.Session, error) {
+	return r.run(sessionID, func(s *session.Session) error {
+		return s.SetSeedOverride(on)
+	})
 }
 
 // Models is the resolver for the models field.

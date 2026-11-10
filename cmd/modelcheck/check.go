@@ -330,23 +330,42 @@ func setupButtonScore(prog *nl.Program, src, display string) int {
 }
 
 func findGoAction(prog *nl.Program, widgets []nl.Widget) string {
+	// A button or procedure named go wins. Several 3D code examples have
+	// no go and instead loop on a forever button (roll-right, go-distance).
+	// That button is the run the checker should exercise.
+	if src := foreverAction(widgets, true); src != "" {
+		return src
+	}
+	if isCommand(prog, "go") {
+		return "go"
+	}
+	return foreverAction(widgets, false)
+}
+
+func foreverAction(widgets []nl.Widget, namedGo bool) string {
 	for _, w := range widgets {
 		if w.Kind != "button" {
 			continue
 		}
 		src := strings.TrimSpace(w.Source)
-		if src == "go" || strings.ToLower(w.Display) == "go" {
-			if strings.EqualFold(w.Agent, "turtle") || strings.EqualFold(w.Agent, "turtles") {
-				return "ask turtles [ " + src + " ]"
-			}
-			if strings.EqualFold(w.Agent, "patch") || strings.EqualFold(w.Agent, "patches") {
-				return "ask patches [ " + src + " ]"
-			}
-			return src
+		if src == "" {
+			continue
 		}
-	}
-	if isCommand(prog, "go") {
-		return "go"
+		named := src == "go" || strings.EqualFold(strings.TrimSpace(w.Display), "go")
+		if namedGo {
+			if !named {
+				continue
+			}
+		} else if !w.Forever || named {
+			continue
+		}
+		if strings.EqualFold(w.Agent, "turtle") || strings.EqualFold(w.Agent, "turtles") {
+			return "ask turtles [ " + src + " ]"
+		}
+		if strings.EqualFold(w.Agent, "patch") || strings.EqualFold(w.Agent, "patches") {
+			return "ask patches [ " + src + " ]"
+		}
+		return src
 	}
 	return ""
 }

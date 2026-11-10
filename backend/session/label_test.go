@@ -50,7 +50,7 @@ ask patch -1 1 [ set plabel "" ]
 		switch {
 		case lb.Who != nil:
 			turtleLabel++
-			if *lb.Who != 0 || lb.Text != "8" || lb.Px != nil || lb.Py != nil || lb.Lx != nil {
+			if *lb.Who != 0 || lb.Text != "8" || lb.Px != nil || lb.Py != nil || lb.Lx != nil || lb.Z != 0 {
 				t.Fatalf("turtle label %+v text %q", lb, lb.Text)
 			}
 			if lb.R < 180 || lb.G > 90 {
@@ -58,7 +58,7 @@ ask patch -1 1 [ set plabel "" ]
 			}
 		case lb.Px != nil && lb.Py != nil:
 			patchLabel++
-			if *lb.Px != 0 || *lb.Py != 0 || lb.Text != "nest" || lb.Who != nil {
+			if *lb.Px != 0 || *lb.Py != 0 || lb.Text != "nest" || lb.Who != nil || lb.Z != 0 {
 				t.Fatalf("patch label %+v", lb)
 			}
 			if lb.B < 140 || lb.B < lb.R {

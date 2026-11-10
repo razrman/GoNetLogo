@@ -14,11 +14,14 @@ type AgentLabel struct {
 	// Link midpoint x. Null for a turtle or patch label.
 	Lx *float64 `json:"lx,omitempty"`
 	// Link midpoint y. Null for a turtle or patch label.
-	Ly   *float64 `json:"ly,omitempty"`
-	Text string   `json:"text"`
-	R    int      `json:"r"`
-	G    int      `json:"g"`
-	B    int      `json:"b"`
+	Ly *float64 `json:"ly,omitempty"`
+	// z of the anchor. A turtle uses its zcor, a link the midpoint z, and a
+	// patch its pzcor. 0 in a 2D world.
+	Z    float64 `json:"z"`
+	Text string  `json:"text"`
+	R    int     `json:"r"`
+	G    int     `json:"g"`
+	B    int     `json:"b"`
 }
 
 type CommandResult struct {
@@ -51,12 +54,39 @@ type DrawingMark struct {
 	// z of the end. 0 in a 2D world.
 	Z2      float64 `json:"z2"`
 	Heading float64 `json:"heading"`
-	Size    float64 `json:"size"`
+	// Pitch and roll of a stamp. 0 for a pen stroke and in a 2D world.
+	Pitch float64 `json:"pitch"`
+	Roll  float64 `json:"roll"`
+	Size  float64 `json:"size"`
 	// Empty for a pen stroke. Turtle shape name for a stamp.
 	Shape string `json:"shape"`
 	R     int    `json:"r"`
 	G     int    `json:"g"`
 	B     int    `json:"b"`
+}
+
+type DynamicsConverter struct {
+	Name       string `json:"name"`
+	Expression string `json:"expression"`
+	// True when the expression is one literal.
+	Constant bool `json:"constant"`
+}
+
+// One flow. source and sink name the figures it leaves and enters.
+type DynamicsFlow struct {
+	Name       string `json:"name"`
+	Expression string `json:"expression"`
+	// Empty when the flow leaves a reservoir.
+	Source string `json:"source"`
+	// Empty when the flow enters a reservoir.
+	Sink string `json:"sink"`
+}
+
+type DynamicsStock struct {
+	Name string `json:"name"`
+	// NetLogo expression for the initial value.
+	Initial       string `json:"initial"`
+	AllowNegative bool   `json:"allowNegative"`
 }
 
 type Frame struct {
@@ -242,6 +272,11 @@ type Session struct {
 	OutputPartial string   `json:"outputPartial"`
 	Widgets       []Widget `json:"widgets"`
 	World         World    `json:"world"`
+	// Stock-and-flow diagram from the model's System Dynamics section.
+	// Null when the file has no such section. definition is the text the
+	// Dynamics tab edits. source is the NetLogo Compile appends; the Code
+	// tab does not show it.
+	Dynamics *SystemDynamics `json:"dynamics,omitempty"`
 }
 
 // One polygon, rectangle, circle, or line in a turtle shape.
@@ -266,6 +301,22 @@ type ShapeElement struct {
 }
 
 type Subscription struct {
+}
+
+// One System Dynamics diagram. flows are the rates. An empty flow end is
+// a reservoir. constant is true when a converter expression is one literal,
+// so the engine makes it a global instead of a reporter.
+type SystemDynamics struct {
+	// dt expression, as stored. The engine uses 1.0 when this is blank.
+	Dt         string              `json:"dt"`
+	Stocks     []DynamicsStock     `json:"stocks"`
+	Flows      []DynamicsFlow      `json:"flows"`
+	Converters []DynamicsConverter `json:"converters"`
+	// Editable definition. setDynamics sends this text back.
+	Definition string `json:"definition"`
+	// NetLogo procedures the engine appends at compile time. This is
+	// SystemDynamics.Source and is not edited directly.
+	Source string `json:"source"`
 }
 
 type Turtle struct {
@@ -341,13 +392,16 @@ type World struct {
 	WrapZ bool `json:"wrapZ"`
 	// True when this is a NetLogo 3D world, even if both Z bounds are 0.
 	ThreeD bool `json:"threeD"`
-	// World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-	// significant digit first. This is the low 36 bits of the integer last
-	// passed to random-seed.
+	// World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+	// When seedOverride is true, this is the stored override seed. Otherwise
+	// it is the low 32 bits of the integer last passed to random-seed.
 	RngSeed string `json:"rngSeed"`
-	// Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
-	// pxcor, pycor, pzcor as little-endian int16, then r, g, b.
-	// Patch order (highest layer first). Black patches are omitted.
+	// When true, rngSeed is applied before every setup and after a model load.
+	// A random-seed command in the model still runs afterward.
+	SeedOverride bool `json:"seedOverride"`
+	// Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
+	// pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
+	// Patch order (highest layer first). Black patches and alpha 0 are omitted.
 	// Empty for a 2D world, whose patches are in patchColors.
 	Voxels string `json:"voxels"`
 	// The observer camera of a 3D world. Null for a 2D world.
@@ -360,6 +414,14 @@ type World struct {
 	// who of the turtle being followed, ridden, or watched. Null when
 	// perspective is empty or the subject is not a turtle.
 	Subject *int `json:"subject,omitempty"`
+	// World position of the followed, ridden, or watched agent.
+	// A patch is at its center and a link at its midpoint. Null when
+	// perspective is empty. The 2D view centers on this point. follow
+	// and ride also rotate so the turtle's heading points up. The 3D
+	// view turns to face it when watching a patch or a link.
+	SubjectX *float64 `json:"subjectX,omitempty"`
+	SubjectY *float64 `json:"subjectY,omitempty"`
+	SubjectZ *float64 `json:"subjectZ,omitempty"`
 	// Label point size at patchSize. NetLogo's default is 10.
 	// The view scales it with the patch when the canvas is a different size.
 	LabelFont int `json:"labelFont"`
@@ -398,8 +460,11 @@ type WorldSettings struct {
 	WrapZ bool `json:"wrapZ"`
 	// True when this is a NetLogo 3D world, even if both Z bounds are 0.
 	ThreeD bool `json:"threeD"`
-	// World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-	// significant digit first. This is the low 36 bits of the integer last
-	// passed to random-seed.
+	// World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+	// When seedOverride is true, this is the stored override seed. Otherwise
+	// it is the low 32 bits of the integer last passed to random-seed.
 	RngSeed string `json:"rngSeed"`
+	// When true, rngSeed is applied before every setup and after a model load.
+	// A random-seed command in the model still runs afterward.
+	SeedOverride bool `json:"seedOverride"`
 }

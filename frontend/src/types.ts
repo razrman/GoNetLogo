@@ -33,6 +33,8 @@ export type DrawingMark = {
   y2: number
   z2: number
   heading: number
+  pitch?: number
+  roll?: number
   size: number
   shape: string
   r: number
@@ -46,6 +48,8 @@ export type AgentLabel = {
   py: number | null
   lx: number | null
   ly: number | null
+  // Turtle zcor, link midpoint z, or patch pzcor. 0 in a 2D world.
+  z: number
   text: string
   r: number
   g: number
@@ -95,8 +99,10 @@ export type WorldView = {
   wrapZ?: boolean
   // True for a NetLogo 3D world, including one whose Z bounds are both 0.
   threeD?: boolean
-  // 6-digit base64 RNG seed. Omitted when this change does not reseed.
+  // Unsigned decimal RNG seed, 0..4294967295. Omitted when this change does not reseed.
   rngSeed?: string
+  // Session seed override. When true, the server applies rngSeed before every setup.
+  seedOverride?: boolean
 }
 
 export type ShapeElement = {
@@ -137,12 +143,17 @@ export type World = WorldView & {
   // Patch layers: 1 for a 2D world. A 3D world (depth > 1) is drawn by
   // WorldView3D from voxels, turtle z/pitch/roll, and link z.
   depth?: number
-  // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b.
+  // Non-black 3D patches, base64: int16 LE pxcor, pycor, pzcor, then r, g, b, a.
   voxels?: string
   observer?: Observer3D | null
   // follow, ride, watch, or empty. subject is the turtle's who.
   perspective?: string
   subject?: number | null
+  // World position of the followed, ridden, or watched agent.
+  // A patch is at its center. Null when perspective is empty.
+  subjectX?: number | null
+  subjectY?: number | null
+  subjectZ?: number | null
   labelFont: number
   shapes: TurtleShape[]
   patchColors: string
@@ -216,6 +227,35 @@ export type PlotPenDelta = {
   points: PlotPoint[]
 }
 
+export type DynamicsStock = {
+  name: string
+  initial: string
+  allowNegative: boolean
+}
+
+export type DynamicsFlow = {
+  name: string
+  expression: string
+  source: string
+  sink: string
+}
+
+export type DynamicsConverter = {
+  name: string
+  expression: string
+  constant: boolean
+}
+
+// One System Dynamics diagram. Null on SessionInfo when the file has none.
+export type SystemDynamics = {
+  dt: string
+  definition: string
+  source: string
+  stocks: DynamicsStock[]
+  flows: DynamicsFlow[]
+  converters: DynamicsConverter[]
+}
+
 export type SessionInfo = {
   id: string
   modelName: string
@@ -225,4 +265,5 @@ export type SessionInfo = {
   notes: string[]
   procedures: string[]
   widgets: { index: number; kind: string; display: string; forever: boolean }[]
+  dynamics: SystemDynamics | null
 }

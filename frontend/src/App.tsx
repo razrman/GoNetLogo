@@ -15,12 +15,15 @@ import {
   RunCommand,
   SetChooser,
   SetCode,
+  SetDynamics,
+  SetDynamicsDt,
   SetInput,
   SetSlider,
   SetFrameRate,
   SetSpeed,
   SetSwitch,
   SetWorld,
+  SetSeedOverride,
   GenerateRngSeed,
   Setup,
   Step,
@@ -33,12 +36,32 @@ import {
   type LibraryEntry,
   type LibraryListing,
 } from './api'
-import type { Frame, PlotView, SessionInfo, Widget, WorldView } from './types'
+import type { Frame, PlotView, SessionInfo, SystemDynamics, Widget, WorldView } from './types'
+import {
+  dynamicsApplyEnabled,
+  dynamicsDefinitionReadOnly,
+  dynamicsErrorTitle,
+  definitionDt,
+  dtApplyBlocked,
+  dynamicsLockedMessage,
+  generatedProceduresReadOnly,
+  hasSystemDynamics,
+  mainTabLabel,
+  presentDynamicsError,
+  replaceDefinitionDt,
+  settleDynamicsApply,
+  showWorldDt,
+  tabAfterModelLoad,
+  visibleMainTabs,
+  worldDtError,
+  worldDtHelp,
+  type MainTab,
+} from './dynamics'
 import { InfoView } from './InfoTab'
 import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
-import { rngSeedError } from './rngSeed'
+import { readSeedOverride, rngSeedError, rngSeedForApply, seedControlState, writeSeedOverride } from './rngSeed'
 import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
@@ -53,6 +76,20 @@ type FileResult = { loadModelFile: SessionInfo }
 type SourceResult = { loadModelSource: SessionInfo }
 type LibraryResult = { library: LibraryListing }
 type CodeResult = { setCode: { ok: boolean; error: string | null; session?: { procedures: string[] } } }
+type DynamicsApply = {
+  setDynamics: {
+    ok: boolean
+    error: string | null
+    session?: { procedures: string[]; dynamics: SystemDynamics | null }
+  }
+}
+type DynamicsDtResult = {
+  setDynamicsDt: {
+    ok: boolean
+    error: string | null
+    session?: { procedures: string[]; dynamics: SystemDynamics | null }
+  }
+}
 type CommandResult = { runCommand: { ok: boolean; output: string | null; error: string | null } }
 
 export function App() {
@@ -62,6 +99,8 @@ export function App() {
   const [, loadModelFile] = useMutation<FileResult>(LoadModelFile)
   const [, loadModelSource] = useMutation<SourceResult>(LoadModelSource)
   const [, setCodeMut] = useMutation<CodeResult>(SetCode)
+  const [, setDynamicsMut] = useMutation<DynamicsApply>(SetDynamics)
+  const [, setDtMut] = useMutation<DynamicsDtResult>(SetDynamicsDt)
   const [, runCommand] = useMutation<CommandResult>(RunCommand)
   const [, setupMut] = useMutation(Setup)
   const [, goMut] = useMutation(Go)
@@ -75,12 +114,16 @@ export function App() {
   const [, chooserMut] = useMutation(SetChooser)
   const [, inputMut] = useMutation(SetInput)
   const [, setWorldMut] = useMutation(SetWorld)
+  const [, setSeedOverrideMut] = useMutation(SetSeedOverride)
   const [, generateSeedMut] = useMutation<{ generateRngSeed: string }>(GenerateRngSeed)
 
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('fire.nlogo')
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
+  const [dynamics, setDynamics] = useState<SystemDynamics | null>(null)
+  const [definition, setDefinition] = useState('')
+  const [dynamicsError, setDynamicsError] = useState<string | null>(null)
   const [info, setInfo] = useState('')
   const [modelDir, setModelDir] = useState<string | null>(null)
   const [notes, setNotes] = useState<string[]>([])
@@ -92,9 +135,13 @@ export function App() {
   const [leaveTo, setLeaveTo] = useState<MainTab | null>(null)
   const [leaving, setLeaving] = useState(false)
   const applyWorldRef = useRef<(() => Promise<boolean>) | null>(null)
+  const flushSeedRef = useRef<(() => Promise<string | null>) | null>(null)
   const onWorldDirty = useCallback((dirty: boolean) => setWorldDirty(dirty), [])
   const registerWorldApply = useCallback((apply: (() => Promise<boolean>) | null) => {
     applyWorldRef.current = apply
+  }, [])
+  const registerFlushSeed = useCallback((flush: (() => Promise<string | null>) | null) => {
+    flushSeedRef.current = flush
   }, [])
   const [banner, setBanner] = useState<string | null>(null)
   const [online, setOnline] = useState(true)
@@ -133,6 +180,17 @@ export function App() {
     variables: { id: sessionId ?? '' },
     pause: !sessionId,
   })
+  const seedPrefFor = useRef<string | null>(null)
+  const worldReady = Boolean(frame?.world || settingsQ.data?.worldSettings)
+  const serverOverride = (frame?.world ?? settingsQ.data?.worldSettings)?.seedOverride === true
+  useEffect(() => {
+    if (!sessionId || !worldReady) return
+    if (seedPrefFor.current === sessionId) return
+    seedPrefFor.current = sessionId
+    const want = readSeedOverride()
+    if (want === serverOverride) return
+    void setSeedOverrideMut({ id: sessionId, on: want })
+  }, [sessionId, worldReady, serverOverride, setSeedOverrideMut])
 
   useEffect(() => {
     let cancel = false
@@ -153,6 +211,7 @@ export function App() {
       setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
       setProcedures(info.procedures ?? [])
+      rememberDynamics(info.dynamics ?? null)
       await speedMut({ id: info.id, speed: 30 })
       await autoSetup(info.id, info.procedures)
       const go = await goMut({ id: info.id })
@@ -176,6 +235,10 @@ export function App() {
     if (frame && !frame.running) setActive(null)
   }, [frame?.running])
 
+  useEffect(() => {
+    if (tab === 'dynamics' && !hasSystemDynamics(dynamics)) setTab('interface')
+  }, [tab, dynamics])
+
   async function onModel(name: string) {
     if (!sessionId || name === modelName) return
     setBanner(null)
@@ -192,6 +255,7 @@ export function App() {
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setProcedures(info.procedures ?? [])
+    rememberDynamics(info.dynamics ?? null)
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -201,6 +265,11 @@ export function App() {
   async function onSetup() {
     if (!sessionId || !hasProcedure(procedures, 'setup')) return
     setBanner(null)
+    const flushed = await flushSeedRef.current?.()
+    if (flushed) {
+      setBanner(flushed)
+      return
+    }
     const res = await setupMut({ id: sessionId })
     if (res.error && !reportDisconnect(res.error.message)) setBanner(res.error.message)
   }
@@ -229,6 +298,13 @@ export function App() {
   async function onPress(widget: Widget) {
     if (!sessionId) return
     setBanner(null)
+    if (!widget.forever && widget.display.trim().toLowerCase() === 'setup') {
+      const flushed = await flushSeedRef.current?.()
+      if (flushed) {
+        setBanner(flushed)
+        return
+      }
+    }
     const res = await pressMut({ id: sessionId, index: widget.index })
     if (res.error) {
       if (!reportDisconnect(res.error.message)) setBanner(res.error.message)
@@ -252,6 +328,37 @@ export function App() {
     if (res.data?.setCode.ok && nextProcedures) setProcedures(nextProcedures)
   }
 
+  function rememberDynamics(next: SystemDynamics | null) {
+    setDynamics(next)
+    setDefinition(next?.definition ?? '')
+    setDynamicsError(null)
+    setTab((cur) => tabAfterModelLoad(cur, hasSystemDynamics(next)))
+  }
+
+  async function applyDynamics() {
+    if (!sessionId || !dynamicsApplyEnabled(true, frame?.running ?? false)) return
+    const res = await setDynamicsMut({ id: sessionId, definition })
+    if (res.error) {
+      const message = res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+      if (!reportDisconnect(message)) setDynamicsError(message)
+      return
+    }
+    const applied = res.data?.setDynamics
+    if (!applied) {
+      setDynamicsError('Could not apply')
+      return
+    }
+    const settled = settleDynamicsApply(definition, {
+      ok: applied.ok,
+      error: applied.error,
+      definition: applied.session?.dynamics?.definition ?? null,
+    })
+    setDefinition(settled.definition)
+    setDynamicsError(settled.error)
+    if (applied.session) setDynamics(applied.session.dynamics)
+    if (applied.ok && applied.session?.procedures) setProcedures(applied.session.procedures)
+  }
+
   async function openSource(filename: string, source: string) {
     if (!sessionId) return
     setBanner(null)
@@ -267,6 +374,7 @@ export function App() {
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setProcedures(info.procedures ?? [])
+    rememberDynamics(info.dynamics ?? null)
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -350,6 +458,7 @@ export function App() {
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
     setProcedures(info.procedures ?? [])
+    rememberDynamics(info.dynamics ?? null)
     setCompileError(null)
     setActive(null)
     resetPlots()
@@ -387,23 +496,62 @@ export function App() {
     if (res.data?.runCommand.ok) setCommand('')
   }
 
-  async function onWorld(next: WorldView) {
+  async function onWorld(next: WorldView, dt: string | null) {
     if (!sessionId) return 'No session'
     // Size, wrapping, and patch size rebuild the grid. Leave that locked
     // while go is running and say so, instead of stopping and then racing
     // the tick that is still inside the interpreter. A new RNG seed is
     // random-seed: it applies during the run and does not call setup.
+    // dt recompiles the diagram, so it is locked the same way. An unchanged
+    // dt does not block a seed-only apply.
     const running = frame?.running ?? false
     const geometryChanged = frame != null && worldGeometryChanged(next, frame.world)
-    const seedOnly = running && !geometryChanged
-    if (running && geometryChanged) {
-      return worldSizeLockedMessage
+    const serverDt = dynamics?.dt ?? null
+    const dtChanged = dt != null && serverDt != null && dt.trim() !== serverDt.trim()
+    if (running && geometryChanged) return worldSizeLockedMessage
+    const dtLock = dtApplyBlocked(running, dtChanged)
+    if (dtLock) return dtLock
+    if (dtChanged) {
+      const invalid = worldDtError(dt)
+      if (invalid) return invalid
+      const res = await setDtMut({ id: sessionId, dt: dt.trim() })
+      if (res.error) {
+        const message = res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+        if (reportDisconnect(message)) return 'Server disconnected. Reconnecting…'
+        return message || 'Could not apply dt'
+      }
+      const appliedDt = res.data?.setDynamicsDt
+      if (!appliedDt?.ok) return appliedDt?.error ?? 'Could not apply dt'
+      const saved = appliedDt.session?.dynamics
+      if (saved) {
+        setDynamics(saved)
+        setDefinition((current) => replaceDefinitionDt(current, saved.dt))
+      }
+      if (appliedDt.session?.procedures) setProcedures(appliedDt.session.procedures)
     }
+    const seedOnly = running && !geometryChanged
     const applied = await sendWorld(sessionId, next, setWorldMut)
     if (applied.message) return applied.message
     setProcedures(applied.procedures)
     if (seedOnly) return null
     return autoSetup(sessionId, applied.procedures)
+  }
+
+  async function onFlushSeed(seed: string): Promise<string | null> {
+    if (!sessionId) return 'No session'
+    const live = frame?.world ?? settingsQ.data?.worldSettings
+    if (!live) return 'No world'
+    const applied = await sendWorld(sessionId, { ...worldGeometry(live), rngSeed: seed, seedOverride: true }, setWorldMut)
+    return applied.message
+  }
+
+  async function onSeedOverride(on: boolean): Promise<string | null> {
+    if (!sessionId) return 'No session'
+    writeSeedOverride(on)
+    const res = await setSeedOverrideMut({ id: sessionId, on })
+    const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
+    if (reportDisconnect(message)) return 'Server disconnected. Reconnecting…'
+    return message || null
   }
 
   async function onPopulateSeed(): Promise<{ seed: string | null; message: string | null }> {
@@ -466,6 +614,10 @@ export function App() {
   const modelOptions = libraryNames.includes(modelName) || !modelName ? libraryNames : [modelName, ...libraryNames]
   const goWidget = widgets.find((w) => w.kind === 'button' && w.display.toLowerCase() === 'go')
   const running = frame?.running ?? false
+  const showDynamics = hasSystemDynamics(dynamics)
+  // A non-SDM model never keeps the Dynamics tab on screen, even for the
+  // render before the tab state catches up.
+  const shownTab: MainTab = tab === 'dynamics' && !showDynamics ? 'interface' : tab
   const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
@@ -609,9 +761,58 @@ export function App() {
         label="Resize command center"
         leading={
       <main className="stage">
-        {tab === 'code' ? (
+        {shownTab === 'dynamics' ? (
+          <section className="code-panel dynamics-panel" aria-label="System dynamics">
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+            <p className="dynamics-note">
+              Stocks, flows, and converters. The dt line is the same value as on the World tab.
+              A larger dt runs cycles faster, at an accuracy cost.
+              Apply recompiles the model. The procedures below are what the engine adds; the Code tab does not list them.
+            </p>
+            {dynamicsError && (
+              <div className="compile-error" role="alert">
+                <strong>{dynamicsErrorTitle(dynamicsError)}</strong>
+                <pre>{presentDynamicsError(dynamicsError, definition)}</pre>
+              </div>
+            )}
+            <div className="dynamics-split">
+              <label className="dynamics-block">
+                Definition
+                <textarea
+                  aria-label="System dynamics definition"
+                  spellCheck={false}
+                  readOnly={dynamicsDefinitionReadOnly(running)}
+                  value={definition}
+                  onChange={(e) => {
+                    if (!dynamicsDefinitionReadOnly(running)) setDefinition(e.target.value)
+                  }}
+                />
+              </label>
+              <label className="dynamics-block">
+                Generated procedures
+                <textarea
+                  aria-label="Generated system dynamics procedures"
+                  spellCheck={false}
+                  readOnly={generatedProceduresReadOnly()}
+                  value={dynamics?.source ?? ''}
+                />
+              </label>
+            </div>
+            <div className="code-actions">
+              <button
+                className="act"
+                type="button"
+                disabled={!dynamicsApplyEnabled(!!sessionId, running)}
+                onClick={() => void applyDynamics()}
+              >
+                Apply
+              </button>
+              {running && <span className="err">{dynamicsLockedMessage}</span>}
+            </div>
+          </section>
+        ) : shownTab === 'code' ? (
           <section className="code-panel">
-            <MainTabs tab={tab} onChange={requestTab} />
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
             <textarea
               aria-label="Model code"
               spellCheck={false}
@@ -624,9 +825,9 @@ export function App() {
               </button>
             </div>
           </section>
-        ) : tab === 'info' ? (
+        ) : shownTab === 'info' ? (
           <section className="info-panel" aria-label="Model info">
-            <MainTabs tab={tab} onChange={requestTab} />
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
             <InfoView
               key={`${modelName}\0${modelDir ?? ''}`}
               markdown={info}
@@ -634,9 +835,9 @@ export function App() {
               loading={booting && info === ''}
             />
           </section>
-        ) : tab === 'world' ? (
+        ) : shownTab === 'world' ? (
           <section className="world-panel" aria-label="World settings">
-            <MainTabs tab={tab} onChange={requestTab} />
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
             <FrameCapControl
               fps={frame?.frameRateCap ?? 24}
               disabled={!sessionId}
@@ -647,10 +848,16 @@ export function App() {
             <WorldSettingsForm
               world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
               disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
+              dt={showWorldDt(showDynamics) ? (definitionDt(definition) ?? '') : null}
+              serverDt={dynamics?.dt ?? null}
+              onDtChange={(value) => setDefinition((current) => replaceDefinitionDt(current, value))}
               onApply={onWorld}
               onPopulateSeed={onPopulateSeed}
+              onSeedOverride={onSeedOverride}
+              onFlushSeed={onFlushSeed}
               onDirtyChange={onWorldDirty}
               registerApply={registerWorldApply}
+              registerFlushSeed={registerFlushSeed}
             />
           </section>
         ) : (
@@ -686,7 +893,7 @@ export function App() {
               }}
             >
               <div className="view-bar">
-                <MainTabs tab={tab} onChange={requestTab} />
+                <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
                 <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
                   {modelTitle}
                 </h1>
@@ -815,23 +1022,22 @@ function interfaceModelTitle(modelName: string): string {
   return base
 }
 
-type MainTab = 'interface' | 'world' | 'info' | 'code'
-
-function MainTabs({ tab, onChange }: { tab: MainTab; onChange: (next: MainTab) => void }) {
+function MainTabs({
+  tab,
+  showDynamics,
+  onChange,
+}: {
+  tab: MainTab
+  showDynamics: boolean
+  onChange: (next: MainTab) => void
+}) {
   return (
     <div className="tabs">
-      <button type="button" className={tab === 'interface' ? 'on' : undefined} onClick={() => onChange('interface')}>
-        Interface
-      </button>
-      <button type="button" className={tab === 'world' ? 'on' : undefined} onClick={() => onChange('world')}>
-        World
-      </button>
-      <button type="button" className={tab === 'info' ? 'on' : undefined} onClick={() => onChange('info')}>
-        Info
-      </button>
-      <button type="button" className={tab === 'code' ? 'on' : undefined} onClick={() => onChange('code')}>
-        Code
-      </button>
+      {visibleMainTabs(showDynamics).map((id) => (
+        <button type="button" key={id} className={tab === id ? 'on' : undefined} onClick={() => onChange(id)}>
+          {mainTabLabel(id)}
+        </button>
+      ))}
     </div>
   )
 }
@@ -888,17 +1094,30 @@ function FrameCapControl({
 function WorldSettingsForm({
   world,
   disabled,
+  dt,
+  serverDt,
+  onDtChange,
   onApply,
   onPopulateSeed,
+  onSeedOverride,
+  onFlushSeed,
   onDirtyChange,
   registerApply,
+  registerFlushSeed,
 }: {
   world: WorldView | null
   disabled: boolean
-  onApply: (next: WorldView) => Promise<string | null>
+  // dt is null when this model has no System Dynamics section.
+  dt: string | null
+  serverDt: string | null
+  onDtChange: (value: string) => void
+  onApply: (next: WorldView, dt: string | null) => Promise<string | null>
   onPopulateSeed: () => Promise<{ seed: string | null; message: string | null }>
+  onSeedOverride: (on: boolean) => Promise<string | null>
+  onFlushSeed: (seed: string) => Promise<string | null>
   onDirtyChange: (dirty: boolean) => void
   registerApply: (apply: (() => Promise<boolean>) | null) => void
+  registerFlushSeed: (flush: (() => Promise<string | null>) | null) => void
 }) {
   const [draft, setDraft] = useState<WorldDraft>({
     minPxcor: '0',
@@ -927,6 +1146,14 @@ function WorldSettingsForm({
     setSeenSeed(serverSeed)
     setDraft((d) => (d.rngSeed === seenSeed ? { ...d, rngSeed: serverSeed } : d))
   }
+  const serverOverride = world?.seedOverride === true
+  const [override, setOverride] = useState(serverOverride)
+  const [seenOverride, setSeenOverride] = useState(serverOverride)
+  if (serverOverride !== seenOverride) {
+    setSeenOverride(serverOverride)
+    setOverride(serverOverride)
+  }
+  const controls = seedControlState(override, disabled)
 
   useEffect(() => {
     if (!world) return
@@ -947,23 +1174,43 @@ function WorldSettingsForm({
     setSynced(true)
   }, [signature]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = synced && world != null && worldDraftDirty(draft, world)
+  const dtDirty = dt != null && serverDt != null && dt.trim() !== serverDt.trim()
+  const dirty = (synced && world != null && worldDraftDirty(draft, world, override)) || dtDirty
   useEffect(() => {
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function submitDraft() {
-    const parsed = parseWorldDraft(draft, showZ)
+    const parsed = parseWorldDraft(draft, showZ, override)
     if (typeof parsed === 'string') {
       setError(parsed)
       return false
     }
-    const next = world && parsed.rngSeed === (world.rngSeed ?? '') ? { ...parsed, rngSeed: undefined } : parsed
+    // Override on always sends the seed, even when it matches the server,
+    // so a second Apply cannot skip the reseed. Override off omits it.
+    const next: WorldView = {
+      ...parsed,
+      rngSeed: rngSeedForApply(override, draft.rngSeed),
+      seedOverride: override,
+    }
+    if (dt != null && dt.trim() !== (serverDt ?? '').trim()) {
+      const invalid = worldDtError(dt)
+      if (invalid) {
+        setError(invalid)
+        return false
+      }
+    }
     setError(null)
-    const message = await onApply(next)
+    const message = await onApply(next, dt)
     setError(message)
     return message == null
+  }
+
+  async function toggleOverride(on: boolean) {
+    setOverride(on)
+    const message = await onSeedOverride(on)
+    if (message) setError(message)
   }
 
   async function populate() {
@@ -979,7 +1226,18 @@ function WorldSettingsForm({
   useEffect(() => {
     registerApply(submitDraft)
     return () => registerApply(null)
-  }, [registerApply, draft, showZ, onApply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [registerApply, draft, showZ, onApply, override, dt, serverDt]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    registerFlushSeed(async () => {
+      if (!override || !world) return null
+      const err = rngSeedError(draft.rngSeed)
+      if (err) return err
+      if (draft.rngSeed === (world.rngSeed ?? '') && world.seedOverride === true) return null
+      return onFlushSeed(draft.rngSeed)
+    })
+    return () => registerFlushSeed(null)
+  }, [registerFlushSeed, override, world, draft.rngSeed, onFlushSeed])
 
   async function apply(event: FormEvent) {
     event.preventDefault()
@@ -988,24 +1246,55 @@ function WorldSettingsForm({
 
   return (
     <form className="world-settings" onSubmit={(e) => void apply(e)}>
-      <h2>World</h2>
       <div className="seed">
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="Seed override"
+            checked={override}
+            disabled={controls.overrideDisabled}
+            onChange={(e) => void toggleOverride(e.target.checked)}
+          />
+          Seed override
+        </label>
         <span>RNG Seed</span>
         <input
           aria-label="RNG Seed"
-          size={6}
+          size={12}
+          inputMode="numeric"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
           autoComplete="off"
           value={draft.rngSeed}
-          disabled={disabled}
+          disabled={controls.seedDisabled}
           onChange={(e) => setDraft({ ...draft, rngSeed: e.target.value })}
         />
-        <button className="iface" type="button" aria-label="Random RNG seed" disabled={disabled} onClick={() => void populate()}>
+        <button className="iface" type="button" aria-label="Random RNG seed" disabled={controls.randomDisabled} onClick={() => void populate()}>
           Random
         </button>
       </div>
+      <p className="hint">
+        Check Seed override, enter a seed, then press setup and go. Press setup again to repeat the run.
+        A random-seed command in the model still runs during that setup.
+      </p>
+      {dt != null && (
+        <div className="dt-field">
+          <label className="patch">
+            dt
+            <input
+              aria-label="system dynamics dt"
+              size={8}
+              inputMode="decimal"
+              spellCheck={false}
+              value={dt}
+              disabled={disabled}
+              onChange={(e) => onDtChange(e.target.value)}
+            />
+          </label>
+          <p className="hint">{worldDtHelp}</p>
+        </div>
+      )}
       <div className="axes">
         <span />
         <span className="col">min</span>
@@ -1064,7 +1353,7 @@ type WorldDraft = {
   rngSeed: string
 }
 
-function worldDraftDirty(draft: WorldDraft, world: WorldView) {
+function worldDraftDirty(draft: WorldDraft, world: WorldView, seedOverride: boolean) {
   const xy =
     !sameNumber(draft.minPxcor, world.minPxcor) ||
     !sameNumber(draft.maxPxcor, world.maxPxcor) ||
@@ -1073,7 +1362,7 @@ function worldDraftDirty(draft: WorldDraft, world: WorldView) {
     !sameNumber(draft.patchSize, world.patchSize) ||
     draft.wrapX !== world.wrapX ||
     draft.wrapY !== world.wrapY ||
-    draft.rngSeed !== (world.rngSeed ?? '')
+    (seedOverride && draft.rngSeed !== (world.rngSeed ?? ''))
   if (world.threeD !== true) return xy
   return (
     xy ||
@@ -1090,9 +1379,11 @@ function sameNumber(raw: string, live: number) {
   return Number.isFinite(n) && n === live
 }
 
-function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string {
-  const seedError = rngSeedError(draft.rngSeed)
-  if (seedError) return seedError
+function parseWorldDraft(draft: WorldDraft, threeD: boolean, seedOverride: boolean): WorldView | string {
+  if (seedOverride) {
+    const seedError = rngSeedError(draft.rngSeed)
+    if (seedError) return seedError
+  }
   const minPxcor = Number(draft.minPxcor)
   const maxPxcor = Number(draft.maxPxcor)
   const minPycor = Number(draft.minPycor)
@@ -1133,16 +1424,33 @@ function parseWorldDraft(draft: WorldDraft, threeD: boolean): WorldView | string
 
 type WorldApply = { message: string | null; procedures: string[] }
 
+function worldGeometry(live: WorldView): WorldView {
+  return {
+    minPxcor: live.minPxcor,
+    maxPxcor: live.maxPxcor,
+    minPycor: live.minPycor,
+    maxPycor: live.maxPycor,
+    patchSize: live.patchSize,
+    wrapX: live.wrapX,
+    wrapY: live.wrapY,
+    minPzcor: live.minPzcor,
+    maxPzcor: live.maxPzcor,
+    wrapZ: live.wrapZ,
+    threeD: live.threeD,
+  }
+}
+
 async function sendWorld(
   sessionId: string,
   next: WorldView,
   setWorldMut: (
-    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ' | 'rngSeed'> & {
+    vars: Omit<WorldView, 'minPzcor' | 'maxPzcor' | 'wrapZ' | 'rngSeed' | 'seedOverride'> & {
       id: string
       minPzcor: number | null
       maxPzcor: number | null
       wrapZ: boolean | null
       rngSeed: string | null
+      seedOverride: boolean | null
     },
   ) => Promise<{
     error?: { message: string }
@@ -1156,6 +1464,7 @@ async function sendWorld(
     maxPzcor: next.threeD ? (next.maxPzcor ?? 0) : null,
     wrapZ: next.threeD ? (next.wrapZ ?? false) : null,
     rngSeed: next.rngSeed ?? null,
+    seedOverride: next.seedOverride ?? null,
   })
   const message = (res.error?.message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
   if (reportDisconnect(message)) return { message: 'Server disconnected. Reconnecting…', procedures: [] }

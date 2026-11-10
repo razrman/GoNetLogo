@@ -152,6 +152,15 @@ export const LibraryQuery = `
   }
 `
 
+const dynamicsFields = `
+  dt
+  definition
+  source
+  stocks { name initial allowNegative }
+  flows { name expression source sink }
+  converters { name expression constant }
+`
+
 const openedModelFields = `
   id
   modelName
@@ -160,6 +169,7 @@ const openedModelFields = `
   modelDir
   notes
   procedures
+  dynamics {${dynamicsFields}}
   widgets { index kind display forever }
 `
 
@@ -198,6 +208,32 @@ export function hasProcedure(procedures: readonly string[] | null | undefined, n
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
     setCode(sessionId: $id, code: $code) { ok error session { procedures } }
+  }
+`
+
+export const SetDynamics = `
+  mutation SetDynamics($id: ID!, $definition: String!) {
+    setDynamics(sessionId: $id, definition: $definition) {
+      ok
+      error
+      session {
+        procedures
+        dynamics {${dynamicsFields}}
+      }
+    }
+  }
+`
+
+export const SetDynamicsDt = `
+  mutation SetDynamicsDt($id: ID!, $dt: String!) {
+    setDynamicsDt(sessionId: $id, dt: $dt) {
+      ok
+      error
+      session {
+        procedures
+        dynamics {${dynamicsFields}}
+      }
+    }
   }
 `
 
@@ -280,6 +316,7 @@ export const WorldSettingsQuery = `
       wrapZ
       threeD
       rngSeed
+      seedOverride
     }
   }
 `
@@ -298,6 +335,7 @@ export const SetWorld = `
     $maxPzcor: Int
     $wrapZ: Boolean
     $rngSeed: String
+    $seedOverride: Boolean
   ) {
     setWorld(
       sessionId: $id
@@ -312,7 +350,14 @@ export const SetWorld = `
       maxPzcor: $maxPzcor
       wrapZ: $wrapZ
       rngSeed: $rngSeed
+      seedOverride: $seedOverride
     ) { id procedures }
+  }
+`
+
+export const SetSeedOverride = `
+  mutation SetSeedOverride($id: ID!, $on: Boolean!) {
+    setSeedOverride(sessionId: $id, on: $on) { id }
   }
 `
 
@@ -382,10 +427,14 @@ export const Frames = `
         wrapZ
         threeD
         rngSeed
+        seedOverride
         voxels
         observer { x y z targetX targetY targetZ revision }
         perspective
         subject
+        subjectX
+        subjectY
+        subjectZ
         labelFont
         shapes {
           name
@@ -393,8 +442,8 @@ export const Frames = `
           elements { kind filled marked r g b points x y w h }
         }
         patchColors
-        drawing { pen erase x y z x2 y2 z2 heading size shape r g b }
-        labels { who px py lx ly text r g b }
+        drawing { pen erase x y z x2 y2 z2 heading pitch roll size shape r g b }
+        labels { who px py lx ly z text r g b }
         turtles { who x y z heading pitch roll size shape hidden r g b }
         links { x1 y1 z1 x2 y2 z2 hidden r g b }
       }

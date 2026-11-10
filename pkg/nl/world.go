@@ -1977,8 +1977,10 @@ type Mark struct {
 	X, Y, Z       float64
 	X2, Y2, Z2    float64
 	Heading, Size float64
-	Color         float64
-	Shape         string
+	// Pitch and roll orient a 3D stamp. Both stay 0 for a pen stroke.
+	Pitch, Roll float64
+	Color       float64
+	Shape       string
 }
 
 // Stamp records the turtle's shape, color, size, and heading on the
@@ -2000,6 +2002,8 @@ func (w *World) Stamp(t *Turtle, erase bool) {
 		Y2:      t.Y,
 		Z2:      t.Z,
 		Heading: t.Heading,
+		Pitch:   t.Pitch,
+		Roll:    t.Roll,
 		Size:    t.Size,
 		Color:   t.Color,
 		Shape:   shape,

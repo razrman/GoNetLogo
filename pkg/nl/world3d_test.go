@@ -239,6 +239,10 @@ to-report approx [ x ] report precision x 6 end
 		{"towards-pitch-xyz", `crt 1 [ setxyz 0 0 0 ]`, `[towards-pitch-xyz 0 1 -1] of turtle 0`, "315"},
 		{"towards-pitch-nowrap", `crt 2 [ setxyz 0 0 3 ] ask turtle 1 [ setxyz 0 0 -3 ]`, `[towards-pitch-nowrap turtle 1] of turtle 0`, "270"},
 		{"towards-pitch-xyz-nowrap", `crt 1 [ setxyz 0 0 3 ]`, `[towards-pitch-xyz-nowrap 0 0 -3] of turtle 0`, "270"},
+		{"towardsxyz", `crt 1 [ setxyz 0 0 0 ]`, `[towardsxyz 0 1 1] of turtle 0`, "0"},
+		{"towardsxyz east", `crt 1 [ setxyz 0 0 0 ]`, `[towardsxyz 1 0 5] of turtle 0`, "90"},
+		{"towardsxyz-nowrap ignores the long way", `crt 1 [ setxyz 3 0 0 ]`, `[towardsxyz-nowrap -3 0 0] of turtle 0`, "270"},
+		{"towardsxyz wraps", `crt 1 [ setxyz 3 0 0 ]`, `[towardsxyz -3 0 0] of turtle 0`, "90"},
 		{"facexyz", `crt 1 [ setxyz 0 0 0 facexyz 1 0 1 ]`, `[map approx (list heading pitch)] of turtle 0`, "[90 45]"},
 		{"facexyz straight up keeps heading", `crt 1 [ set heading 33 facexyz 0 0 2 ]`, `[list heading pitch] of turtle 0`, "[33 90]"},
 		{"face in 3D", `crt 2 [ setxyz 0 0 0 ] ask turtle 1 [ setxyz 0 -1 -1 ] ask turtle 0 [ face turtle 1 ]`, `[map approx (list heading pitch)] of turtle 0`, "[180 315]"},
@@ -627,5 +631,45 @@ func TestTopColorProjection(t *testing.T) {
 	}
 	if _, ok := w.TopColor(1, 1); ok {
 		t.Fatalf("an all-black column has no top color")
+	}
+}
+
+func TestLayout3D(t *testing.T) {
+	vm := newTestVM3D(t, "", -10, 10, 1)
+	mustEval(t, vm, `
+crt 2 [
+  ifelse who = 0 [ setxyz 0 0 0 ] [ setxyz 0 0 4 ]
+]
+ask turtle 0 [ create-link-with turtle 1 ]
+layout-spring turtles links 1 1 0
+`)
+	z0 := vm.World.Turtle(0).Z
+	z1 := vm.World.Turtle(1).Z
+	if z1-z0 >= 4-1e-9 {
+		t.Fatalf("layout-spring left z at %v %v", z0, z1)
+	}
+	mustEval(t, vm, `crt 6 layout-sphere turtles 5`)
+	var zs []float64
+	for _, a := range vm.World.Turtles().Alive() {
+		tu := a.(*Turtle)
+		d := vm.World.Distance3(0, 0, 0, tu.X, tu.Y, tu.Z)
+		if math.Abs(d-5) > 1e-6 {
+			t.Fatalf("turtle %d is %v from the origin, want 5", tu.Who, d)
+		}
+		zs = append(zs, tu.Z)
+	}
+	span := 0.0
+	for _, z := range zs {
+		if math.Abs(z) > span {
+			span = math.Abs(z)
+		}
+	}
+	if span < 4 {
+		t.Fatalf("layout-sphere z span %v, want the poles", span)
+	}
+
+	flat := newTestVM(t, "", -2, 2, true, 1)
+	if _, err := flat.ExecuteLine("crt 1 layout-sphere turtles 1"); err == nil || !strings.Contains(err.Error(), "LAYOUT-SPHERE") {
+		t.Fatalf("2D layout-sphere: %v", err)
 	}
 }

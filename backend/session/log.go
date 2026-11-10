@@ -111,6 +111,8 @@ func busyMessage(action string) string {
 		return "Stop the model before loading another model."
 	case "set code":
 		return "Stop the model before changing the code."
+	case "set dynamics":
+		return "Stop the model before changing the system dynamics."
 	case "command":
 		return "Stop the model before running a command."
 	case "step":

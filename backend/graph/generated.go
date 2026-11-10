@@ -59,6 +59,7 @@ type ComplexityRoot struct {
 		R    func(childComplexity int) int
 		Text func(childComplexity int) int
 		Who  func(childComplexity int) int
+		Z    func(childComplexity int) int
 	}
 
 	CommandResult struct {
@@ -80,7 +81,9 @@ type ComplexityRoot struct {
 		G       func(childComplexity int) int
 		Heading func(childComplexity int) int
 		Pen     func(childComplexity int) int
+		Pitch   func(childComplexity int) int
 		R       func(childComplexity int) int
+		Roll    func(childComplexity int) int
 		Shape   func(childComplexity int) int
 		Size    func(childComplexity int) int
 		X       func(childComplexity int) int
@@ -89,6 +92,25 @@ type ComplexityRoot struct {
 		Y2      func(childComplexity int) int
 		Z       func(childComplexity int) int
 		Z2      func(childComplexity int) int
+	}
+
+	DynamicsConverter struct {
+		Constant   func(childComplexity int) int
+		Expression func(childComplexity int) int
+		Name       func(childComplexity int) int
+	}
+
+	DynamicsFlow struct {
+		Expression func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Sink       func(childComplexity int) int
+		Source     func(childComplexity int) int
+	}
+
+	DynamicsStock struct {
+		AllowNegative func(childComplexity int) int
+		Initial       func(childComplexity int) int
+		Name          func(childComplexity int) int
 	}
 
 	Frame struct {
@@ -153,12 +175,15 @@ type ComplexityRoot struct {
 		RunCommand      func(childComplexity int, sessionID string, text string) int
 		SetChooser      func(childComplexity int, sessionID string, index int, current int) int
 		SetCode         func(childComplexity int, sessionID string, code string) int
+		SetDynamics     func(childComplexity int, sessionID string, definition string) int
+		SetDynamicsDt   func(childComplexity int, sessionID string, dt string) int
 		SetFrameRate    func(childComplexity int, sessionID string, fps int) int
 		SetInput        func(childComplexity int, sessionID string, index int, text string) int
+		SetSeedOverride func(childComplexity int, sessionID string, on bool) int
 		SetSlider       func(childComplexity int, sessionID string, index int, value float64) int
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
-		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string) int
+		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) int
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
 		Stop            func(childComplexity int, sessionID string) int
@@ -224,6 +249,7 @@ type ComplexityRoot struct {
 		Code          func(childComplexity int) int
 		DroppedFrames func(childComplexity int) int
 		DroppedSlow   func(childComplexity int) int
+		Dynamics      func(childComplexity int) int
 		FrameRateCap  func(childComplexity int) int
 		HasOutput     func(childComplexity int) int
 		ID            func(childComplexity int) int
@@ -262,6 +288,15 @@ type ComplexityRoot struct {
 
 	Subscription struct {
 		Frames func(childComplexity int, sessionID string) int
+	}
+
+	SystemDynamics struct {
+		Converters func(childComplexity int) int
+		Definition func(childComplexity int) int
+		Dt         func(childComplexity int) int
+		Flows      func(childComplexity int) int
+		Source     func(childComplexity int) int
+		Stocks     func(childComplexity int) int
 	}
 
 	Turtle struct {
@@ -311,32 +346,36 @@ type ComplexityRoot struct {
 	}
 
 	World struct {
-		Depth       func(childComplexity int) int
-		Drawing     func(childComplexity int) int
-		Height      func(childComplexity int) int
-		LabelFont   func(childComplexity int) int
-		Labels      func(childComplexity int) int
-		Links       func(childComplexity int) int
-		MaxPxcor    func(childComplexity int) int
-		MaxPycor    func(childComplexity int) int
-		MaxPzcor    func(childComplexity int) int
-		MinPxcor    func(childComplexity int) int
-		MinPycor    func(childComplexity int) int
-		MinPzcor    func(childComplexity int) int
-		Observer    func(childComplexity int) int
-		PatchColors func(childComplexity int) int
-		PatchSize   func(childComplexity int) int
-		Perspective func(childComplexity int) int
-		RngSeed     func(childComplexity int) int
-		Shapes      func(childComplexity int) int
-		Subject     func(childComplexity int) int
-		ThreeD      func(childComplexity int) int
-		Turtles     func(childComplexity int) int
-		Voxels      func(childComplexity int) int
-		Width       func(childComplexity int) int
-		WrapX       func(childComplexity int) int
-		WrapY       func(childComplexity int) int
-		WrapZ       func(childComplexity int) int
+		Depth        func(childComplexity int) int
+		Drawing      func(childComplexity int) int
+		Height       func(childComplexity int) int
+		LabelFont    func(childComplexity int) int
+		Labels       func(childComplexity int) int
+		Links        func(childComplexity int) int
+		MaxPxcor     func(childComplexity int) int
+		MaxPycor     func(childComplexity int) int
+		MaxPzcor     func(childComplexity int) int
+		MinPxcor     func(childComplexity int) int
+		MinPycor     func(childComplexity int) int
+		MinPzcor     func(childComplexity int) int
+		Observer     func(childComplexity int) int
+		PatchColors  func(childComplexity int) int
+		PatchSize    func(childComplexity int) int
+		Perspective  func(childComplexity int) int
+		RngSeed      func(childComplexity int) int
+		SeedOverride func(childComplexity int) int
+		Shapes       func(childComplexity int) int
+		Subject      func(childComplexity int) int
+		SubjectX     func(childComplexity int) int
+		SubjectY     func(childComplexity int) int
+		SubjectZ     func(childComplexity int) int
+		ThreeD       func(childComplexity int) int
+		Turtles      func(childComplexity int) int
+		Voxels       func(childComplexity int) int
+		Width        func(childComplexity int) int
+		WrapX        func(childComplexity int) int
+		WrapY        func(childComplexity int) int
+		WrapZ        func(childComplexity int) int
 	}
 
 	WorldSettings struct {
@@ -349,6 +388,7 @@ type ComplexityRoot struct {
 		MinPzcor     func(childComplexity int) int
 		PatchSize    func(childComplexity int) int
 		RngSeed      func(childComplexity int) int
+		SeedOverride func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
 		WrapX        func(childComplexity int) int
 		WrapY        func(childComplexity int) int
@@ -362,6 +402,8 @@ type MutationResolver interface {
 	LoadModelSource(ctx context.Context, sessionID string, filename string, source string) (*model.Session, error)
 	LoadModelFile(ctx context.Context, sessionID string, path string) (*model.Session, error)
 	SetCode(ctx context.Context, sessionID string, code string) (*model.CompileResult, error)
+	SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error)
+	SetDynamicsDt(ctx context.Context, sessionID string, dt string) (*model.CompileResult, error)
 	RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error)
 	Setup(ctx context.Context, sessionID string) (*model.Session, error)
 	Go(ctx context.Context, sessionID string) (*model.Session, error)
@@ -374,8 +416,9 @@ type MutationResolver interface {
 	SetSwitch(ctx context.Context, sessionID string, index int, on bool) (*model.Session, error)
 	SetChooser(ctx context.Context, sessionID string, index int, current int) (*model.Session, error)
 	SetInput(ctx context.Context, sessionID string, index int, text string) (*model.Session, error)
-	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string) (*model.Session, error)
+	SetWorld(ctx context.Context, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) (*model.Session, error)
 	GenerateRngSeed(ctx context.Context, sessionID string) (string, error)
+	SetSeedOverride(ctx context.Context, sessionID string, on bool) (*model.Session, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]string, error)
@@ -469,6 +512,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.AgentLabel.Who(childComplexity), true
 
+	case "AgentLabel.z":
+		if e.complexity.AgentLabel.Z == nil {
+			break
+		}
+
+		return e.complexity.AgentLabel.Z(childComplexity), true
+
 	case "CommandResult.error":
 		if e.complexity.CommandResult.Error == nil {
 			break
@@ -553,12 +603,26 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.DrawingMark.Pen(childComplexity), true
 
+	case "DrawingMark.pitch":
+		if e.complexity.DrawingMark.Pitch == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Pitch(childComplexity), true
+
 	case "DrawingMark.r":
 		if e.complexity.DrawingMark.R == nil {
 			break
 		}
 
 		return e.complexity.DrawingMark.R(childComplexity), true
+
+	case "DrawingMark.roll":
+		if e.complexity.DrawingMark.Roll == nil {
+			break
+		}
+
+		return e.complexity.DrawingMark.Roll(childComplexity), true
 
 	case "DrawingMark.shape":
 		if e.complexity.DrawingMark.Shape == nil {
@@ -615,6 +679,76 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.DrawingMark.Z2(childComplexity), true
+
+	case "DynamicsConverter.constant":
+		if e.complexity.DynamicsConverter.Constant == nil {
+			break
+		}
+
+		return e.complexity.DynamicsConverter.Constant(childComplexity), true
+
+	case "DynamicsConverter.expression":
+		if e.complexity.DynamicsConverter.Expression == nil {
+			break
+		}
+
+		return e.complexity.DynamicsConverter.Expression(childComplexity), true
+
+	case "DynamicsConverter.name":
+		if e.complexity.DynamicsConverter.Name == nil {
+			break
+		}
+
+		return e.complexity.DynamicsConverter.Name(childComplexity), true
+
+	case "DynamicsFlow.expression":
+		if e.complexity.DynamicsFlow.Expression == nil {
+			break
+		}
+
+		return e.complexity.DynamicsFlow.Expression(childComplexity), true
+
+	case "DynamicsFlow.name":
+		if e.complexity.DynamicsFlow.Name == nil {
+			break
+		}
+
+		return e.complexity.DynamicsFlow.Name(childComplexity), true
+
+	case "DynamicsFlow.sink":
+		if e.complexity.DynamicsFlow.Sink == nil {
+			break
+		}
+
+		return e.complexity.DynamicsFlow.Sink(childComplexity), true
+
+	case "DynamicsFlow.source":
+		if e.complexity.DynamicsFlow.Source == nil {
+			break
+		}
+
+		return e.complexity.DynamicsFlow.Source(childComplexity), true
+
+	case "DynamicsStock.allowNegative":
+		if e.complexity.DynamicsStock.AllowNegative == nil {
+			break
+		}
+
+		return e.complexity.DynamicsStock.AllowNegative(childComplexity), true
+
+	case "DynamicsStock.initial":
+		if e.complexity.DynamicsStock.Initial == nil {
+			break
+		}
+
+		return e.complexity.DynamicsStock.Initial(childComplexity), true
+
+	case "DynamicsStock.name":
+		if e.complexity.DynamicsStock.Name == nil {
+			break
+		}
+
+		return e.complexity.DynamicsStock.Name(childComplexity), true
 
 	case "Frame.droppedFrames":
 		if e.complexity.Frame.DroppedFrames == nil {
@@ -1009,6 +1143,30 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.SetCode(childComplexity, args["sessionId"].(string), args["code"].(string)), true
 
+	case "Mutation.setDynamics":
+		if e.complexity.Mutation.SetDynamics == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setDynamics_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetDynamics(childComplexity, args["sessionId"].(string), args["definition"].(string)), true
+
+	case "Mutation.setDynamicsDt":
+		if e.complexity.Mutation.SetDynamicsDt == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setDynamicsDt_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetDynamicsDt(childComplexity, args["sessionId"].(string), args["dt"].(string)), true
+
 	case "Mutation.setFrameRate":
 		if e.complexity.Mutation.SetFrameRate == nil {
 			break
@@ -1032,6 +1190,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.SetInput(childComplexity, args["sessionId"].(string), args["index"].(int), args["text"].(string)), true
+
+	case "Mutation.setSeedOverride":
+		if e.complexity.Mutation.SetSeedOverride == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setSeedOverride_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetSeedOverride(childComplexity, args["sessionId"].(string), args["on"].(bool)), true
 
 	case "Mutation.setSlider":
 		if e.complexity.Mutation.SetSlider == nil {
@@ -1079,7 +1249,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool), args["minPzcor"].(*int), args["maxPzcor"].(*int), args["wrapZ"].(*bool), args["rngSeed"].(*string)), true
+		return e.complexity.Mutation.SetWorld(childComplexity, args["sessionId"].(string), args["minPxcor"].(int), args["maxPxcor"].(int), args["minPycor"].(int), args["maxPycor"].(int), args["patchSize"].(float64), args["wrapX"].(bool), args["wrapY"].(bool), args["minPzcor"].(*int), args["maxPzcor"].(*int), args["wrapZ"].(*bool), args["rngSeed"].(*string), args["seedOverride"].(*bool)), true
 
 	case "Mutation.setup":
 		if e.complexity.Mutation.Setup == nil {
@@ -1419,6 +1589,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Session.DroppedSlow(childComplexity), true
 
+	case "Session.dynamics":
+		if e.complexity.Session.Dynamics == nil {
+			break
+		}
+
+		return e.complexity.Session.Dynamics(childComplexity), true
+
 	case "Session.frameRateCap":
 		if e.complexity.Session.FrameRateCap == nil {
 			break
@@ -1647,6 +1824,48 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Subscription.Frames(childComplexity, args["sessionId"].(string)), true
+
+	case "SystemDynamics.converters":
+		if e.complexity.SystemDynamics.Converters == nil {
+			break
+		}
+
+		return e.complexity.SystemDynamics.Converters(childComplexity), true
+
+	case "SystemDynamics.definition":
+		if e.complexity.SystemDynamics.Definition == nil {
+			break
+		}
+
+		return e.complexity.SystemDynamics.Definition(childComplexity), true
+
+	case "SystemDynamics.dt":
+		if e.complexity.SystemDynamics.Dt == nil {
+			break
+		}
+
+		return e.complexity.SystemDynamics.Dt(childComplexity), true
+
+	case "SystemDynamics.flows":
+		if e.complexity.SystemDynamics.Flows == nil {
+			break
+		}
+
+		return e.complexity.SystemDynamics.Flows(childComplexity), true
+
+	case "SystemDynamics.source":
+		if e.complexity.SystemDynamics.Source == nil {
+			break
+		}
+
+		return e.complexity.SystemDynamics.Source(childComplexity), true
+
+	case "SystemDynamics.stocks":
+		if e.complexity.SystemDynamics.Stocks == nil {
+			break
+		}
+
+		return e.complexity.SystemDynamics.Stocks(childComplexity), true
 
 	case "Turtle.b":
 		if e.complexity.Turtle.B == nil {
@@ -2026,6 +2245,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.RngSeed(childComplexity), true
 
+	case "World.seedOverride":
+		if e.complexity.World.SeedOverride == nil {
+			break
+		}
+
+		return e.complexity.World.SeedOverride(childComplexity), true
+
 	case "World.shapes":
 		if e.complexity.World.Shapes == nil {
 			break
@@ -2039,6 +2265,27 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.World.Subject(childComplexity), true
+
+	case "World.subjectX":
+		if e.complexity.World.SubjectX == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectX(childComplexity), true
+
+	case "World.subjectY":
+		if e.complexity.World.SubjectY == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectY(childComplexity), true
+
+	case "World.subjectZ":
+		if e.complexity.World.SubjectZ == nil {
+			break
+		}
+
+		return e.complexity.World.SubjectZ(childComplexity), true
 
 	case "World.threeD":
 		if e.complexity.World.ThreeD == nil {
@@ -2151,6 +2398,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.WorldSettings.RngSeed(childComplexity), true
+
+	case "WorldSettings.seedOverride":
+		if e.complexity.WorldSettings.SeedOverride == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.SeedOverride(childComplexity), true
 
 	case "WorldSettings.threeD":
 		if e.complexity.WorldSettings.ThreeD == nil {
@@ -2361,6 +2615,22 @@ type Mutation {
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
+  """
+  Replace the system dynamics diagram from the Dynamics tab text and recompile.
+  A definition the parser rejects leaves the diagram unchanged. A diagram that
+  parses but whose generated procedures do not compile stays on the model, the
+  previous world keeps running, and the error is returned, the same way setCode
+  keeps the editor buffer. Rejected while go is running.
+  """
+  setDynamics(sessionId: ID!, definition: String!): CompileResult!
+  """
+  Set the system dynamics time step and recompile.
+  dt is a number greater than 0. It is the same value as the dt line in
+  the Dynamics tab, and the next setup and go use it. Rejected while go
+  is running, because recompiling replaces the world. A model with no
+  system dynamics section is rejected.
+  """
+  setDynamicsDt(sessionId: ID!, dt: String!): CompileResult!
   runCommand(sessionId: ID!, text: String!): CommandResult!
   setup(sessionId: ID!): Session!
   """Start the forever button (go)."""
@@ -2388,10 +2658,12 @@ type Mutation {
   Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
   on a 2D world. A 3D world keeps wrapping in X and Y.
   rngSeed, when set, reseeds the world RNG the way random-seed does,
-  after the resize. It is 6 digits in the standard base64 alphabet
-  (A-Z, a-z, 0-9, +, /), most significant digit first. The place value
-  is an integer in 0 .. 2^36-1. Omit rngSeed to leave the RNG alone.
+  after the resize. It is an unsigned decimal integer in 0 .. 4294967295,
+  the 32 bits the generator keeps. Omit rngSeed to leave the RNG alone.
   An invalid string is rejected and the world is not resized.
+  seedOverride turns the session seed override on or off. When it is on,
+  that seed is applied again before every setup. A seed-only change is
+  still allowed while go is running.
   """
   setWorld(
     sessionId: ID!
@@ -2406,12 +2678,22 @@ type Mutation {
     maxPzcor: Int
     wrapZ: Boolean
     rngSeed: String
+    seedOverride: Boolean
   ): Session!
   """
-  Draw a new 6-digit base64 RNG seed with crypto/rand, seed the world
-  RNG with it, and return the text. The world is not resized.
+  Draw a new unsigned 32-bit RNG seed with crypto/rand, seed the world
+  RNG with it, and return the decimal text. The world is not resized.
+  This is allowed while go is running.
   """
   generateRngSeed(sessionId: ID!): String!
+  """
+  Turn the session seed override on or off without resizing the world.
+  Allowed while go is running. Turning it on records the low 32 bits of
+  the current world seed and does not reseed by itself. The next setup
+  applies that seed. A random-seed command inside setup still runs after
+  the override and wins for that setup.
+  """
+  setSeedOverride(sessionId: ID!, on: Boolean!): Session!
 }
 
 type Subscription {
@@ -2466,6 +2748,57 @@ type Session {
   outputPartial: String!
   widgets: [Widget!]!
   world: World!
+  """
+  Stock-and-flow diagram from the model's System Dynamics section.
+  Null when the file has no such section. definition is the text the
+  Dynamics tab edits. source is the NetLogo Compile appends; the Code
+  tab does not show it.
+  """
+  dynamics: SystemDynamics
+}
+
+"""
+One System Dynamics diagram. flows are the rates. An empty flow end is
+a reservoir. constant is true when a converter expression is one literal,
+so the engine makes it a global instead of a reporter.
+"""
+type SystemDynamics {
+  """dt expression, as stored. The engine uses 1.0 when this is blank."""
+  dt: String!
+  stocks: [DynamicsStock!]!
+  flows: [DynamicsFlow!]!
+  converters: [DynamicsConverter!]!
+  """Editable definition. setDynamics sends this text back."""
+  definition: String!
+  """
+  NetLogo procedures the engine appends at compile time. This is
+  SystemDynamics.Source and is not edited directly.
+  """
+  source: String!
+}
+
+type DynamicsStock {
+  name: String!
+  """NetLogo expression for the initial value."""
+  initial: String!
+  allowNegative: Boolean!
+}
+
+"""One flow. source and sink name the figures it leaves and enters."""
+type DynamicsFlow {
+  name: String!
+  expression: String!
+  """Empty when the flow leaves a reservoir."""
+  source: String!
+  """Empty when the flow enters a reservoir."""
+  sink: String!
+}
+
+type DynamicsConverter {
+  name: String!
+  expression: String!
+  """True when the expression is one literal."""
+  constant: Boolean!
 }
 
 type CompileResult {
@@ -2620,11 +2953,16 @@ type WorldSettings {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
+  """
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
 }
 
 type World {
@@ -2654,15 +2992,20 @@ type World {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
   """
-  Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
-  pxcor, pycor, pzcor as little-endian int16, then r, g, b.
-  Patch order (highest layer first). Black patches are omitted.
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
+  """
+  Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
+  pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
+  Patch order (highest layer first). Black patches and alpha 0 are omitted.
   Empty for a 2D world, whose patches are in patchColors.
   """
   voxels: String!
@@ -2680,6 +3023,16 @@ type World {
   perspective is empty or the subject is not a turtle.
   """
   subject: Int
+  """
+  World position of the followed, ridden, or watched agent.
+  A patch is at its center and a link at its midpoint. Null when
+  perspective is empty. The 2D view centers on this point. follow
+  and ride also rotate so the turtle's heading points up. The 3D
+  view turns to face it when watching a patch or a link.
+  """
+  subjectX: Float
+  subjectY: Float
+  subjectZ: Float
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -2730,6 +3083,9 @@ type DrawingMark {
   """z of the end. 0 in a 2D world."""
   z2: Float!
   heading: Float!
+  """Pitch and roll of a stamp. 0 for a pen stroke and in a 2D world."""
+  pitch: Float!
+  roll: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
   shape: String!
@@ -2753,6 +3109,11 @@ type AgentLabel {
   lx: Float
   """Link midpoint y. Null for a turtle or patch label."""
   ly: Float
+  """
+  z of the anchor. A turtle uses its zcor, a link the midpoint z, and a
+  patch its pzcor. 0 in a 2D world.
+  """
+  z: Float!
   text: String!
   r: Int!
   g: Int!
@@ -3074,6 +3435,54 @@ func (ec *executionContext) field_Mutation_setCode_args(ctx context.Context, raw
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setDynamicsDt_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 string
+	if tmp, ok := rawArgs["dt"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dt"))
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["dt"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setDynamics_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 string
+	if tmp, ok := rawArgs["definition"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("definition"))
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["definition"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_setFrameRate_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
 	var err error
 	args := map[string]interface{}{}
@@ -3128,6 +3537,30 @@ func (ec *executionContext) field_Mutation_setInput_args(ctx context.Context, ra
 		}
 	}
 	args["text"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setSeedOverride_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 bool
+	if tmp, ok := rawArgs["on"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("on"))
+		arg1, err = ec.unmarshalNBoolean2bool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["on"] = arg1
 	return args, nil
 }
 
@@ -3332,6 +3765,15 @@ func (ec *executionContext) field_Mutation_setWorld_args(ctx context.Context, ra
 		}
 	}
 	args["rngSeed"] = arg11
+	var arg12 *bool
+	if tmp, ok := rawArgs["seedOverride"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("seedOverride"))
+		arg12, err = ec.unmarshalOBoolean2ᚖbool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["seedOverride"] = arg12
 	return args, nil
 }
 
@@ -3686,6 +4128,50 @@ func (ec *executionContext) _AgentLabel_ly(ctx context.Context, field graphql.Co
 }
 
 func (ec *executionContext) fieldContext_AgentLabel_ly(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AgentLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AgentLabel_z(ctx context.Context, field graphql.CollectedField, obj *model.AgentLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AgentLabel_z(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AgentLabel_z(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AgentLabel",
 		Field:      field,
@@ -4085,6 +4571,8 @@ func (ec *executionContext) fieldContext_CommandResult_session(_ context.Context
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -4262,6 +4750,8 @@ func (ec *executionContext) fieldContext_CompileResult_session(_ context.Context
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -4665,6 +5155,94 @@ func (ec *executionContext) fieldContext_DrawingMark_heading(_ context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _DrawingMark_pitch(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_pitch(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Pitch, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_pitch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DrawingMark_roll(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DrawingMark_roll(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Roll, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DrawingMark_roll(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DrawingMark",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DrawingMark_size(ctx context.Context, field graphql.CollectedField, obj *model.DrawingMark) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_DrawingMark_size(ctx, field)
 	if err != nil {
@@ -4880,6 +5458,446 @@ func (ec *executionContext) fieldContext_DrawingMark_b(_ context.Context, field 
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsConverter_name(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsConverter) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsConverter_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsConverter_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsConverter",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsConverter_expression(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsConverter) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsConverter_expression(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Expression, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsConverter_expression(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsConverter",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsConverter_constant(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsConverter) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsConverter_constant(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Constant, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsConverter_constant(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsConverter",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsFlow_name(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsFlow) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsFlow_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsFlow_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsFlow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsFlow_expression(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsFlow) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsFlow_expression(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Expression, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsFlow_expression(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsFlow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsFlow_source(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsFlow) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsFlow_source(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Source, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsFlow_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsFlow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsFlow_sink(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsFlow) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsFlow_sink(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Sink, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsFlow_sink(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsFlow",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsStock_name(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsStock) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsStock_name(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Name, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsStock_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsStock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsStock_initial(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsStock) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsStock_initial(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Initial, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsStock_initial(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsStock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _DynamicsStock_allowNegative(ctx context.Context, field graphql.CollectedField, obj *model.DynamicsStock) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_DynamicsStock_allowNegative(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.AllowNegative, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_DynamicsStock_allowNegative(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "DynamicsStock",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5831,6 +6849,8 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_threeD(ctx, field)
 			case "rngSeed":
 				return ec.fieldContext_World_rngSeed(ctx, field)
+			case "seedOverride":
+				return ec.fieldContext_World_seedOverride(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -5839,6 +6859,12 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_perspective(ctx, field)
 			case "subject":
 				return ec.fieldContext_World_subject(ctx, field)
+			case "subjectX":
+				return ec.fieldContext_World_subjectX(ctx, field)
+			case "subjectY":
+				return ec.fieldContext_World_subjectY(ctx, field)
+			case "subjectZ":
+				return ec.fieldContext_World_subjectZ(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -6826,6 +7852,8 @@ func (ec *executionContext) fieldContext_Mutation_createSession(ctx context.Cont
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -6929,6 +7957,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7032,6 +8062,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModelSource(ctx context.Co
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7135,6 +8167,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModelFile(ctx context.Cont
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7210,6 +8244,132 @@ func (ec *executionContext) fieldContext_Mutation_setCode(ctx context.Context, f
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_setCode_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setDynamics(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setDynamics(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetDynamics(rctx, fc.Args["sessionId"].(string), fc.Args["definition"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.CompileResult)
+	fc.Result = res
+	return ec.marshalNCompileResult2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐCompileResult(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setDynamics(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "ok":
+				return ec.fieldContext_CompileResult_ok(ctx, field)
+			case "error":
+				return ec.fieldContext_CompileResult_error(ctx, field)
+			case "session":
+				return ec.fieldContext_CompileResult_session(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CompileResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setDynamics_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setDynamicsDt(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setDynamicsDt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetDynamicsDt(rctx, fc.Args["sessionId"].(string), fc.Args["dt"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.CompileResult)
+	fc.Result = res
+	return ec.marshalNCompileResult2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐCompileResult(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setDynamicsDt(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "ok":
+				return ec.fieldContext_CompileResult_ok(ctx, field)
+			case "error":
+				return ec.fieldContext_CompileResult_error(ctx, field)
+			case "session":
+				return ec.fieldContext_CompileResult_session(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CompileResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setDynamicsDt_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -7366,6 +8526,8 @@ func (ec *executionContext) fieldContext_Mutation_setup(ctx context.Context, fie
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7469,6 +8631,8 @@ func (ec *executionContext) fieldContext_Mutation_go(ctx context.Context, field 
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7572,6 +8736,8 @@ func (ec *executionContext) fieldContext_Mutation_stop(ctx context.Context, fiel
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7675,6 +8841,8 @@ func (ec *executionContext) fieldContext_Mutation_step(ctx context.Context, fiel
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7778,6 +8946,8 @@ func (ec *executionContext) fieldContext_Mutation_pressButton(ctx context.Contex
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7881,6 +9051,8 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -7984,6 +9156,8 @@ func (ec *executionContext) fieldContext_Mutation_setFrameRate(ctx context.Conte
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -8087,6 +9261,8 @@ func (ec *executionContext) fieldContext_Mutation_setSlider(ctx context.Context,
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -8190,6 +9366,8 @@ func (ec *executionContext) fieldContext_Mutation_setSwitch(ctx context.Context,
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -8293,6 +9471,8 @@ func (ec *executionContext) fieldContext_Mutation_setChooser(ctx context.Context
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -8396,6 +9576,8 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -8428,7 +9610,7 @@ func (ec *executionContext) _Mutation_setWorld(ctx context.Context, field graphq
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool), fc.Args["minPzcor"].(*int), fc.Args["maxPzcor"].(*int), fc.Args["wrapZ"].(*bool), fc.Args["rngSeed"].(*string))
+		return ec.resolvers.Mutation().SetWorld(rctx, fc.Args["sessionId"].(string), fc.Args["minPxcor"].(int), fc.Args["maxPxcor"].(int), fc.Args["minPycor"].(int), fc.Args["maxPycor"].(int), fc.Args["patchSize"].(float64), fc.Args["wrapX"].(bool), fc.Args["wrapY"].(bool), fc.Args["minPzcor"].(*int), fc.Args["maxPzcor"].(*int), fc.Args["wrapZ"].(*bool), fc.Args["rngSeed"].(*string), fc.Args["seedOverride"].(*bool))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8499,6 +9681,8 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -8566,6 +9750,111 @@ func (ec *executionContext) fieldContext_Mutation_generateRngSeed(ctx context.Co
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_generateRngSeed_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setSeedOverride(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setSeedOverride(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetSeedOverride(rctx, fc.Args["sessionId"].(string), fc.Args["on"].(bool))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Session)
+	fc.Result = res
+	return ec.marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setSeedOverride(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setSeedOverride_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -10216,6 +11505,8 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 				return ec.fieldContext_Session_widgets(ctx, field)
 			case "world":
 				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
@@ -10299,6 +11590,8 @@ func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context
 				return ec.fieldContext_WorldSettings_threeD(ctx, field)
 			case "rngSeed":
 				return ec.fieldContext_WorldSettings_rngSeed(ctx, field)
+			case "seedOverride":
+				return ec.fieldContext_WorldSettings_seedOverride(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type WorldSettings", field.Name)
 		},
@@ -11586,6 +12879,8 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_threeD(ctx, field)
 			case "rngSeed":
 				return ec.fieldContext_World_rngSeed(ctx, field)
+			case "seedOverride":
+				return ec.fieldContext_World_seedOverride(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -11594,6 +12889,12 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_perspective(ctx, field)
 			case "subject":
 				return ec.fieldContext_World_subject(ctx, field)
+			case "subjectX":
+				return ec.fieldContext_World_subjectX(ctx, field)
+			case "subjectY":
+				return ec.fieldContext_World_subjectY(ctx, field)
+			case "subjectZ":
+				return ec.fieldContext_World_subjectZ(ctx, field)
 			case "labelFont":
 				return ec.fieldContext_World_labelFont(ctx, field)
 			case "shapes":
@@ -11610,6 +12911,61 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_links(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type World", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_dynamics(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_dynamics(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Dynamics, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.SystemDynamics)
+	fc.Result = res
+	return ec.marshalOSystemDynamics2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSystemDynamics(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_dynamics(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "dt":
+				return ec.fieldContext_SystemDynamics_dt(ctx, field)
+			case "stocks":
+				return ec.fieldContext_SystemDynamics_stocks(ctx, field)
+			case "flows":
+				return ec.fieldContext_SystemDynamics_flows(ctx, field)
+			case "converters":
+				return ec.fieldContext_SystemDynamics_converters(ctx, field)
+			case "definition":
+				return ec.fieldContext_SystemDynamics_definition(ctx, field)
+			case "source":
+				return ec.fieldContext_SystemDynamics_source(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SystemDynamics", field.Name)
 		},
 	}
 	return fc, nil
@@ -12210,6 +13566,296 @@ func (ec *executionContext) fieldContext_Subscription_frames(ctx context.Context
 	if fc.Args, err = ec.field_Subscription_frames_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemDynamics_dt(ctx context.Context, field graphql.CollectedField, obj *model.SystemDynamics) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SystemDynamics_dt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Dt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SystemDynamics_dt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemDynamics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemDynamics_stocks(ctx context.Context, field graphql.CollectedField, obj *model.SystemDynamics) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SystemDynamics_stocks(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Stocks, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.DynamicsStock)
+	fc.Result = res
+	return ec.marshalNDynamicsStock2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsStockᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SystemDynamics_stocks(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemDynamics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DynamicsStock_name(ctx, field)
+			case "initial":
+				return ec.fieldContext_DynamicsStock_initial(ctx, field)
+			case "allowNegative":
+				return ec.fieldContext_DynamicsStock_allowNegative(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DynamicsStock", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemDynamics_flows(ctx context.Context, field graphql.CollectedField, obj *model.SystemDynamics) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SystemDynamics_flows(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Flows, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.DynamicsFlow)
+	fc.Result = res
+	return ec.marshalNDynamicsFlow2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsFlowᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SystemDynamics_flows(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemDynamics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DynamicsFlow_name(ctx, field)
+			case "expression":
+				return ec.fieldContext_DynamicsFlow_expression(ctx, field)
+			case "source":
+				return ec.fieldContext_DynamicsFlow_source(ctx, field)
+			case "sink":
+				return ec.fieldContext_DynamicsFlow_sink(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DynamicsFlow", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemDynamics_converters(ctx context.Context, field graphql.CollectedField, obj *model.SystemDynamics) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SystemDynamics_converters(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Converters, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]model.DynamicsConverter)
+	fc.Result = res
+	return ec.marshalNDynamicsConverter2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsConverterᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SystemDynamics_converters(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemDynamics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_DynamicsConverter_name(ctx, field)
+			case "expression":
+				return ec.fieldContext_DynamicsConverter_expression(ctx, field)
+			case "constant":
+				return ec.fieldContext_DynamicsConverter_constant(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type DynamicsConverter", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemDynamics_definition(ctx context.Context, field graphql.CollectedField, obj *model.SystemDynamics) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SystemDynamics_definition(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Definition, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SystemDynamics_definition(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemDynamics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SystemDynamics_source(ctx context.Context, field graphql.CollectedField, obj *model.SystemDynamics) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SystemDynamics_source(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Source, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SystemDynamics_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SystemDynamics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
 	}
 	return fc, nil
 }
@@ -14493,6 +16139,50 @@ func (ec *executionContext) fieldContext_World_rngSeed(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _World_seedOverride(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_seedOverride(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SeedOverride, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_seedOverride(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _World_voxels(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_World_voxels(ctx, field)
 	if err != nil {
@@ -14674,6 +16364,129 @@ func (ec *executionContext) fieldContext_World_subject(_ context.Context, field 
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectX(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectX(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectX, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectX(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectY(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectY(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectY, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_subjectZ(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_subjectZ(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubjectZ, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_subjectZ(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -14876,6 +16689,10 @@ func (ec *executionContext) fieldContext_World_drawing(_ context.Context, field 
 				return ec.fieldContext_DrawingMark_z2(ctx, field)
 			case "heading":
 				return ec.fieldContext_DrawingMark_heading(ctx, field)
+			case "pitch":
+				return ec.fieldContext_DrawingMark_pitch(ctx, field)
+			case "roll":
+				return ec.fieldContext_DrawingMark_roll(ctx, field)
 			case "size":
 				return ec.fieldContext_DrawingMark_size(ctx, field)
 			case "shape":
@@ -14942,6 +16759,8 @@ func (ec *executionContext) fieldContext_World_labels(_ context.Context, field g
 				return ec.fieldContext_AgentLabel_lx(ctx, field)
 			case "ly":
 				return ec.fieldContext_AgentLabel_ly(ctx, field)
+			case "z":
+				return ec.fieldContext_AgentLabel_z(ctx, field)
 			case "text":
 				return ec.fieldContext_AgentLabel_text(ctx, field)
 			case "r":
@@ -15662,6 +17481,50 @@ func (ec *executionContext) fieldContext_WorldSettings_rngSeed(_ context.Context
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_seedOverride(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_seedOverride(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SeedOverride, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_seedOverride(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -17469,6 +19332,11 @@ func (ec *executionContext) _AgentLabel(ctx context.Context, sel ast.SelectionSe
 			out.Values[i] = ec._AgentLabel_lx(ctx, field, obj)
 		case "ly":
 			out.Values[i] = ec._AgentLabel_ly(ctx, field, obj)
+		case "z":
+			out.Values[i] = ec._AgentLabel_z(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "text":
 			out.Values[i] = ec._AgentLabel_text(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -17662,6 +19530,16 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "pitch":
+			out.Values[i] = ec._DrawingMark_pitch(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "roll":
+			out.Values[i] = ec._DrawingMark_roll(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "size":
 			out.Values[i] = ec._DrawingMark_size(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -17684,6 +19562,158 @@ func (ec *executionContext) _DrawingMark(ctx context.Context, sel ast.SelectionS
 			}
 		case "b":
 			out.Values[i] = ec._DrawingMark_b(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dynamicsConverterImplementors = []string{"DynamicsConverter"}
+
+func (ec *executionContext) _DynamicsConverter(ctx context.Context, sel ast.SelectionSet, obj *model.DynamicsConverter) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dynamicsConverterImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DynamicsConverter")
+		case "name":
+			out.Values[i] = ec._DynamicsConverter_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expression":
+			out.Values[i] = ec._DynamicsConverter_expression(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "constant":
+			out.Values[i] = ec._DynamicsConverter_constant(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dynamicsFlowImplementors = []string{"DynamicsFlow"}
+
+func (ec *executionContext) _DynamicsFlow(ctx context.Context, sel ast.SelectionSet, obj *model.DynamicsFlow) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dynamicsFlowImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DynamicsFlow")
+		case "name":
+			out.Values[i] = ec._DynamicsFlow_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expression":
+			out.Values[i] = ec._DynamicsFlow_expression(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "source":
+			out.Values[i] = ec._DynamicsFlow_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sink":
+			out.Values[i] = ec._DynamicsFlow_sink(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var dynamicsStockImplementors = []string{"DynamicsStock"}
+
+func (ec *executionContext) _DynamicsStock(ctx context.Context, sel ast.SelectionSet, obj *model.DynamicsStock) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, dynamicsStockImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("DynamicsStock")
+		case "name":
+			out.Values[i] = ec._DynamicsStock_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "initial":
+			out.Values[i] = ec._DynamicsStock_initial(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "allowNegative":
+			out.Values[i] = ec._DynamicsStock_allowNegative(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -18089,6 +20119,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "setDynamics":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setDynamics(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setDynamicsDt":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setDynamicsDt(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "runCommand":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_runCommand(ctx, field)
@@ -18183,6 +20227,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "generateRngSeed":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_generateRngSeed(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setSeedOverride":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setSeedOverride(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -18805,6 +20856,8 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "dynamics":
+			out.Values[i] = ec._Session_dynamics(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18935,6 +20988,70 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 	default:
 		panic("unknown field " + strconv.Quote(fields[0].Name))
 	}
+}
+
+var systemDynamicsImplementors = []string{"SystemDynamics"}
+
+func (ec *executionContext) _SystemDynamics(ctx context.Context, sel ast.SelectionSet, obj *model.SystemDynamics) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, systemDynamicsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SystemDynamics")
+		case "dt":
+			out.Values[i] = ec._SystemDynamics_dt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "stocks":
+			out.Values[i] = ec._SystemDynamics_stocks(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "flows":
+			out.Values[i] = ec._SystemDynamics_flows(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "converters":
+			out.Values[i] = ec._SystemDynamics_converters(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "definition":
+			out.Values[i] = ec._SystemDynamics_definition(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "source":
+			out.Values[i] = ec._SystemDynamics_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
 }
 
 var turtleImplementors = []string{"Turtle"}
@@ -19277,6 +21394,11 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "seedOverride":
+			out.Values[i] = ec._World_seedOverride(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "voxels":
 			out.Values[i] = ec._World_voxels(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19291,6 +21413,12 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "subject":
 			out.Values[i] = ec._World_subject(ctx, field, obj)
+		case "subjectX":
+			out.Values[i] = ec._World_subjectX(ctx, field, obj)
+		case "subjectY":
+			out.Values[i] = ec._World_subjectY(ctx, field, obj)
+		case "subjectZ":
+			out.Values[i] = ec._World_subjectZ(ctx, field, obj)
 		case "labelFont":
 			out.Values[i] = ec._World_labelFont(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19422,6 +21550,11 @@ func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.Selectio
 			}
 		case "rngSeed":
 			out.Values[i] = ec._WorldSettings_rngSeed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "seedOverride":
+			out.Values[i] = ec._WorldSettings_seedOverride(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -19894,6 +22027,150 @@ func (ec *executionContext) marshalNDrawingMark2ᚕgonetlogoᚋbackendᚋgraph�
 				defer wg.Done()
 			}
 			ret[i] = ec.marshalNDrawingMark2gonetlogoᚋbackendᚋgraphᚋmodelᚐDrawingMark(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDynamicsConverter2gonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsConverter(ctx context.Context, sel ast.SelectionSet, v model.DynamicsConverter) graphql.Marshaler {
+	return ec._DynamicsConverter(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDynamicsConverter2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsConverterᚄ(ctx context.Context, sel ast.SelectionSet, v []model.DynamicsConverter) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDynamicsConverter2gonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsConverter(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDynamicsFlow2gonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsFlow(ctx context.Context, sel ast.SelectionSet, v model.DynamicsFlow) graphql.Marshaler {
+	return ec._DynamicsFlow(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDynamicsFlow2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsFlowᚄ(ctx context.Context, sel ast.SelectionSet, v []model.DynamicsFlow) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDynamicsFlow2gonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsFlow(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNDynamicsStock2gonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsStock(ctx context.Context, sel ast.SelectionSet, v model.DynamicsStock) graphql.Marshaler {
+	return ec._DynamicsStock(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNDynamicsStock2ᚕgonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsStockᚄ(ctx context.Context, sel ast.SelectionSet, v []model.DynamicsStock) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNDynamicsStock2gonetlogoᚋbackendᚋgraphᚋmodelᚐDynamicsStock(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -20954,6 +23231,13 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	}
 	res := scalar.MarshalString(*v)
 	return res
+}
+
+func (ec *executionContext) marshalOSystemDynamics2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSystemDynamics(ctx context.Context, sel ast.SelectionSet, v *model.SystemDynamics) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SystemDynamics(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalO__EnumValue2ᚕgithubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐEnumValueᚄ(ctx context.Context, sel ast.SelectionSet, v []introspection.EnumValue) graphql.Marshaler {

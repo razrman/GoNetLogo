@@ -127,11 +127,10 @@ type Session struct {
 	pub       nl.FramePublisher
 	// busy is true while a button is inside the interpreter with s.mu released.
 	busy bool
-	// pendingOnce is a once-button to run between steps of go. -1 means
-	// none. A new press replaces one that has not started, so a burst of
-	// clicks cannot pile up commands. NetLogo runs a once-button during a
-	// forever button; the current step is interrupted and go continues.
-	pendingOnce int
+	// pendingOnce is the once-buttons waiting to run between steps of go,
+	// oldest first. Every click is kept. NetLogo runs a once-button during
+	// a forever button; the current step is interrupted and go continues.
+	pendingOnce []int
 	// cancelRun asks the button in progress to stop at the next checkpoint.
 	// A one-shot clears it so setup is not aborted by the stop that ended go.
 	cancelRun bool
@@ -152,6 +151,12 @@ type Session struct {
 	// ignored* rate-limits the "run active" warning.
 	ignored   int
 	ignoredAt time.Time
+	// seedOverride applies overrideSeed before every setup and after a
+	// model load. The World tab uses it to repeat a run. A model's own
+	// random-seed still runs after that seed and wins for that setup.
+	// overrideSeed is the unsigned 32-bit value, stored as a non-negative int64.
+	seedOverride bool
+	overrideSeed int64
 	// progress* and run* feed the debug progress line and the stop log.
 	progressAt time.Time
 	rngMark    uint64
@@ -166,7 +171,7 @@ func newSession() *Session {
 	return &Session{
 		id:          newID(),
 		running:     -1,
-		pendingOnce: -1,
+		pendingOnce: nil,
 		speed:       40,
 		frameRate:   nl.DefaultFrameRate,
 		buttons:     map[int][]nl.Stmt{},
@@ -202,12 +207,17 @@ func (s *Session) Close() {
 	}
 }
 
+// stepSlot is one forever-button turn. Speeds below 100 run a fixed
+// number of steps in the slot. Speed 100 fills the slot, then yields so
+// stop, widget edits, and the frame publisher can take the mutex.
+const stepSlot = 30 * time.Millisecond
+
 func (s *Session) loop() {
 	// Steps stay on the speed-slider cadence. A second goroutine publishes
 	// on the frame-rate interval so it can take the latest snapshot between
 	// steps without the step loop waiting on a subscriber.
 	go s.publishLoop()
-	step := time.NewTicker(30 * time.Millisecond)
+	step := time.NewTicker(stepSlot)
 	defer step.Stop()
 	for {
 		select {
@@ -278,9 +288,21 @@ func (s *Session) runStepSlot() {
 		return
 	}
 	s.frame++
-	n := stepsFor(s.speed, s.frame)
+	speed := s.speed
+	n := stepsFor(speed, s.frame)
+	warp := speed >= 100
 	s.mu.Unlock()
-	for i := 0; i < n; i++ {
+	// Speed 100 is NetLogo warp: step until the slot is over instead of
+	// stopping after a handful of gos. The lock is dropped around every
+	// step, and snapshots stay on the frame-rate cap.
+	var deadline time.Time
+	if warp {
+		deadline = time.Now().Add(stepSlot)
+	}
+	for steps := 0; warp || steps < n; steps++ {
+		if warp && steps > 0 && !time.Now().Before(deadline) {
+			return
+		}
 		s.mu.Lock()
 		if !s.busy {
 			s.runPendingOnceLocked()
@@ -320,8 +342,16 @@ func (s *Session) frameTickLocked() {
 	}
 	s.frame++
 	n := stepsFor(s.speed, s.frame)
+	warp := s.speed >= 100
+	var deadline time.Time
+	if warp {
+		deadline = time.Now().Add(stepSlot)
+	}
 	done := 0
-	for i := 0; i < n; i++ {
+	for i := 0; warp || i < n; i++ {
+		if warp && i > 0 && !time.Now().Before(deadline) {
+			break
+		}
 		_, err := s.runIndexLocked(s.running)
 		stopped := s.running < 0
 		if err != nil {
@@ -369,7 +399,7 @@ func (s *Session) armYield(vm *nl.VM) {
 		return
 	}
 	vm.ClearHalt()
-	if s.cancelRun || s.closed || s.pendingOnce >= 0 {
+	if s.cancelRun || s.closed || len(s.pendingOnce) > 0 {
 		vm.RequestHalt()
 	}
 	vm.SetYield(func() {
@@ -378,7 +408,7 @@ func (s *Session) armYield(vm *nl.VM) {
 		waited := time.Since(lockAt)
 		now := time.Now()
 		s.sampleTicksLocked()
-		if s.closed || s.cancelRun || s.pendingOnce >= 0 {
+		if s.closed || s.cancelRun || len(s.pendingOnce) > 0 {
 			vm.RequestHalt()
 		}
 		if !s.closed {
@@ -457,6 +487,7 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	if old != nil && old != vm {
 		old.Close()
 	}
+	s.pendingOnce = nil
 	s.setRunningLocked(-1, "load")
 	s.frame = 0
 	s.clock = nl.RunClock{}
@@ -485,6 +516,11 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	}
 	slog.Info("model loaded", "session", s.id, "model", name, "widgets", widgets, "plots", plots,
 		"min_px", m.View.MinPxcor, "max_px", m.View.MaxPxcor, "min_py", m.View.MinPycor, "max_py", m.View.MaxPycor)
+	// A freshly built world is clock-seeded. The override replaces that
+	// before the next setup, so a reload repeats the same run.
+	if s.seedOverride && vm.World != nil {
+		vm.World.Seed(s.overrideSeed)
+	}
 }
 
 func (s *Session) compileButtonsLocked() {
@@ -800,12 +836,16 @@ func (s *Session) PressButton(index int) error {
 // minPz, maxPz, and wrapZ change the Z axis of a 3D world. Pass both Z
 // bounds or neither. A nil wrapZ leaves Z wrapping as it is. On a 2D
 // world the Z arguments are ignored. A non-nil rngSeed reseeds the world
-// RNG after a successful resize. An invalid seed is rejected first, so
-// the grid is left alone.
-func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool, rngSeed *string) error {
+// RNG after a successful resize, including while go is running when the
+// geometry is unchanged. It is an unsigned decimal integer in
+// 0..4294967295, the 32 bits setSeed uses. An invalid seed is rejected
+// first, so the grid is left alone. seedOverride turns the session
+// override on or off. That stored seed is applied again before setup;
+// this call does not wait for setup to reseed an explicit rngSeed.
+func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wrapX, wrapY bool, minPz, maxPz *int, wrapZ *bool, rngSeed *string, seedOverride *bool) error {
 	var seed *int64
 	if rngSeed != nil {
-		n, err := nl.DecodeRNGSeed(*rngSeed)
+		n, err := nl.ParseRNGSeed(*rngSeed)
 		if err != nil {
 			return err
 		}
@@ -847,12 +887,24 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		return fmt.Errorf("%s", busyMessage("set world"))
 	}
 	if active && same {
+		// A seed-only change stays legal during go. Resizing still returns
+		// the stop-the-model error above. The explicit seed is applied now,
+		// the same as random-seed. The override flag is only stored; the
+		// automatic reseed waits for setup.
+		if seed == nil && seedOverride == nil {
+			return nil
+		}
+		s.mu.Lock()
+		capture := s.noteSeedLocked(seed, seedOverride)
+		s.mu.Unlock()
 		if seed != nil {
 			vm.DoLocked(func() { vm.World.Seed(*seed) })
-			s.mu.Lock()
-			s.broadcastLocked()
-			s.mu.Unlock()
+		} else if capture {
+			s.captureOverrideSeed(vm)
 		}
+		s.mu.Lock()
+		s.broadcastLocked()
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -881,16 +933,84 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		if err := w.ApplyView3D(minPx, maxPx, minPy, maxPy, minZ, maxZ, patchSize, wrapX, wrapY, zWrap); err != nil {
 			return err
 		}
-		s.seedWorldLocked(seed)
+		s.finishSeedLocked(seed, seedOverride)
 		s.broadcastLocked()
 		return nil
 	}
 	if err := w.ApplyView(minPx, maxPx, minPy, maxPy, patchSize, wrapX, wrapY); err != nil {
 		return err
 	}
-	s.seedWorldLocked(seed)
+	s.finishSeedLocked(seed, seedOverride)
 	s.broadcastLocked()
 	return nil
+}
+
+// SetSeedOverride turns the session seed override on or off. The world is
+// not resized, and this is allowed while go is running. Turning it on
+// records the low 32 bits of the current world seed. The generator is not
+// reseeded here; the next setup applies the stored seed.
+func (s *Session) SetSeedOverride(on bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vm == nil || s.vm.World == nil {
+		return fmt.Errorf("no world")
+	}
+	turningOn := on && !s.seedOverride
+	s.seedOverride = on
+	if turningOn {
+		s.captureOverrideSeedLocked()
+	}
+	s.broadcastLocked()
+	return nil
+}
+
+// noteSeedLocked stores the override flag and an explicit seed. Caller
+// holds s.mu. It returns true when the override just turned on and no seed
+// was supplied, so the caller copies the world's current low 32 bits.
+func (s *Session) noteSeedLocked(seed *int64, override *bool) bool {
+	turningOn := override != nil && *override && !s.seedOverride
+	if override != nil {
+		s.seedOverride = *override
+	}
+	if seed != nil && s.seedOverride {
+		s.overrideSeed = *seed
+		return false
+	}
+	return turningOn && seed == nil
+}
+
+// finishSeedLocked records the seed preference after a successful resize
+// and reseeds when an explicit seed was sent. Caller holds s.mu.
+func (s *Session) finishSeedLocked(seed *int64, override *bool) {
+	capture := s.noteSeedLocked(seed, override)
+	s.seedWorldLocked(seed)
+	if capture {
+		s.captureOverrideSeedLocked()
+	}
+}
+
+// captureOverrideSeed copies the live seed's low 32 bits without holding
+// the session lock across the world lock.
+func (s *Session) captureOverrideSeed(vm *nl.VM) {
+	if vm == nil || vm.World == nil {
+		return
+	}
+	var n int64
+	vm.DoLocked(func() { n = int64(uint32(vm.World.RNGSeed())) })
+	s.mu.Lock()
+	s.overrideSeed = n
+	s.mu.Unlock()
+}
+
+// captureOverrideSeedLocked copies the live seed's low 32 bits.
+// Caller holds s.mu.
+func (s *Session) captureOverrideSeedLocked() {
+	if s.vm == nil || s.vm.World == nil {
+		return
+	}
+	var n int64
+	s.withWorldLocked(func() { n = int64(uint32(s.vm.World.RNGSeed())) })
+	s.overrideSeed = n
 }
 
 // worldGeometrySame reports whether applying these settings would leave
@@ -918,8 +1038,9 @@ func worldGeometrySame(w *nl.World, minPx, maxPx, minPy, maxPy int, patchSize fl
 	return true
 }
 
-// GenerateRNGSeed draws a 6-digit seed with crypto/rand, seeds the world
-// RNG with it, and returns the text. The patch grid is not resized.
+// GenerateRNGSeed draws an unsigned 32-bit seed with crypto/rand, seeds
+// the world RNG with it, and returns the decimal text. The patch grid is
+// not resized.
 // random-seed is legal while go is running, so this does not wait for stop.
 // The session lock is not held across the world update: a running button
 // yields by taking the session lock after it drops the world lock.
@@ -928,7 +1049,7 @@ func (s *Session) GenerateRNGSeed() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	n, err := nl.DecodeRNGSeed(text)
+	n, err := nl.ParseRNGSeed(text)
 	if err != nil {
 		return "", err
 	}
@@ -941,9 +1062,43 @@ func (s *Session) GenerateRNGSeed() (string, error) {
 	s.mu.Unlock()
 	vm.DoLocked(func() { vm.World.Seed(n) })
 	s.mu.Lock()
+	// Random updates the stored override when that mode is on, so the next
+	// setup repeats this draw. The generator was already reseeded above.
+	if s.seedOverride {
+		s.overrideSeed = n
+	}
 	s.broadcastLocked()
 	s.mu.Unlock()
 	return text, nil
+}
+
+// reseedForSetupLocked applies the session seed override before setup.
+// Caller holds s.mu. Model code runs afterward, so a random-seed command
+// inside setup still wins for that setup. With the override off, only the
+// draw counter is cleared: clear-all does not reseed, and neither does setup.
+func (s *Session) reseedForSetupLocked() {
+	if s.vm == nil || s.vm.World == nil {
+		return
+	}
+	if !s.seedOverride {
+		s.vm.World.ResetRNGDraws()
+		return
+	}
+	n := s.overrideSeed
+	s.withWorldLocked(func() {
+		s.vm.World.Seed(n)
+	})
+}
+
+// applySeedView reports the override on a world snapshot. Caller holds s.mu.
+func (s *Session) applySeedView(w *model.World) {
+	if w == nil {
+		return
+	}
+	w.SeedOverride = s.seedOverride
+	if s.seedOverride {
+		w.RngSeed = nl.FormatRNGSeed(s.overrideSeed)
+	}
 }
 
 // seedWorldLocked reseeds when seed is set. Caller holds s.mu.
@@ -962,6 +1117,8 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 	s.mu.Lock()
 	vm := s.vm
 	fps := s.frameRateCap()
+	override := s.seedOverride
+	overrideSeed := s.overrideSeed
 	s.mu.Unlock()
 	if vm == nil || vm.World == nil {
 		return nil, fmt.Errorf("no world")
@@ -982,10 +1139,20 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 			WrapY:        w.WrapY,
 			WrapZ:        w.Is3D() && w.WrapZ,
 			ThreeD:       w.Is3D(),
-			RngSeed:      nl.FormatRNGSeed(w.RNGSeed()),
+			RngSeed:      displayedRNGSeed(w.RNGSeed(), override, overrideSeed),
+			SeedOverride: override,
 		}
 	})
 	return out, nil
+}
+
+// displayedRNGSeed is the text the World tab shows. While the override is
+// on, that is the stored seed, not a random-seed the model ran afterward.
+func displayedRNGSeed(live int64, override bool, overrideSeed int64) string {
+	if override {
+		return nl.FormatRNGSeed(overrideSeed)
+	}
+	return nl.FormatRNGSeed(live)
 }
 
 // SetFrameRate sets the publish cap. Values outside 1..120 are clamped.
@@ -1137,7 +1304,7 @@ func (s *Session) runNamed(name string, forever bool) error {
 	if i < 0 {
 		if s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc(name) != nil {
 			if strings.EqualFold(name, "setup") && s.vm.World != nil {
-				s.vm.World.ResetRNGDraws()
+				s.reseedForSetupLocked()
 			}
 			_, err := s.vm.Call(name)
 			if err != nil {
@@ -1188,7 +1355,7 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	stmts := s.buttons[i]
 	vm := s.vm
 	if isSetupName(w.Display, w.Source) && vm != nil && vm.World != nil {
-		vm.World.ResetRNGDraws()
+		s.reseedForSetupLocked()
 	}
 	s.busy = true
 	s.armYield(vm)
@@ -1221,7 +1388,7 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 			// A halt that only makes room for a queued once-button leaves
 			// go running. stop inside a once-button does not cancel a
 			// different forever button.
-			keep := halted && s.pendingOnce >= 0 && !s.cancelRun && s.running == i
+			keep := halted && len(s.pendingOnce) > 0 && !s.cancelRun && s.running == i
 			if s.running == i && !keep {
 				s.setRunningLocked(-1, reason)
 			}
@@ -1239,27 +1406,31 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 }
 
 // queueOnceLocked remembers a once-button and asks the current step to
-// stop at the next checkpoint. Caller holds s.mu.
+// stop at the next checkpoint. Caller holds s.mu. Clicks queue in order;
+// a later click does not replace an earlier one that has not started.
 func (s *Session) queueOnceLocked(index int) {
-	s.pendingOnce = index
+	s.pendingOnce = append(s.pendingOnce, index)
 	if s.vm != nil {
 		s.vm.RequestHalt()
 	}
 }
 
-// runPendingOnceLocked runs a queued once-button. Caller holds s.mu and
-// the interpreter is not already inside a button. The lock is dropped
-// while the button runs and held again on return.
+// runPendingOnceLocked runs the oldest queued once-button. Caller holds
+// s.mu and the interpreter is not already inside a button. The lock is
+// dropped while the button runs and held again on return. One button
+// runs per call so go can continue between them; the rest stay queued.
 func (s *Session) runPendingOnceLocked() {
-	if s.pendingOnce < 0 || s.busy || s.model == nil {
+	if len(s.pendingOnce) == 0 || s.busy || s.model == nil {
 		return
 	}
-	idx := s.pendingOnce
+	idx := s.pendingOnce[0]
+	s.pendingOnce = s.pendingOnce[1:]
+	if len(s.pendingOnce) == 0 {
+		s.pendingOnce = nil
+	}
 	if idx >= len(s.model.Widgets) || s.model.Widgets[idx].Kind != "button" {
-		s.pendingOnce = -1
 		return
 	}
-	s.pendingOnce = -1
 	if s.vm != nil {
 		s.vm.ClearHalt()
 	}
@@ -1577,6 +1748,7 @@ func (s *Session) sessionLocked() *model.Session {
 	if s.model != nil {
 		out.Code = s.model.Code
 		out.Info = s.model.Info
+		out.Dynamics = dynamicsView(s.model.Dynamics)
 		out.Notes = append([]string(nil), s.model.Notes...)
 		if out.Notes == nil {
 			out.Notes = []string{}
@@ -1610,6 +1782,7 @@ func (s *Session) sessionLocked() *model.Session {
 		}
 		out.Widgets = s.widgetsLocked()
 		out.World = worldLocked(w)
+		s.applySeedView(&out.World)
 	})
 	s.shownStarted = started
 	s.shownTicks = ticks
@@ -1692,6 +1865,33 @@ func (s *Session) widgetsLocked() []model.Widget {
 	return out
 }
 
+// setPerspectiveSubject publishes who for a turtle and the world point
+// for a turtle, patch, or link. follow and ride are turtles only.
+// watch can sit on any of the three.
+func setPerspectiveSubject(out *model.World, agent nl.Agent) {
+	if agent == nil || agent.IsDead() {
+		return
+	}
+	switch a := agent.(type) {
+	case *nl.Turtle:
+		who := a.Who
+		out.Subject = &who
+		x, y, z := a.X, a.Y, a.Z
+		out.SubjectX, out.SubjectY, out.SubjectZ = &x, &y, &z
+	case *nl.Patch:
+		x, y, z := float64(a.PX), float64(a.PY), float64(a.PZ)
+		out.SubjectX, out.SubjectY, out.SubjectZ = &x, &y, &z
+	case *nl.Link:
+		if a.End1 == nil || a.End2 == nil || a.End1.IsDead() || a.End2.IsDead() {
+			return
+		}
+		x := (a.End1.X + a.End2.X) / 2
+		y := (a.End1.Y + a.End2.Y) / 2
+		z := (a.End1.Z + a.End2.Z) / 2
+		out.SubjectX, out.SubjectY, out.SubjectZ = &x, &y, &z
+	}
+}
+
 func labelFontOf(w *nl.World) int {
 	if w == nil || w.LabelFont <= 0 {
 		return 10
@@ -1765,10 +1965,7 @@ func worldLocked(w *nl.World) model.World {
 	}
 	mode, agent := w.Perspective()
 	out.Perspective = mode
-	if t, ok := agent.(*nl.Turtle); ok && t != nil && !t.IsDead() {
-		who := t.Who
-		out.Subject = &who
-	}
+	setPerspectiveSubject(&out, agent)
 	if turtles := w.Turtles(); turtles != nil {
 		alive := turtles.Alive()
 		if w.Is3D() {
@@ -1818,13 +2015,15 @@ func worldLocked(w *nl.World) model.World {
 }
 
 // voxelBytes is the size of one packed voxel: three int16 coordinates and
-// an RGB color.
-const voxelBytes = 9
+// an RGBA color. Alpha is the color's own alpha; the 3D view turns a
+// fully opaque NetLogo color into a translucent cube.
+const voxelBytes = 10
 
 // voxels packs the non-black patches of a 3D world for the 3D view:
-// pxcor, pycor, pzcor as little-endian int16, then r, g, b. A world is
+// pxcor, pycor, pzcor as little-endian int16, then r, g, b, a. A world is
 // at most nl.MaxWorldSide patches on a side, so coordinates fit in int16.
 // A 2D world sends an empty string; its patches are in patchColors.
+// Alpha 0 is omitted: that patch would not be drawn.
 func voxels(w *nl.World) string {
 	if !w.Is3D() {
 		return ""
@@ -1832,6 +2031,9 @@ func voxels(w *nl.World) string {
 	var raw []byte
 	var rec [voxelBytes]byte
 	w.EachVoxel(func(v nl.Voxel) {
+		if v.C.A == 0 {
+			return
+		}
 		if raw == nil {
 			// Most colored 3D worlds color a good share of their patches;
 			// start at a quarter of the grid to skip early regrowth.
@@ -1840,7 +2042,7 @@ func voxels(w *nl.World) string {
 		binary.LittleEndian.PutUint16(rec[0:], uint16(int16(v.X)))
 		binary.LittleEndian.PutUint16(rec[2:], uint16(int16(v.Y)))
 		binary.LittleEndian.PutUint16(rec[4:], uint16(int16(v.Z)))
-		rec[6], rec[7], rec[8] = v.C.R, v.C.G, v.C.B
+		rec[6], rec[7], rec[8], rec[9] = v.C.R, v.C.G, v.C.B, v.C.A
 		raw = append(raw, rec[:]...)
 	})
 	if len(raw) == 0 {
@@ -1894,7 +2096,8 @@ func drawingMarks(w *nl.World) []model.DrawingMark {
 		out = append(out, model.DrawingMark{
 			Pen: m.Pen, Erase: m.Erase,
 			X: m.X, Y: m.Y, Z: m.Z, X2: m.X2, Y2: m.Y2, Z2: m.Z2,
-			Heading: m.Heading, Size: m.Size, Shape: m.Shape,
+			Heading: m.Heading, Pitch: m.Pitch, Roll: m.Roll,
+			Size: m.Size, Shape: m.Shape,
 			R: int(c.R), G: int(c.G), B: int(c.B),
 		})
 	}
@@ -1907,6 +2110,7 @@ func viewLabels(w *nl.World) []model.AgentLabel {
 	for _, lb := range labels {
 		item := model.AgentLabel{
 			Text: lb.Text,
+			Z:    lb.Z,
 			R:    int(lb.R), G: int(lb.G), B: int(lb.B),
 		}
 		switch {
@@ -1966,9 +2170,11 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// stepsFor matches the desktop speed slider.
+// stepsFor matches the desktop speed slider for speeds below 100.
 // At 50 and above, several model steps run per frame.
 // Below 50, frames are skipped so the model slows down.
+// Speed 100 is not used as a step count: the slot runner treats it as
+// warp and fills the 30ms slot instead.
 func stepsFor(speed float64, frame int) int {
 	if speed >= 50 {
 		return 1 + int((speed-50)/10)

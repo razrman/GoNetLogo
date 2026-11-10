@@ -86,6 +86,24 @@ func TestLife3DRuns(t *testing.T) {
 	}
 }
 
+func TestShapesExampleRunsForeverButton(t *testing.T) {
+	root := modelsRoot(t)
+	path := filepath.Join(root, "library", "3D", "Code Examples", "Shapes Example 3D.nlogox3d")
+	res := Check(path, Options{Timeout: 20 * time.Second, Ticks: 2, Seed: 1})
+	if !res.HasGo || (res.Go != "ok" && res.Go != "stopped") {
+		t.Fatalf("shapes example go %s has=%v: %s", res.Go, res.HasGo, res.Error)
+	}
+}
+
+func TestNeighborhoodsExampleHasNoLoop(t *testing.T) {
+	root := modelsRoot(t)
+	path := filepath.Join(root, "library", "3D", "Code Examples", "Neighborhoods Example 3D.nlogox3d")
+	res := Check(path, Options{SkipRun: true, Seed: 1})
+	if !res.CompileOK || res.HasGo {
+		t.Fatalf("neighborhoods compile %v go %v: %s", res.CompileOK, res.HasGo, res.Error)
+	}
+}
+
 func TestClassic3DModelRuns(t *testing.T) {
 	view := strings.Join([]string{"GRAPHICS-WINDOW", "0", "0", "100", "100", "-1", "-1", "12.0", "1", "10", "1", "1", "1", "0", "1", "1", "1",
 		"-2", "2", "-2", "2", "-3", "3", "1", "1", "1", "ticks", "30.0"}, "\n")

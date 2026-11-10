@@ -828,21 +828,22 @@ end
 		t.Fatalf("3D bounds %+v", w)
 	}
 	raw, err := base64.StdEncoding.DecodeString(w.Voxels)
-	if err != nil || len(raw) != 2*9 {
+	const voxelStride = 10
+	if err != nil || len(raw) != 2*voxelStride {
 		t.Fatalf("voxels %d bytes, err %v", len(raw), err)
 	}
-	type voxel struct{ x, y, z, r, g, b int }
+	type voxel struct{ x, y, z, r, g, b, a int }
 	read := func(i int) voxel {
-		v := raw[i*9:]
+		v := raw[i*voxelStride:]
 		i16 := func(o int) int { return int(int16(uint16(v[o]) | uint16(v[o+1])<<8)) }
-		return voxel{i16(0), i16(2), i16(4), int(v[6]), int(v[7]), int(v[8])}
+		return voxel{i16(0), i16(2), i16(4), int(v[6]), int(v[7]), int(v[8]), int(v[9])}
 	}
 	red := nl.ColorRGBA(15)
-	// Highest layer first.
-	if got := read(0); got != (voxel{1, -1, 2, int(red.R), int(red.G), int(red.B)}) {
+	// Highest layer first. A number color and an RGB list are both opaque.
+	if got := read(0); got != (voxel{1, -1, 2, int(red.R), int(red.G), int(red.B), 255}) {
 		t.Fatalf("voxel 0 %+v", got)
 	}
-	if got := read(1); got != (voxel{-2, 0, -1, 1, 2, 3}) {
+	if got := read(1); got != (voxel{-2, 0, -1, 1, 2, 3, 255}) {
 		t.Fatalf("voxel 1 %+v (negative coordinates and RGB colors)", got)
 	}
 	if len(w.Turtles) != 2 {

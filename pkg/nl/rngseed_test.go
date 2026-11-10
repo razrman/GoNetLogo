@@ -1,50 +1,37 @@
 package nl
 
 import (
-	"strings"
+	"strconv"
 	"testing"
 )
 
-func TestRNGSeedEncodeDecode(t *testing.T) {
+func TestRNGSeedParseRoundTrip(t *testing.T) {
 	cases := []struct {
 		text string
 		n    int64
 	}{
-		{"AAAAAA", 0},
-		{"AAAAAB", 1},
-		{"AAAAA/", 63},
-		{"AAAABA", 64},
-		{"AAAABB", 65},
-		{"BAAAAA", 1 << 30},
-		{"CAAAAA", 1 << 31},
-		{"//////", (1 << 36) - 1},
+		{"0", 0},
+		{"1", 1},
+		{"42", 42},
+		{"2147483647", 1<<31 - 1},
+		{"2147483648", 1 << 31},
+		{"4294967295", int64(^uint32(0))},
 	}
 	for _, tc := range cases {
-		got, err := DecodeRNGSeed(tc.text)
+		got, err := ParseRNGSeed(tc.text)
 		if err != nil {
-			t.Fatalf("decode %q: %v", tc.text, err)
+			t.Fatalf("parse %q: %v", tc.text, err)
 		}
 		if got != tc.n {
-			t.Fatalf("decode %q = %d, want %d", tc.text, got, tc.n)
+			t.Fatalf("parse %q = %d, want %d", tc.text, got, tc.n)
 		}
-		back, err := EncodeRNGSeed(tc.n)
-		if err != nil {
-			t.Fatalf("encode %d: %v", tc.n, err)
-		}
-		if back != tc.text {
-			t.Fatalf("encode %d = %q, want %q", tc.n, back, tc.text)
+		if back := FormatRNGSeed(tc.n); back != tc.text {
+			t.Fatalf("format %d = %q, want %q", tc.n, back, tc.text)
 		}
 	}
-
 	for n := int64(0); n < 4096; n++ {
-		text, err := EncodeRNGSeed(n)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(text) != RNGSeedDigits {
-			t.Fatalf("encode %d length %d", n, len(text))
-		}
-		got, err := DecodeRNGSeed(text)
+		text := FormatRNGSeed(n)
+		got, err := ParseRNGSeed(text)
 		if err != nil || got != n {
 			t.Fatalf("round trip %d -> %q -> %d, %v", n, text, got, err)
 		}
@@ -54,52 +41,46 @@ func TestRNGSeedEncodeDecode(t *testing.T) {
 func TestRNGSeedRejectsInvalid(t *testing.T) {
 	bad := []string{
 		"",
-		"A",
-		"AAAAA",
-		"AAAAAAA",
-		"AAAAA=",
-		"AAAAA ",
-		" AAAAA",
-		"aaaaa ",
-		"AAAAA\n",
-		"AAA*AA",
-		"////// ",
-		"AAAAAé",
+		"-1",
+		"-0",
+		"1.5",
+		"1.0",
+		"abc",
+		"12a",
+		"4294967296",
+		"9999999999",
+		"+1",
+		" 1",
+		"1 ",
+		"1e2",
+		"0x10",
 	}
 	for _, s := range bad {
-		if _, err := DecodeRNGSeed(s); err == nil {
-			t.Fatalf("decode %q succeeded", s)
+		if _, err := ParseRNGSeed(s); err == nil {
+			t.Fatalf("parse %q succeeded", s)
 		}
-	}
-	if _, err := DecodeRNGSeed("AAAAA="); err == nil || !strings.Contains(err.Error(), "alphabet") {
-		t.Fatalf("padding error %v", err)
-	}
-	if _, err := DecodeRNGSeed("AAAAA"); err == nil || !strings.Contains(err.Error(), "6 characters") {
-		t.Fatalf("length error %v", err)
-	}
-	if _, err := EncodeRNGSeed(-1); err == nil {
-		t.Fatal("encode -1 succeeded")
-	}
-	if _, err := EncodeRNGSeed(1 << 36); err == nil {
-		t.Fatal("encode 2^36 succeeded")
 	}
 }
 
-func TestFormatRNGSeedKeepsLowBits(t *testing.T) {
-	if got := FormatRNGSeed(1); got != "AAAAAB" {
+func TestFormatRNGSeedKeepsLow32Bits(t *testing.T) {
+	if got := FormatRNGSeed(1); got != "1" {
 		t.Fatalf("format 1 = %q", got)
 	}
-	if got := FormatRNGSeed(-1); got != "//////" {
+	// random-seed -1 uses the same 32 bits as the unsigned seed 2^32-1.
+	if got := FormatRNGSeed(-1); got != "4294967295" {
 		t.Fatalf("format -1 = %q", got)
+	}
+	if got := FormatRNGSeed(int64(int32(-2147483648))); got != "2147483648" {
+		t.Fatalf("format min int32 = %q", got)
 	}
 	const wide = int64(0x123456789abcdef)
 	text := FormatRNGSeed(wide)
-	n, err := DecodeRNGSeed(text)
+	n, err := ParseRNGSeed(text)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != wide&(1<<36-1) {
-		t.Fatalf("format %#x -> %d, want low 36 bits", wide, n)
+	if n != wide&0xffffffff {
+		t.Fatalf("format %#x -> %d, want low 32 bits", wide, n)
 	}
 	// setSeed uses the low 32 bits, so formatting and reseeding restarts
 	// the same sequence the wide seed was already producing.
@@ -108,11 +89,11 @@ func TestFormatRNGSeedKeepsLowBits(t *testing.T) {
 	a.Seed(wide)
 	b.Seed(n)
 	for i := 0; i < 5; i++ {
-		gotA, err := a.RandomInt(1000)
+		gotA, err := a.RandomInt(100)
 		if err != nil {
 			t.Fatal(err)
 		}
-		gotB, err := b.RandomInt(1000)
+		gotB, err := b.RandomInt(100)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,14 +103,14 @@ func TestFormatRNGSeedKeepsLowBits(t *testing.T) {
 	}
 }
 
-func TestDecodeSeedMatchesRandomSeed(t *testing.T) {
-	// "AAAAAB" is 1. random 100 after random-seed 1 is 81.
-	n, err := DecodeRNGSeed("AAAAAB")
+func TestParseSeedMatchesRandomSeed(t *testing.T) {
+	// "1" is random-seed 1, and random 100 then yields 81.
+	n, err := ParseRNGSeed("1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {
-		t.Fatalf("decoded %d", n)
+		t.Fatalf("parsed %d", n)
 	}
 	w := NewWorld(-1, 1, -1, 1, true, true)
 	w.Seed(n)
@@ -138,17 +119,18 @@ func TestDecodeSeedMatchesRandomSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != 81 {
-		t.Fatalf("random 100 after seed text AAAAAB = %d, want 81", got)
+		t.Fatalf("random 100 after seed text 1 = %d, want 81", got)
 	}
 
-	// A value above the signed 32-bit range still follows setSeed's low 32 bits.
-	text := "CAAAAA" // 2^31
-	n, err = DecodeRNGSeed(text)
+	// An unsigned value at or above 2^31 is the same generator state as
+	// the signed seed random-seed accepts for those bits.
+	hiText := "2147483648" // 2^31
+	n, err = ParseRNGSeed(hiText)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 1<<31 {
-		t.Fatalf("decode %q = %d", text, n)
+		t.Fatalf("parse %q = %d", hiText, n)
 	}
 	hi := NewWorld(0, 0, 0, 0, false, false)
 	lo := NewWorld(0, 0, 0, 0, false, false)
@@ -164,7 +146,25 @@ func TestDecodeSeedMatchesRandomSeed(t *testing.T) {
 			t.Fatal(err)
 		}
 		if a != b {
-			t.Fatalf("draw %d: full seed %d, low 32 bits %d", i, a, b)
+			t.Fatalf("draw %d: unsigned seed %d, signed low 32 bits %d", i, a, b)
+		}
+	}
+
+	top := NewWorld(0, 0, 0, 0, false, false)
+	neg := NewWorld(0, 0, 0, 0, false, false)
+	top.Seed(int64(^uint32(0))) // 4294967295
+	neg.Seed(-1)
+	for i := 0; i < 4; i++ {
+		a, err := top.RandomInt(100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := neg.RandomInt(100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a != b {
+			t.Fatalf("draw %d: 4294967295 -> %d, random-seed -1 -> %d", i, a, b)
 		}
 	}
 }
@@ -176,13 +176,15 @@ func TestGenerateRNGSeed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		n, err := DecodeRNGSeed(text)
+		n, err := ParseRNGSeed(text)
 		if err != nil {
 			t.Fatalf("generated %q: %v", text, err)
 		}
-		back, err := EncodeRNGSeed(n)
-		if err != nil || back != text {
-			t.Fatalf("generated %q reencodes as %q (%v)", text, back, err)
+		if n < 0 || n > int64(^uint32(0)) {
+			t.Fatalf("generated %q = %d", text, n)
+		}
+		if FormatRNGSeed(n) != strconv.FormatInt(n, 10) {
+			t.Fatalf("generated %q formats as %s", text, FormatRNGSeed(n))
 		}
 		seen[text] = true
 	}
@@ -208,7 +210,7 @@ func TestGenerateRNGSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := DecodeRNGSeed(text)
+	n, err := ParseRNGSeed(text)
 	if err != nil {
 		t.Fatal(err)
 	}

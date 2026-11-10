@@ -8,9 +8,10 @@ import (
 	"sync/atomic"
 )
 
-// PlotPointCap is how many samples one pen keeps. Older samples drop off
-// the front. Seq still counts every sample in the current epoch, so a
-// subscriber behind the window is sent a reset instead of a gap.
+// PlotPointCap is how many samples one pen keeps. Past that, the history
+// is decimated in place: the whole run stays on the pen, at a coarser
+// spacing, and the buffer does not grow. The pen's epoch changes so a
+// subscriber replaces its samples instead of appending onto the old ones.
 const PlotPointCap = 8192
 
 // PlotPoint is one sample. Down is false when the pen was up, which breaks
@@ -339,10 +340,49 @@ func (pen *plotPen) add(x, y float64) {
 	pen.x = x
 	pen.points = append(pen.points, PlotPoint{X: x, Y: y, Down: pen.down})
 	pen.seq++
-	if len(pen.points) > PlotPointCap {
-		extra := len(pen.points) - PlotPointCap
-		pen.points = append([]PlotPoint(nil), pen.points[extra:]...)
+	if len(pen.points) <= PlotPointCap {
+		return
 	}
+	// Keep the first and last sample and an even spread between them.
+	// A pen-up anywhere in a dropped gap breaks the line at the next
+	// kept sample, so a lifted pen still shows as a gap.
+	keep := PlotPointCap / 2
+	if keep < 2 {
+		keep = 2
+	}
+	pen.points = decimatePoints(pen.points, keep)
+	pen.epoch = int(plotEpochs.Add(1))
+	pen.seq = len(pen.points)
+}
+
+func decimatePoints(src []PlotPoint, keep int) []PlotPoint {
+	n := len(src)
+	if keep < 2 {
+		keep = 2
+	}
+	if n <= keep {
+		return src
+	}
+	out := make([]PlotPoint, keep)
+	prev := 0
+	for i := 0; i < keep; i++ {
+		idx := n - 1
+		if i < keep-1 {
+			idx = i * (n - 1) / (keep - 1)
+		}
+		pt := src[idx]
+		if i > 0 {
+			for k := prev + 1; k <= idx; k++ {
+				if !src[k].Down {
+					pt.Down = false
+					break
+				}
+			}
+		}
+		out[i] = pt
+		prev = idx
+	}
+	return out
 }
 
 func (p *plot) grow(pen *plotPen, x, y float64) {

@@ -58,6 +58,22 @@ type Mutation {
   """
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
+  """
+  Replace the system dynamics diagram from the Dynamics tab text and recompile.
+  A definition the parser rejects leaves the diagram unchanged. A diagram that
+  parses but whose generated procedures do not compile stays on the model, the
+  previous world keeps running, and the error is returned, the same way setCode
+  keeps the editor buffer. Rejected while go is running.
+  """
+  setDynamics(sessionId: ID!, definition: String!): CompileResult!
+  """
+  Set the system dynamics time step and recompile.
+  dt is a number greater than 0. It is the same value as the dt line in
+  the Dynamics tab, and the next setup and go use it. Rejected while go
+  is running, because recompiling replaces the world. A model with no
+  system dynamics section is rejected.
+  """
+  setDynamicsDt(sessionId: ID!, dt: String!): CompileResult!
   runCommand(sessionId: ID!, text: String!): CommandResult!
   setup(sessionId: ID!): Session!
   """Start the forever button (go)."""
@@ -85,10 +101,12 @@ type Mutation {
   Z unchanged. wrapZ sets Z wrapping on a 3D world. All three are ignored
   on a 2D world. A 3D world keeps wrapping in X and Y.
   rngSeed, when set, reseeds the world RNG the way random-seed does,
-  after the resize. It is 6 digits in the standard base64 alphabet
-  (A-Z, a-z, 0-9, +, /), most significant digit first. The place value
-  is an integer in 0 .. 2^36-1. Omit rngSeed to leave the RNG alone.
+  after the resize. It is an unsigned decimal integer in 0 .. 4294967295,
+  the 32 bits the generator keeps. Omit rngSeed to leave the RNG alone.
   An invalid string is rejected and the world is not resized.
+  seedOverride turns the session seed override on or off. When it is on,
+  that seed is applied again before every setup. A seed-only change is
+  still allowed while go is running.
   """
   setWorld(
     sessionId: ID!
@@ -103,12 +121,22 @@ type Mutation {
     maxPzcor: Int
     wrapZ: Boolean
     rngSeed: String
+    seedOverride: Boolean
   ): Session!
   """
-  Draw a new 6-digit base64 RNG seed with crypto/rand, seed the world
-  RNG with it, and return the text. The world is not resized.
+  Draw a new unsigned 32-bit RNG seed with crypto/rand, seed the world
+  RNG with it, and return the decimal text. The world is not resized.
+  This is allowed while go is running.
   """
   generateRngSeed(sessionId: ID!): String!
+  """
+  Turn the session seed override on or off without resizing the world.
+  Allowed while go is running. Turning it on records the low 32 bits of
+  the current world seed and does not reseed by itself. The next setup
+  applies that seed. A random-seed command inside setup still runs after
+  the override and wins for that setup.
+  """
+  setSeedOverride(sessionId: ID!, on: Boolean!): Session!
 }
 
 type Subscription {
@@ -163,6 +191,57 @@ type Session {
   outputPartial: String!
   widgets: [Widget!]!
   world: World!
+  """
+  Stock-and-flow diagram from the model's System Dynamics section.
+  Null when the file has no such section. definition is the text the
+  Dynamics tab edits. source is the NetLogo Compile appends; the Code
+  tab does not show it.
+  """
+  dynamics: SystemDynamics
+}
+
+"""
+One System Dynamics diagram. flows are the rates. An empty flow end is
+a reservoir. constant is true when a converter expression is one literal,
+so the engine makes it a global instead of a reporter.
+"""
+type SystemDynamics {
+  """dt expression, as stored. The engine uses 1.0 when this is blank."""
+  dt: String!
+  stocks: [DynamicsStock!]!
+  flows: [DynamicsFlow!]!
+  converters: [DynamicsConverter!]!
+  """Editable definition. setDynamics sends this text back."""
+  definition: String!
+  """
+  NetLogo procedures the engine appends at compile time. This is
+  SystemDynamics.Source and is not edited directly.
+  """
+  source: String!
+}
+
+type DynamicsStock {
+  name: String!
+  """NetLogo expression for the initial value."""
+  initial: String!
+  allowNegative: Boolean!
+}
+
+"""One flow. source and sink name the figures it leaves and enters."""
+type DynamicsFlow {
+  name: String!
+  expression: String!
+  """Empty when the flow leaves a reservoir."""
+  source: String!
+  """Empty when the flow enters a reservoir."""
+  sink: String!
+}
+
+type DynamicsConverter {
+  name: String!
+  expression: String!
+  """True when the expression is one literal."""
+  constant: Boolean!
 }
 
 type CompileResult {
@@ -317,11 +396,16 @@ type WorldSettings {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
+  """
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
 }
 
 type World {
@@ -351,15 +435,20 @@ type World {
   """True when this is a NetLogo 3D world, even if both Z bounds are 0."""
   threeD: Boolean!
   """
-  World RNG seed as 6 base64 digits (A-Z, a-z, 0-9, +, /), most
-  significant digit first. This is the low 36 bits of the integer last
-  passed to random-seed.
+  World RNG seed as an unsigned decimal integer in 0 .. 4294967295.
+  When seedOverride is true, this is the stored override seed. Otherwise
+  it is the low 32 bits of the integer last passed to random-seed.
   """
   rngSeed: String!
   """
-  Non-black patches of a 3D world, base64. Each voxel is 9 bytes:
-  pxcor, pycor, pzcor as little-endian int16, then r, g, b.
-  Patch order (highest layer first). Black patches are omitted.
+  When true, rngSeed is applied before every setup and after a model load.
+  A random-seed command in the model still runs afterward.
+  """
+  seedOverride: Boolean!
+  """
+  Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
+  pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
+  Patch order (highest layer first). Black patches and alpha 0 are omitted.
   Empty for a 2D world, whose patches are in patchColors.
   """
   voxels: String!
@@ -377,6 +466,16 @@ type World {
   perspective is empty or the subject is not a turtle.
   """
   subject: Int
+  """
+  World position of the followed, ridden, or watched agent.
+  A patch is at its center and a link at its midpoint. Null when
+  perspective is empty. The 2D view centers on this point. follow
+  and ride also rotate so the turtle's heading points up. The 3D
+  view turns to face it when watching a patch or a link.
+  """
+  subjectX: Float
+  subjectY: Float
+  subjectZ: Float
   """
   Label point size at patchSize. NetLogo's default is 10.
   The view scales it with the patch when the canvas is a different size.
@@ -427,6 +526,9 @@ type DrawingMark {
   """z of the end. 0 in a 2D world."""
   z2: Float!
   heading: Float!
+  """Pitch and roll of a stamp. 0 for a pen stroke and in a 2D world."""
+  pitch: Float!
+  roll: Float!
   size: Float!
   """Empty for a pen stroke. Turtle shape name for a stamp."""
   shape: String!
@@ -450,6 +552,11 @@ type AgentLabel {
   lx: Float
   """Link midpoint y. Null for a turtle or patch label."""
   ly: Float
+  """
+  z of the anchor. A turtle uses its zcor, a link the midpoint z, and a
+  patch its pzcor. 0 in a 2D world.
+  """
+  z: Float!
   text: String!
   r: Int!
   g: Int!

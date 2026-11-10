@@ -311,11 +311,8 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedText, err := nl.EncodeRNGSeed(42)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, &seedText); err != nil {
+	seedText := nl.FormatRNGSeed(42)
+	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, &seedText, nil); err != nil {
 		t.Fatalf("seed during go: %v", err)
 	}
 	if got, err := s.GenerateRNGSeed(); err != nil || got == "" {
@@ -331,7 +328,7 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	if !s.Session().Running {
 		t.Fatal("seeding stopped the run")
 	}
-	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor+1, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "Stop the model before changing the world.") {
+	if err := s.SetWorld(before.MinPxcor, before.MaxPxcor+1, before.MinPycor, before.MaxPycor, before.PatchSize, before.WrapX, before.WrapY, nil, nil, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "Stop the model before changing the world.") {
 		t.Fatalf("resize during go: %v", err)
 	}
 	still, err := s.WorldSettings()
@@ -343,6 +340,129 @@ func TestWidgetUpdatesWhileGoRuns(t *testing.T) {
 	}
 	if !s.Session().Running {
 		t.Fatal("rejected resize stopped the run")
+	}
+}
+
+func TestOnceButtonsKeepEveryClick(t *testing.T) {
+	const model = `globals [seen]
+to setup
+  clear-all
+  set seen 0
+  reset-ticks
+end
+to go
+  wait 0.02
+end
+to click [n]
+  set seen seen * 10 + n
+end
+@#$#@#$#@
+BUTTON
+0
+0
+10
+10
+setup
+setup
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+0
+20
+10
+30
+go
+go
+T
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+0
+
+BUTTON
+0
+40
+10
+50
+a
+click 1
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+0
+60
+10
+70
+b
+click 2
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+@#$#@#$#@
+`
+	s := newSession()
+	defer s.Close()
+	if err := s.useModel("queue.nlogo", model); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	go s.loop()
+	if err := s.Go(); err != nil {
+		t.Fatal(err)
+	}
+	waitRunning(t, s)
+	for _, name := range []string{"a", "b", "a"} {
+		i := widgetIndex(s, "button", name)
+		if i < 0 {
+			t.Fatalf("button %s missing", name)
+		}
+		if err := s.PressButton(i); err != nil {
+			t.Fatalf("press %s: %v", name, err)
+		}
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	var got float64
+	for {
+		n, ok := globalNum(s, "seen")
+		got = n
+		if ok && n == 121 {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("seen %v, want 121", got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !s.Session().Running {
+		t.Fatal("queued once-buttons stopped go")
 	}
 }
 
