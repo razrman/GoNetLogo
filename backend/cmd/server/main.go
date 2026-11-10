@@ -33,6 +33,9 @@ func main() {
 	webDir := flag.String("web", "", "directory of a built frontend (overrides files embedded with -tags web)")
 	logs := logcfg.Register(flag.CommandLine)
 	pprofOn := flag.Bool("pprof", false, "serve Go pprof handlers on 127.0.0.1:6060 only; off by default")
+	sessionGrace := flag.String("session-grace", "", "how long a disconnected web session stays alive so a reload can reconnect (default 15s, or "+session.EnvGrace+")")
+	sessionIdle := flag.String("session-idle", "", "remove a web session with no client and no requests for this long (default 5m, or "+session.EnvIdle+")")
+	sessionSweep := flag.String("session-sweep", "", "how often to look for idle web sessions (default 30s, or "+session.EnvSweep+")")
 	flag.Parse()
 	if _, err := logs.Apply(os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "gonetlogo-server: %v\n", err)
@@ -55,7 +58,13 @@ func main() {
 		}()
 	}
 
-	store := session.NewStore()
+	life, err := session.ResolveLifecycle(*sessionGrace, *sessionIdle, *sessionSweep, os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "session lifecycle", "err", err)
+	}
+	slog.Info("session lifecycle", "grace", life.Grace, "idle", life.Idle, "sweep", life.Sweep)
+	store := session.NewStoreWith(life)
+	defer store.Close()
 	if dir, err := session.ModelsDir(); err != nil {
 		slog.Warn("model files unavailable; embedded demos still load", "err", err)
 	} else {
@@ -75,6 +84,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", srv)
+	mux.Handle("/session/end", session.EndHandler(store))
 	mux.Handle("/model-asset/", modelAssetHandler())
 	if ui != nil {
 		// The app owns /. The playground stays available beside it.

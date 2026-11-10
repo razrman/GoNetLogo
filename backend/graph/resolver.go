@@ -14,7 +14,7 @@ type Resolver struct {
 }
 
 func (r *Resolver) session(id string) (*session.Session, error) {
-	s, ok := r.Store.Get(id)
+	s, ok := r.Store.Use(id)
 	if !ok {
 		return nil, fmt.Errorf("no session %s", id)
 	}

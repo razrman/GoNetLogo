@@ -179,6 +179,12 @@ export const CreateSession = `
   }
 `
 
+export const SessionQuery = `
+  query Session($id: ID!) {
+    session(id: $id) {${openedModelFields}}
+  }
+`
+
 export const LoadModel = `
   mutation LoadModel($id: ID!, $model: String!) {
     loadModel(sessionId: $id, model: $model) {${openedModelFields}}

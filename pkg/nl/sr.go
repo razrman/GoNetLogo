@@ -426,13 +426,17 @@ func (s *srSession) close() {
 	})
 }
 
-// Close releases the R process started by sr:setup.
+// Close releases the R process started by sr:setup and closes files the
+// model opened with file-open. It is safe to call more than once.
 func (vm *VM) Close() {
-	if vm == nil || vm.sr == nil {
+	if vm == nil {
 		return
 	}
-	vm.sr.close()
-	vm.sr = nil
+	_ = vm.fileCloseAll()
+	if vm.sr != nil {
+		vm.sr.close()
+		vm.sr = nil
+	}
 }
 
 func (vm *VM) srReady() (*srSession, error) {

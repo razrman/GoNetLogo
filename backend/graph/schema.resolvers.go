@@ -6,10 +6,12 @@ package graph
 
 import (
 	"context"
-	"gonetlogo/backend/graph/model"
-	"gonetlogo/backend/session"
+	"fmt"
 	"log/slog"
 	"time"
+
+	"gonetlogo/backend/graph/model"
+	"gonetlogo/backend/session"
 )
 
 // CreateSession is the resolver for the createSession field.
@@ -220,7 +222,7 @@ func (r *queryResolver) Models(ctx context.Context) ([]string, error) {
 
 // Session is the resolver for the session field.
 func (r *queryResolver) Session(ctx context.Context, id string) (*model.Session, error) {
-	s, ok := r.Store.Get(id)
+	s, ok := r.Store.Use(id)
 	if !ok {
 		return nil, nil
 	}
@@ -269,9 +271,13 @@ func (r *queryResolver) Library(ctx context.Context, path *string) (*model.Libra
 
 // Frames is the resolver for the frames field.
 func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-chan *model.Frame, error) {
-	s, err := r.session(sessionID)
-	if err != nil {
-		return nil, err
+	// Attach ties this websocket subscription to the session. The matching
+	// Detach runs when the subscription context ends, which is the websocket
+	// closing or the client unsubscribing. The last Detach starts the grace
+	// timer; a resubscribe inside that window cancels it.
+	s, ok := r.Store.Attach(sessionID)
+	if !ok {
+		return nil, fmt.Errorf("no session %s", sessionID)
 	}
 	wake, cancel := s.Subscribe()
 	out := make(chan *model.Frame, 1)
@@ -281,6 +287,7 @@ func (r *subscriptionResolver) Frames(ctx context.Context, sessionID string) (<-
 		logger.Debug("subscription connected", "session", sessionID, "op", "frames")
 	}
 	go func() {
+		defer r.Store.Detach(sessionID)
 		defer cancel()
 		defer close(out)
 		defer func() {
