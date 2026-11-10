@@ -539,6 +539,11 @@ type AgentLabel {
   lx: Float
   """Link midpoint y. Null for a turtle or patch label."""
   ly: Float
+  """
+  z of the anchor. A turtle uses its zcor, a link the midpoint z, and a
+  patch its pzcor. 0 in a 2D world.
+  """
+  z: Float!
   text: String!
   r: Int!
   g: Int!

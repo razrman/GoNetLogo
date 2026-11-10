@@ -2081,6 +2081,7 @@ func viewLabels(w *nl.World) []model.AgentLabel {
 	for _, lb := range labels {
 		item := model.AgentLabel{
 			Text: lb.Text,
+			Z:    lb.Z,
 			R:    int(lb.R), G: int(lb.G), B: int(lb.B),
 		}
 		switch {

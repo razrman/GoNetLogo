@@ -59,6 +59,7 @@ type ComplexityRoot struct {
 		R    func(childComplexity int) int
 		Text func(childComplexity int) int
 		Who  func(childComplexity int) int
+		Z    func(childComplexity int) int
 	}
 
 	CommandResult struct {
@@ -505,6 +506,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.AgentLabel.Who(childComplexity), true
+
+	case "AgentLabel.z":
+		if e.complexity.AgentLabel.Z == nil {
+			break
+		}
+
+		return e.complexity.AgentLabel.Z(childComplexity), true
 
 	case "CommandResult.error":
 		if e.complexity.CommandResult.Error == nil {
@@ -3048,6 +3056,11 @@ type AgentLabel {
   lx: Float
   """Link midpoint y. Null for a turtle or patch label."""
   ly: Float
+  """
+  z of the anchor. A turtle uses its zcor, a link the midpoint z, and a
+  patch its pzcor. 0 in a 2D world.
+  """
+  z: Float!
   text: String!
   r: Int!
   g: Int!
@@ -4062,6 +4075,50 @@ func (ec *executionContext) _AgentLabel_ly(ctx context.Context, field graphql.Co
 }
 
 func (ec *executionContext) fieldContext_AgentLabel_ly(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AgentLabel",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AgentLabel_z(ctx context.Context, field graphql.CollectedField, obj *model.AgentLabel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AgentLabel_z(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Z, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(float64)
+	fc.Result = res
+	return ec.marshalNFloat2float64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_AgentLabel_z(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AgentLabel",
 		Field:      field,
@@ -16422,6 +16479,8 @@ func (ec *executionContext) fieldContext_World_labels(_ context.Context, field g
 				return ec.fieldContext_AgentLabel_lx(ctx, field)
 			case "ly":
 				return ec.fieldContext_AgentLabel_ly(ctx, field)
+			case "z":
+				return ec.fieldContext_AgentLabel_z(ctx, field)
 			case "text":
 				return ec.fieldContext_AgentLabel_text(ctx, field)
 			case "r":
@@ -18993,6 +19052,11 @@ func (ec *executionContext) _AgentLabel(ctx context.Context, sel ast.SelectionSe
 			out.Values[i] = ec._AgentLabel_lx(ctx, field, obj)
 		case "ly":
 			out.Values[i] = ec._AgentLabel_ly(ctx, field, obj)
+		case "z":
+			out.Values[i] = ec._AgentLabel_z(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "text":
 			out.Values[i] = ec._AgentLabel_text(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

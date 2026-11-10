@@ -46,6 +46,8 @@ export type AgentLabel = {
   py: number | null
   lx: number | null
   ly: number | null
+  // Turtle zcor, link midpoint z, or patch pzcor. 0 in a 2D world.
+  z: number
   text: string
   r: number
   g: number

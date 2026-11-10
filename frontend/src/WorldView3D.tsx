@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
+import { labelAnchors } from './labels3d'
 import { patchCube, patchOpacity, voxelStride } from './patchStyle'
 import { penRadius, visiblePenTrails } from './penTrail'
 import { applyPov, type PovMode } from './pov'
@@ -102,6 +104,10 @@ type Bounds = { minX: number; maxX: number; minY: number; maxY: number; minZ: nu
 
 class Scene3D {
   private renderer: THREE.WebGLRenderer
+  private labels: CSS2DRenderer
+  private labelRoot = new THREE.Group()
+  private labelObjects: CSS2DObject[] = []
+  private labelSig = ''
   private scene = new THREE.Scene()
   private camera: THREE.PerspectiveCamera
   private controls: OrbitControls
@@ -140,6 +146,10 @@ class Scene3D {
     this.renderer.domElement.className = 'world3d-canvas'
     this.renderer.domElement.setAttribute('aria-label', 'World view (3D)')
     wrap.prepend(this.renderer.domElement)
+    this.labels = new CSS2DRenderer()
+    this.labels.domElement.className = 'world3d-labels'
+    wrap.append(this.labels.domElement)
+    this.scene.add(this.labelRoot)
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000)
     this.camera.up.set(0, 0, 1)
@@ -169,6 +179,7 @@ class Scene3D {
     const w = Math.max(1, this.wrap.clientWidth)
     const h = Math.max(1, this.wrap.clientHeight)
     this.renderer.setSize(w, h, true)
+    this.labels.setSize(w, h)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
     this.dirty = true
@@ -206,12 +217,15 @@ class Scene3D {
     if (!this.dirty) return
     this.dirty = false
     this.renderer.render(this.scene, this.camera)
+    this.labels.render(this.scene, this.camera)
   }
 
   dispose() {
     this.controls.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
+    this.clearLabels()
+    this.labels.domElement.remove()
     this.patchGeometry.dispose()
     this.patchMaterial.dispose()
     this.trailGeometry.dispose()
@@ -262,6 +276,7 @@ class Scene3D {
       this.updatePatches(world.voxels ?? '')
     }
     this.updateTurtles(world)
+    this.updateLabels(world)
     this.updateLinks(world)
     this.updateTrails(world)
     this.applyPerspective(world)
@@ -481,6 +496,41 @@ class Scene3D {
     mesh.instanceMatrix.needsUpdate = true
     if (colored && mesh.instanceColor) mesh.instanceColor.needsUpdate = true
     return mesh
+  }
+
+  private updateLabels(world: World) {
+    const anchors = labelAnchors(world.labels ?? [], world.turtles)
+    const font = Math.max(11, world.labelFont || 10)
+    const sig = font + '\n' + anchors.map((a) => `${a.text}\t${a.r},${a.g},${a.b}`).join('\n')
+    if (sig !== this.labelSig) {
+      this.labelSig = sig
+      this.clearLabels()
+      for (const a of anchors) {
+        const el = document.createElement('div')
+        el.className = 'world3d-label'
+        el.textContent = a.text
+        el.style.color = `rgb(${a.r}, ${a.g}, ${a.b})`
+        el.style.fontSize = `${font}px`
+        const obj = new CSS2DObject(el)
+        // Bottom-right of the text sits on the anchor, matching the 2D view.
+        obj.center.set(1, 1)
+        obj.position.set(a.x, a.y, a.z)
+        this.labelRoot.add(obj)
+        this.labelObjects.push(obj)
+      }
+      return
+    }
+    for (let i = 0; i < anchors.length; i++) {
+      this.labelObjects[i].position.set(anchors[i].x, anchors[i].y, anchors[i].z)
+    }
+  }
+
+  private clearLabels() {
+    for (const obj of this.labelObjects) {
+      this.labelRoot.remove(obj)
+      obj.element.remove()
+    }
+    this.labelObjects = []
   }
 
   private clearShapeBatches() {

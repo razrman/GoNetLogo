@@ -4,7 +4,8 @@ import "image/color"
 
 // ViewLabel is one non-empty turtle, patch, or link label, ready to draw.
 // Turtle labels set Turtle. Patch labels set PX and PY. Link labels set
-// Link and the midpoint X, Y.
+// Link and the midpoint X, Y. Z is the turtle's zcor, the patch's pzcor,
+// or the link midpoint z. It is 0 in a 2D world.
 type ViewLabel struct {
 	Text    string
 	R, G, B uint8
@@ -12,7 +13,7 @@ type ViewLabel struct {
 	Who     int
 	PX, PY  int
 	Link    bool
-	X, Y    float64
+	X, Y, Z float64
 }
 
 // DisplayLabel formats a stored label for the view.
@@ -36,7 +37,7 @@ func (w *World) ViewLabels() []ViewLabel {
 		}
 		out = append(out, ViewLabel{
 			Text: text, R: col.R, G: col.G, B: col.B,
-			PX: p.PX, PY: p.PY,
+			PX: p.PX, PY: p.PY, Z: float64(p.PZ),
 		})
 	}
 	if len(w.whoSeq) != len(w.turtles) {
@@ -53,7 +54,7 @@ func (w *World) ViewLabels() []ViewLabel {
 		}
 		out = append(out, ViewLabel{
 			Text: text, R: col.R, G: col.G, B: col.B,
-			Turtle: true, Who: t.Who,
+			Turtle: true, Who: t.Who, Z: t.Z,
 		})
 	}
 	for _, l := range w.links {
@@ -66,6 +67,7 @@ func (w *World) ViewLabels() []ViewLabel {
 			Link: true,
 			X:    (l.End1.X + l.End2.X) / 2,
 			Y:    (l.End1.Y + l.End2.Y) / 2,
+			Z:    (l.End1.Z + l.End2.Z) / 2,
 		})
 	}
 	return out

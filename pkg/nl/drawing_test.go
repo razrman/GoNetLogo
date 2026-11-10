@@ -255,6 +255,52 @@ ask turtle 0 [ hide-turtle ]
 	}
 }
 
+func TestViewLabels3D(t *testing.T) {
+	vm := newTestVM3D(t, "", -3, 3, 1)
+	mustEval(t, vm, `
+create-turtles 2 [
+  ifelse who = 0 [
+    setxyz 1 2 3
+    set label "up"
+  ] [
+    setxyz -1 0 -2
+  ]
+]
+ask turtle 0 [ create-link-with turtle 1 [ set label "tie" ] ]
+ask patch 0 0 1 [ set plabel "layer" ]
+`)
+	var turtleZ, linkZ, patchZ float64
+	var sawT, sawL, sawP bool
+	for _, lb := range vm.World.ViewLabels() {
+		switch {
+		case lb.Turtle:
+			sawT = true
+			turtleZ = lb.Z
+			if lb.Text != "up" || lb.Who != 0 {
+				t.Fatalf("turtle label %+v", lb)
+			}
+		case lb.Link:
+			sawL = true
+			linkZ = lb.Z
+			if lb.Text != "tie" || lb.X != 0 || lb.Y != 1 {
+				t.Fatalf("link label %+v", lb)
+			}
+		default:
+			sawP = true
+			patchZ = lb.Z
+			if lb.Text != "layer" || lb.PX != 0 || lb.PY != 0 {
+				t.Fatalf("patch label %+v", lb)
+			}
+		}
+	}
+	if !sawT || !sawL || !sawP {
+		t.Fatalf("labels turtle=%v link=%v patch=%v", sawT, sawL, sawP)
+	}
+	if turtleZ != 3 || linkZ != 0.5 || patchZ != 1 {
+		t.Fatalf("z turtle %v link %v patch %v", turtleZ, linkZ, patchZ)
+	}
+}
+
 func paintShape(t *testing.T, shape string) *image.RGBA {
 	t.Helper()
 	w := NewWorld(-6, 6, -6, 6, true, true)

@@ -14,11 +14,14 @@ type AgentLabel struct {
 	// Link midpoint x. Null for a turtle or patch label.
 	Lx *float64 `json:"lx,omitempty"`
 	// Link midpoint y. Null for a turtle or patch label.
-	Ly   *float64 `json:"ly,omitempty"`
-	Text string   `json:"text"`
-	R    int      `json:"r"`
-	G    int      `json:"g"`
-	B    int      `json:"b"`
+	Ly *float64 `json:"ly,omitempty"`
+	// z of the anchor. A turtle uses its zcor, a link the midpoint z, and a
+	// patch its pzcor. 0 in a 2D world.
+	Z    float64 `json:"z"`
+	Text string  `json:"text"`
+	R    int     `json:"r"`
+	G    int     `json:"g"`
+	B    int     `json:"b"`
 }
 
 type CommandResult struct {
