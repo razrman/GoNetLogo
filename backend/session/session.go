@@ -42,10 +42,12 @@ type Store struct {
 	idleTTL    time.Duration
 	sweepEvery time.Duration
 	heartbeat  time.Duration
-	stop       chan struct{}
-	sweepDone  chan struct{}
-	closed     bool
-	closeOnce  sync.Once
+	// maxSessions caps Create. 0 means unlimited. Guarded by mu.
+	maxSessions int
+	stop        chan struct{}
+	sweepDone   chan struct{}
+	closed      bool
+	closeOnce   sync.Once
 }
 
 // NewStore starts an empty store with the default grace period and idle sweep.
@@ -73,8 +75,49 @@ func (st *Store) Models() ([]string, error) {
 	return names, nil
 }
 
+// ErrTooManySessions is returned by Create when the store is already at
+// its cap. The text is the GraphQL error returned to API clients.
+var ErrTooManySessions = errors.New("too many sessions: this server is hosting as many as it can")
+
+// SetMaxSessions caps how many sessions Create will keep. n <= 0 means
+// no cap, which is the local-development default. The count is every
+// session still in the store, including ones waiting out a disconnect.
+func (st *Store) SetMaxSessions(n int) {
+	if n < 0 {
+		n = 0
+	}
+	st.mu.Lock()
+	st.maxSessions = n
+	st.mu.Unlock()
+}
+
+func (st *Store) atCapLocked() bool {
+	return st.maxSessions > 0 && len(st.sessions) >= st.maxSessions
+}
+
+// errAtCap rejects a create that is already over the cap, before a
+// scratch directory or an interpreter is allocated.
+func (st *Store) errAtCap(modelName string) error {
+	st.mu.Lock()
+	closed := st.closed
+	atCap := st.atCapLocked()
+	max := st.maxSessions
+	st.mu.Unlock()
+	if closed {
+		return fmt.Errorf("session store is closed")
+	}
+	if !atCap {
+		return nil
+	}
+	slog.Warn("session create failed", "model", modelName, "err", ErrTooManySessions, "maxSessions", max)
+	return ErrTooManySessions
+}
+
 // Create loads a model into a new isolated session.
 func (st *Store) Create(modelName string) (*Session, error) {
+	if err := st.errAtCap(modelName); err != nil {
+		return nil, err
+	}
 	name, content, err := readModel(modelName)
 	if err != nil {
 		slog.Warn("session create failed", "model", modelName, "err", err)
@@ -98,6 +141,13 @@ func (st *Store) Create(modelName string) (*Session, error) {
 		st.mu.Unlock()
 		s.Close()
 		return nil, fmt.Errorf("session store is closed")
+	}
+	if st.atCapLocked() {
+		max := st.maxSessions
+		st.mu.Unlock()
+		s.Close()
+		slog.Warn("session create failed", "model", name, "err", ErrTooManySessions, "maxSessions", max)
+		return nil, ErrTooManySessions
 	}
 	s.lastSocket = time.Now()
 	st.sessions[s.id] = s

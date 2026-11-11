@@ -7,6 +7,7 @@ import {
   heartbeatIntervalMs,
   postSessionEnd,
   postSessionHeartbeat,
+  presentCreateSessionError,
   readStoredSession,
   sessionEndBody,
   sessionEndPath,
@@ -152,4 +153,17 @@ test('pagehide and beforeunload send the current id, and a cached page does not'
   stop()
   target.dispatchEvent(new Event('beforeunload'))
   assert.deepEqual(sent, ['0123456789abcdef', '0123456789abcdef'])
+})
+
+test('a full server is explained without the GraphQL prefix', () => {
+  const friendly = 'GoNetLogo is already hosting as many sessions as it can. Wait a moment and reload the page.'
+  assert.equal(
+    presentCreateSessionError('[GraphQL] too many sessions: this server is hosting as many as it can'),
+    friendly,
+  )
+  assert.equal(presentCreateSessionError('too many sessions'), friendly)
+  assert.equal(presentCreateSessionError('[GraphQL] no such model'), 'no such model')
+  assert.equal(presentCreateSessionError(''), 'Could not open a session')
+  assert.equal(presentCreateSessionError(null), 'Could not open a session')
+  assert.match(presentCreateSessionError('[Network] failed to fetch'), /failed to fetch/)
 })

@@ -207,21 +207,75 @@ func Close() error {
 	return closeErr
 }
 
-// CloseOnSignal flushes and closes the log file on SIGINT or SIGTERM, then
-// restores the default signal behavior and re-raises it so the process still exits.
+// OnSignal registers fn to run on SIGINT or SIGTERM before the log file is
+// closed. CloseOnSignal reads the hook when the signal arrives, so it may
+// be registered before or after CloseOnSignal. A later call replaces the
+// hook. A nil hook restores the previous behavior.
+//
+// The hook runs while the log file is still open. When a hook is set,
+// CloseOnSignal does not re-raise the signal: the old re-raise killed the
+// process before a server could finish http.Server.Shutdown and session
+// cleanup, and it closed the log first so those steps could not record
+// anything. The hook should do that work and return. CloseOnSignal then
+// flushes the log and exits. Without a hook, the log is flushed and the
+// signal is re-raised, which is what the desktop process still relies on.
+func OnSignal(fn func(os.Signal)) {
+	signalHookMu.Lock()
+	signalHook = fn
+	signalHookMu.Unlock()
+}
+
+var (
+	signalHookMu sync.Mutex
+	signalHook   func(os.Signal)
+)
+
+func currentSignalHook() func(os.Signal) {
+	signalHookMu.Lock()
+	defer signalHookMu.Unlock()
+	return signalHook
+}
+
+// signalExit and raiseSignal are the process-exit steps. Tests replace
+// them so signal cleanup can be checked without killing the test process.
+var signalExit = os.Exit
+
+var raiseSignal = func(s syscall.Signal) error {
+	signal.Reset(s)
+	return syscall.Kill(os.Getpid(), s)
+}
+
+// CloseOnSignal flushes and closes the log file on SIGINT or SIGTERM.
+// A hook registered with OnSignal runs first, while the log is still
+// open, and the process then exits without re-raising. With no hook, the
+// default signal behavior is restored and the signal is re-raised so the
+// process still exits.
 func CloseOnSignal() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-ch
-		_ = Close()
+		// Stop before the hook so a second signal during shutdown uses
+		// the default action and terminates a stuck process.
 		signal.Stop(ch)
-		if s, ok := sig.(syscall.Signal); ok {
-			signal.Reset(s)
-			_ = syscall.Kill(os.Getpid(), s)
-		}
-		os.Exit(1)
+		finishSignal(sig)
 	}()
+}
+
+// finishSignal runs the shutdown hook, flushes the log, and exits.
+// A hook skips the re-raise. See OnSignal.
+func finishSignal(sig os.Signal) {
+	if fn := currentSignalHook(); fn != nil {
+		fn(sig)
+		_ = Close()
+		signalExit(0)
+		return
+	}
+	_ = Close()
+	if s, ok := sig.(syscall.Signal); ok {
+		_ = raiseSignal(s)
+	}
+	signalExit(1)
 }
 
 // Recover logs a panic, prints it on stderr, closes the log file, and exits.

@@ -38,9 +38,9 @@ These scripts install, build, and run GoNetLogo on Ubuntu 22.04 or 24.04 without
 ./startup.sh
 ```
 
-Open http://localhost:8080 . One process serves the web UI and `/graphql`, including websocket subscriptions. The GraphQL playground is at http://localhost:8080/playground .
+Open http://localhost:8080 . One process serves the web UI and `/graphql`, including websocket subscriptions. The GraphQL playground is at http://localhost:8080/playground . `-production` turns the playground off.
 
-`PORT` and `HOST` change the listen address. The default is `127.0.0.1:8080`.
+`PORT` and `HOST` change the listen address. The default is `127.0.0.1:8080`. The script passes those as `-addr`. Running `gonetlogo-server` itself, with `-addr` omitted, uses `ADDR` as a host:port listen address, or `PORT` as a port on the default host `0.0.0.0`. The `-addr` default stays `0.0.0.0:43131`. An explicit `-addr` wins over both.
 
 ```bash
 PORT=9090 ./startup.sh
@@ -57,7 +57,7 @@ HOST=0.0.0.0 PORT=8080 ./startup.sh
 | `-log-format` | `text`, `json` | `text` |
 | `-log-file` | a path, or `-` for stderr | `-` (stderr) |
 
-`GONETLOGO_LOG_LEVEL` sets the level when `-log-level` is omitted. `GONETLOGO_LOG_FILE` sets the file when `-log-file` is omitted. An explicit flag wins, including an invalid level or a path that cannot be opened. `warning` is accepted as an alias of `warn`. An unknown level or format, or a log file that cannot be opened, prints the error on stderr and exits 2. `-` and a blank value mean stderr. A real path is created if needed (mode `0644`) and opened for append. On a normal exit, and on SIGINT or SIGTERM, the file is flushed and closed. `startup.sh` does not forward extra arguments; it does pass the environment through, so `GONETLOGO_LOG_LEVEL=debug ./startup.sh` and `GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./startup.sh` work.
+`GONETLOGO_LOG_LEVEL` sets the level when `-log-level` is omitted. `GONETLOGO_LOG_FILE` sets the file when `-log-file` is omitted. An explicit flag wins, including an invalid level or a path that cannot be opened. `warning` is accepted as an alias of `warn`. An unknown level or format, or a log file that cannot be opened, prints the error on stderr and exits 2. `-` and a blank value mean stderr. A real path is created if needed (mode `0644`) and opened for append. On a normal exit, and on SIGINT or SIGTERM, the file is flushed and closed. The desktop process then re-raises the signal so it still exits. The web server runs its drain first and does not re-raise, so that work can finish and still write to the log. `startup.sh` does not forward extra arguments; it does pass the environment through, so `GONETLOGO_LOG_LEVEL=debug ./startup.sh` and `GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./startup.sh` work.
 
 Lines from the standard `log` package go through the same logger. `log.Fatal` and a panic are also written to stderr, so the reason the process died stays on the terminal when the log file is somewhere else.
 
@@ -72,12 +72,34 @@ GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./bin/gonetlogo-server
 
 `-pprof` is off unless set. It listens on `127.0.0.1:6060` only and is not mounted on the public server. Profiles are at `http://127.0.0.1:6060/debug/pprof/`.
 
+`GET /healthz` is the liveness and readiness check. It returns `200` with the body `ok` and does not touch GraphQL or session state. It is not wrapped by CORS, and it is not written to the debug request log, so a load balancer can poll it on its own.
+
+`-max-sessions` caps how many web sessions can exist at once. `0`, the default, means unlimited and is what local development uses. `GONETLOGO_MAX_SESSIONS` is used when the flag is omitted. An explicit flag wins, including an explicit `0`. A negative or non-integer value prints the error on stderr and exits 2. The count includes sessions that are still in the disconnect grace period. `createSession` past the cap fails with a GraphQL error (`too many sessions: this server is hosting as many as it can`), and the web UI says "GoNetLogo is already hosting as many sessions as it can. Wait a moment and reload the page." On a 2 GB Fargate task, `32` is a reasonable starting cap; raise it when the task size and the models you host can support more.
+
+```bash
+./bin/gonetlogo-server -max-sessions 32
+GONETLOGO_MAX_SESSIONS=32 ./bin/gonetlogo-server
+```
+
+`-production` (or `GONETLOGO_PRODUCTION=true` when the flag is omitted) is the mode for a server on the public internet. It turns off `/playground` and GraphQL introspection. It also stops sending `Access-Control-Allow-Origin: *`. Cross-origin browser calls, including the websocket `CheckOrigin` check, are allowed only for origins listed in `-allowed-origins` / `GONETLOGO_ALLOWED_ORIGINS` (comma-separated `http` and `https` origins, hosts compared case-insensitively). A request whose Origin host matches the request Host is always allowed, so the UI served by this process works without being listed, including behind an ALB that preserves the Host header. An empty allow list means same-origin only. An explicit flag wins, including `-production=false` and an empty `-allowed-origins`. Accepted environment values for the switch are `1`, `true`, `yes`, `on`, and the matching false forms. Without `-production`, the server stays permissive (`Access-Control-Allow-Origin: *`, playground, introspection, websocket origins open) so `./scripts/dev.sh` and the Vite proxy keep working.
+
+```bash
+./bin/gonetlogo-server -production -allowed-origins https://app.example.com -max-sessions 32 -addr 0.0.0.0:8080
+GONETLOGO_PRODUCTION=true GONETLOGO_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com ./bin/gonetlogo-server
+ADDR=0.0.0.0:8080 ./bin/gonetlogo-server
+PORT=8080 ./bin/gonetlogo-server
+```
+
+`ADDR` and `PORT` apply only when `-addr` is omitted. `ADDR` is the whole listen address. `PORT` is a port number and keeps the default host, so `PORT=8080` listens on `0.0.0.0:8080`. When both are set, `ADDR` wins. `./startup.sh` and `./scripts/dev.sh` pass `-addr`, so this does not change them. `./startup.sh` still uses its own `HOST` and `PORT`.
+
+SIGINT and SIGTERM drain the web server. `http.Server.Shutdown` stops new connections and waits for in-flight HTTP requests, then the session store is closed so each session's scratch directory is removed. The limit is `-shutdown-timeout` (default `20s`, which is under ECS Fargate's 30s stop timeout) or `GONETLOGO_SHUTDOWN_TIMEOUT` when the flag is omitted. An explicit flag wins. The value is a Go duration such as `20s`. A non-positive or unparseable value prints the error on stderr and exits 2. A drain that hits the deadline closes the remaining connections and still closes the store. The log file is flushed after that. A second signal stops the process immediately. Websockets are not waited on by `Shutdown`; closing the store ends those sessions.
+
 What each level records:
 
-- **info** — startup. The server logs the model directory, web UI, playground, GraphQL URL, and the pprof URL when `-pprof` is set. The desktop binary logs version and commit (when the build recorded them), the log level, format, and file, and whether `internal/locale` replaced a `C` / `POSIX` / invalid tag (the old value and the replacement). Both clients log a model load (name, widget count, plot count, world size), a button press, start, and stop, a world resize, and, on the desktop, the window opening and closing and a tab change.
+- **info** — startup. The server logs the model directory, web UI, playground, GraphQL URL, `/healthz`, the session cap, the shutdown timeout, and the pprof URL when `-pprof` is set. The desktop binary logs version and commit (when the build recorded them), the log level, format, and file, and whether `internal/locale` replaced a `C` / `POSIX` / invalid tag (the old value and the replacement). Both clients log a model load (name, widget count, plot count, world size), a button press, start, and stop, a world resize, and, on the desktop, the window opening and closing and a tab change.
 - **debug** — HTTP requests other than `/graphql` (method, path, status, duration); GraphQL queries and mutations (method, path, operation name, type, duration); websocket connect and disconnect; the frames subscription connect and disconnect; session create and close; model compile (byte length, not source); the forever-button run loop (start, and stop with the reason: halt, stop, error, or finished); command-center lines, truncated; split-pane drags on the desktop. About every five seconds while a button runs, one progress line: tick, turtles, patches, drawing marks, plot points, output length, `rng_calls`, and `rng_per_sec`. The stop line repeats `rng_calls` and `rng_per_sec` for that run. A frame publish or UI refresh slower than a quarter second is included here when it is not already a warning. Nothing is logged per tick or per agent.
-- **warn** — model load or compile failure, a button that did not compile, a NetLogo runtime error (procedure and source line when the interpreter recorded them), a websocket error, a request ignored because a run is already active (at most about one line per second per session), dropped frames summarized about once a second, the drawing layer or a plot hitting its 8192 cap, and a lock wait or UI refresh longer than 250ms.
-- **error** — the process cannot serve the UI, bind the pprof port, or listen on `-addr`. The process then exits 1.
+- **warn** — model load or compile failure, a session create rejected because the server is at its session cap, a button that did not compile, a NetLogo runtime error (procedure and source line when the interpreter recorded them), a websocket error, a request ignored because a run is already active (at most about one line per second per session), dropped frames summarized about once a second, the drawing layer or a plot hitting its 8192 cap, and a lock wait or UI refresh longer than 250ms.
+- **error** — the process cannot serve the UI, bind the pprof port, or listen on `-addr`. The process then exits 1. A drain that hits `-shutdown-timeout` is also logged here; the store is still closed and the process then exits.
 
 `rng_calls` counts every draw from the world's random source (`random`, `random-float`, `one-of`, `n-of`, `shuffle`, and the shuffle `ask` does over an agentset, including extra draws `Intn` takes when it rejects a sample). `clear-all` (and therefore `setup`, which runs it), a setup button, and `random-seed` set the counter back to zero. `rng_per_sec` is how fast that counter moved over the progress interval, or over the whole run on a stop line.
 
@@ -227,7 +249,7 @@ The schema lives in `schema/schema.graphqls`. Operations:
 
 `Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World tab reads `worldSettings` and writes with `setWorld`, then runs setup. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second.
 
-The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
+The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`. `-production` serves neither playground and rejects introspection. `GET /healthz` is the load-balancer check.
 
 Regenerate the Go types from `backend/` with:
 
