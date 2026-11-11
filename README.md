@@ -40,7 +40,7 @@ These scripts install, build, and run GoNetLogo on Ubuntu 22.04 or 24.04 without
 
 Open http://localhost:8080 . One process serves the web UI and `/graphql`, including websocket subscriptions. The GraphQL playground is at http://localhost:8080/playground . `-production` turns the playground off.
 
-`PORT` and `HOST` change the listen address. The default is `127.0.0.1:8080`.
+`PORT` and `HOST` change the listen address. The default is `127.0.0.1:8080`. The script passes those as `-addr`. Running `gonetlogo-server` itself, with `-addr` omitted, uses `ADDR` as a host:port listen address, or `PORT` as a port on the default host `0.0.0.0`. The `-addr` default stays `0.0.0.0:43131`. An explicit `-addr` wins over both.
 
 ```bash
 PORT=9090 ./startup.sh
@@ -86,7 +86,11 @@ GONETLOGO_MAX_SESSIONS=32 ./bin/gonetlogo-server
 ```bash
 ./bin/gonetlogo-server -production -allowed-origins https://app.example.com -max-sessions 32 -addr 0.0.0.0:8080
 GONETLOGO_PRODUCTION=true GONETLOGO_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com ./bin/gonetlogo-server
+ADDR=0.0.0.0:8080 ./bin/gonetlogo-server
+PORT=8080 ./bin/gonetlogo-server
 ```
+
+`ADDR` and `PORT` apply only when `-addr` is omitted. `ADDR` is the whole listen address. `PORT` is a port number and keeps the default host, so `PORT=8080` listens on `0.0.0.0:8080`. When both are set, `ADDR` wins. `./startup.sh` and `./scripts/dev.sh` pass `-addr`, so this does not change them. `./startup.sh` still uses its own `HOST` and `PORT`.
 
 SIGINT and SIGTERM drain the web server. `http.Server.Shutdown` stops new connections and waits for in-flight HTTP requests, then the session store is closed so each session's scratch directory is removed. The limit is `-shutdown-timeout` (default `20s`, which is under ECS Fargate's 30s stop timeout) or `GONETLOGO_SHUTDOWN_TIMEOUT` when the flag is omitted. An explicit flag wins. The value is a Go duration such as `20s`. A non-positive or unparseable value prints the error on stderr and exits 2. A drain that hits the deadline closes the remaining connections and still closes the store. The log file is flushed after that. A second signal stops the process immediately. Websockets are not waited on by `Shutdown`; closing the store ends those sessions.
 

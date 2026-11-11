@@ -31,7 +31,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "0.0.0.0:43131", "listen address")
+	addr := flag.String("addr", "0.0.0.0:43131", "listen address. "+envAddr+" or "+envPort+" is used when this flag is omitted; an explicit flag wins. "+envPort+" replaces the port of this default")
 	webDir := flag.String("web", "", "directory of a built frontend (overrides files embedded with -tags web)")
 	logs := logcfg.Register(flag.CommandLine)
 	pprofOn := flag.Bool("pprof", false, "serve Go pprof handlers on 127.0.0.1:6060 only; off by default")
@@ -64,6 +64,10 @@ func main() {
 		logcfg.Fail(2, "allowed origins", "err", err)
 	}
 	pol := newOriginPolicy(prod, origins)
+	listen, err := resolveAddr(flagExplicit("addr"), *addr, os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "listen address", "err", err)
+	}
 
 	if *pprofOn {
 		ln, err := net.Listen("tcp", "127.0.0.1:6060")
@@ -115,20 +119,20 @@ func main() {
 	mux.Handle("/model-asset/", modelAssetHandler())
 	mountUI(mux, ui, pol.production)
 	if ui != nil {
-		slog.Info("web UI", "url", "http://"+*addr+"/")
+		slog.Info("web UI", "url", "http://"+listen+"/")
 	}
 	if pol.production {
 		slog.Info("production", "playground", false, "introspection", false, "allowedOrigins", origins)
 	} else if ui != nil {
-		slog.Info("GraphQL playground", "url", "http://"+*addr+"/playground")
+		slog.Info("GraphQL playground", "url", "http://"+listen+"/playground")
 	} else {
-		slog.Info("GraphQL playground", "url", "http://"+*addr+"/")
+		slog.Info("GraphQL playground", "url", "http://"+listen+"/")
 	}
-	slog.Info("GraphQL endpoint", "url", "http://"+*addr+"/graphql")
-	slog.Info("health", "url", "http://"+*addr+"/healthz")
+	slog.Info("GraphQL endpoint", "url", "http://"+listen+"/graphql")
+	slog.Info("health", "url", "http://"+listen+"/healthz")
 	slog.Info("shutdown timeout", "timeout", timeout.String())
 	httpSrv := &http.Server{
-		Addr:    *addr,
+		Addr:    listen,
 		Handler: rootHandler(logHTTP(withCORS(pol, mux))),
 	}
 	// The hook runs on the signal goroutine, before CloseOnSignal flushes
@@ -142,7 +146,7 @@ func main() {
 	})
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		store.Close()
-		logcfg.Fail(1, "listen", "addr", *addr, "err", err)
+		logcfg.Fail(1, "listen", "addr", listen, "err", err)
 	}
 	// Shutdown unblocks ListenAndServe before the hook closes the store.
 	// Stay here so these defers do not race the hook's exit.
