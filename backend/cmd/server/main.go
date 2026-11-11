@@ -99,7 +99,8 @@ func main() {
 		slog.Info("GraphQL playground", "url", "http://"+*addr+"/")
 	}
 	slog.Info("GraphQL endpoint", "url", "http://"+*addr+"/graphql")
-	if err := http.ListenAndServe(*addr, logHTTP(cors(mux))); err != nil {
+	slog.Info("health", "url", "http://"+*addr+"/healthz")
+	if err := http.ListenAndServe(*addr, rootHandler(logHTTP(cors(mux)))); err != nil {
 		logcfg.Fail(1, "listen", "addr", *addr, "err", err)
 	}
 }
