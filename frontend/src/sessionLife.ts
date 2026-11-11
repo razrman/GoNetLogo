@@ -5,6 +5,18 @@
 
 export const sessionStorageKey = 'gonetlogo.session'
 
+// presentCreateSessionError is the banner text when the page cannot open
+// its first session. A full server is named in a sentence. Other GraphQL
+// errors drop the client prefix. A network failure is left recognizable
+// so the caller can still treat it as a disconnect.
+export function presentCreateSessionError(message: string | null | undefined): string {
+  const text = (message ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
+  if (/too many sessions/i.test(text)) {
+    return 'GoNetLogo is already hosting as many sessions as it can. Wait a moment and reload the page.'
+  }
+  return text || 'Could not open a session'
+}
+
 const sessionIDRe = /^[A-Za-z0-9_-]{8,64}$/
 
 export type KeyValueStore = {

@@ -39,6 +39,7 @@ func main() {
 	sessionSweep := flag.String("session-sweep", "", "how often to look for idle web sessions (default 30s, or "+session.EnvSweep+")")
 	sessionHeartbeat := flag.String("session-heartbeat", "", "remove a detached web session with no heartbeat or websocket activity for this long (default 45s, three 15s beats, or "+session.EnvHeartbeat+")")
 	shutdownFor := flag.String("shutdown-timeout", "", "how long to drain connections after SIGINT or SIGTERM (default 20s, or "+envShutdownTimeout+"); an explicit flag wins")
+	maxSessions := flag.Int("max-sessions", 0, "maximum concurrent sessions; 0 means unlimited. "+envMaxSessions+" is used when this flag is omitted; an explicit flag wins")
 	flag.Parse()
 	if _, err := logs.Apply(os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "gonetlogo-server: %v\n", err)
@@ -70,8 +71,14 @@ func main() {
 		logcfg.Fail(2, "session lifecycle", "err", err)
 	}
 	slog.Info("session lifecycle", "grace", life.Grace, "idle", life.Idle, "sweep", life.Sweep, "heartbeat", life.Heartbeat)
+	capN, err := resolveMaxSessions(flagExplicit("max-sessions"), *maxSessions, os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "max sessions", "err", err)
+	}
 	store := session.NewStoreWith(life)
+	store.SetMaxSessions(capN)
 	defer store.Close()
+	slog.Info("session cap", "maxSessions", capN)
 	if dir, err := session.ModelsDir(); err != nil {
 		slog.Warn("model files unavailable; embedded demos still load", "err", err)
 	} else {

@@ -63,7 +63,7 @@ import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
 import { readSeedOverride, rngSeedError, rngSeedForApply, seedControlState, writeSeedOverride } from './rngSeed'
-import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, readStoredSession, writeStoredSession } from './sessionLife'
+import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, presentCreateSessionError, readStoredSession, writeStoredSession } from './sessionLife'
 import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
@@ -244,7 +244,7 @@ export function App() {
       const created = await createSession({ model: 'fire.nlogo' })
       if (cancel) return
       if (created.error || !created.data) {
-        const message = created.error?.message ?? 'Could not open a session'
+        const message = presentCreateSessionError(created.error?.message)
         if (!reportDisconnect(message)) setBanner(message)
         setBooting(false)
         return
