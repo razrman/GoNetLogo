@@ -16,10 +16,16 @@ variable "state_bucket" {
   default     = "gonetlogo-tfstate-457504029722"
 }
 
-variable "domain_name" {
+variable "zone_name" {
   type        = string
-  description = "Delegated hostname. This stack creates a public hosted zone for this name."
-  default     = "gonetlogo.sapienexmachina.si"
+  description = "Public hosted zone delegated from GoDaddy. Other apps can use names under it. GoDaddy gets NS records for the first label only."
+  default     = "app.sapienexmachina.si"
+}
+
+variable "app_hostname" {
+  type        = string
+  description = "Name on the GoNetLogo certificate and the alias record. A name under zone_name."
+  default     = "gonetlogo.app.sapienexmachina.si"
 }
 
 variable "budget_email" {

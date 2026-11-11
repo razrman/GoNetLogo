@@ -10,16 +10,22 @@ variable "account_id" {
   default     = "457504029722"
 }
 
-variable "domain_name" {
+variable "zone_name" {
   type        = string
-  description = "Hostname at the apex of the hosted zone created in infra/bootstrap. The alias record uses this name."
-  default     = "gonetlogo.sapienexmachina.si"
+  description = "Hosted zone from infra/bootstrap. The alias is created in this zone."
+  default     = "app.sapienexmachina.si"
+}
+
+variable "app_hostname" {
+  type        = string
+  description = "Alias name, and the issued certificate this stack looks up. A name under zone_name."
+  default     = "gonetlogo.app.sapienexmachina.si"
 }
 
 variable "allowed_origins" {
   type        = string
   description = "GONETLOGO_ALLOWED_ORIGINS. Same-origin browser calls are allowed even when this is empty, because the ALB preserves Host."
-  default     = "https://gonetlogo.sapienexmachina.si"
+  default     = "https://gonetlogo.app.sapienexmachina.si"
 }
 
 variable "allowed_cidrs" {

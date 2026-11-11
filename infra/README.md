@@ -9,7 +9,7 @@ OpenTofu layout for the web server. Two stacks:
 
 Account `457504029722`, region `us-west-2`. The provider refuses any other account. The account is a Sign up for AWS (new) free plan today, and that plan cannot use `us-west-2`. Upgrade it to a paid plan before bootstrap. Bootstrap is applied by hand with an administrator key. After that, GitHub Actions assumes `gonetlogo-github-deploy` through OIDC. There are no long-lived AWS keys in the repository.
 
-The task is Fargate on Graviton, 0.5 vCPU and 1 GB, one task, `linux/arm64`. The image is also pushed for `linux/amd64`. Graviton is the cheaper of the two sizes the Dockerfile already builds. Sessions are in memory in that one process, so the service stays at one task. A second task would split clients. The container entrypoint already sets `-addr 0.0.0.0:8080` and `-log-format json`. The task sets `GONETLOGO_PRODUCTION=1`, `GONETLOGO_MAX_SESSIONS=32`, `GONETLOGO_ALLOWED_ORIGINS=https://gonetlogo.sapienexmachina.si`, and `GONETLOGO_SHUTDOWN_TIMEOUT=20s`. Fargate's stop timeout is 30 seconds, and the load balancer waits 30 seconds before the task is signaled. The load balancer idle timeout is 300 seconds. The server pings websockets every 10 seconds and the page heartbeats every 15 seconds. `GET /healthz` is the target-group check. The image has no shell, so there is no in-container probe. `/tmp` is the task's 20 GB ephemeral disk.
+The task is Fargate on Graviton, 0.5 vCPU and 1 GB, one task, `linux/arm64`. The image is also pushed for `linux/amd64`. Graviton is the cheaper of the two sizes the Dockerfile already builds. Sessions are in memory in that one process, so the service stays at one task. A second task would split clients. The container entrypoint already sets `-addr 0.0.0.0:8080` and `-log-format json`. The task sets `GONETLOGO_PRODUCTION=1`, `GONETLOGO_MAX_SESSIONS=32`, `GONETLOGO_ALLOWED_ORIGINS=https://gonetlogo.app.sapienexmachina.si`, and `GONETLOGO_SHUTDOWN_TIMEOUT=20s`. Fargate's stop timeout is 30 seconds, and the load balancer waits 30 seconds before the task is signaled. The load balancer idle timeout is 300 seconds. The server pings websockets every 10 seconds and the page heartbeats every 15 seconds. `GET /healthz` is the target-group check. The image has no shell, so there is no in-container probe. `/tmp` is the task's 20 GB ephemeral disk.
 
 The app README's note about 32 sessions on a 2 GB task is a larger size than this one. With 512 CPU units, memory can be raised to 2048, 3072, or 4096 in `infra/app/variables.tf` without changing the CPU.
 
@@ -65,13 +65,15 @@ Keep `terraform.tfstate` from that directory somewhere private. It is gitignored
 
 `tofu output -raw deploy_role_arn` is the role ARN.
 
-`tofu output -json name_servers` is four Route 53 name servers.
+`tofu output -json name_servers` is four Route 53 name servers for the zone `app.sapienexmachina.si`.
 
-The apply also requests the certificate and writes its validation CNAME into the new hosted zone. That record is not copied to GoDaddy.
+The apply also requests a certificate for `gonetlogo.app.sapienexmachina.si` and writes its validation CNAME into that zone. That record is not copied to GoDaddy. Other applications can later use other names in the same zone.
+
+A bootstrap that was already applied for the zone `gonetlogo.sapienexmachina.si` is replaced by this apply. The new zone is created first, the new certificate and its validation record are written there, and then the old certificate and the old zone are removed. `force_destroy` on the zone deletes the old validation CNAME with it. GoDaddy was not delegated to the old zone, so nothing there has to be edited before the replacement. After the apply, use the new name servers.
 
 ### GoDaddy, once
 
-In the `sapienexmachina.si` zone, add NS records for the host `gonetlogo`, one for each name server from the output. Leave the apex (`@`) and `www` records as they are. They keep serving the existing site. If GoDaddy already has an A or CNAME on `gonetlogo`, remove that record first. A name cannot be delegated and also be a CNAME.
+In the `sapienexmachina.si` zone, add NS records for the host `app`, one for each name server from the output. Leave the apex (`@`) and `www` records as they are. They keep serving the existing site. If GoDaddy already has an A, CNAME, or NS record on `app`, remove it first. A name cannot be delegated and also be a CNAME. Do not add a record for `gonetlogo` at GoDaddy. That name is an alias inside the delegated zone.
 
 Delegation is the only GoDaddy edit. After it propagates, ACM marks the certificate Issued on its own. Check it with:
 
@@ -128,11 +130,11 @@ tofu init
 tofu apply
 ```
 
-That creates the network, the load balancer, the ECS service, the log group, and an alias A record at `gonetlogo.sapienexmachina.si` aimed at the load balancer. Port 80 redirects to 443. The load balancer has deletion protection off.
+That creates the network, the load balancer, the ECS service, the log group, and an alias A record at `gonetlogo.app.sapienexmachina.si` aimed at the load balancer. Port 80 redirects to 443. The load balancer has deletion protection off.
 
 Until an image tag has been published, the service is created at desired count 0, because the SSM parameter still says `bootstrap` and that image does not exist. The first tag deploy starts the task. After that, the parameter holds the real tag, and a later Infra up starts the last image without another deploy.
 
-The alias is updated in the same apply that creates the load balancer. The load balancer's own DNS name changes every time the app stack is created. GoDaddy does not. Clients use `https://gonetlogo.sapienexmachina.si`, and only from `allowed_cidrs` (default `68.118.144.13/32`) on ports 80 and 443.
+The alias is updated in the same apply that creates the load balancer. The load balancer's own DNS name changes every time the app stack is created. GoDaddy does not. Clients use `https://gonetlogo.app.sapienexmachina.si`, and only from `allowed_cidrs` (default `68.118.144.13/32`) on ports 80 and 443.
 
 Infra up fails with a missing-certificate error if it runs before ACM has issued the certificate. Wait for `ISSUED` and run it again.
 
@@ -188,7 +190,7 @@ cd ../bootstrap
 tofu destroy
 ```
 
-Remove the four NS records for `gonetlogo` at GoDaddy after the zone is gone.
+Remove the four NS records for host `app` at GoDaddy after the zone is gone.
 
 ## Pull requests
 
