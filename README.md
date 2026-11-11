@@ -38,7 +38,7 @@ These scripts install, build, and run GoNetLogo on Ubuntu 22.04 or 24.04 without
 ./startup.sh
 ```
 
-Open http://localhost:8080 . One process serves the web UI and `/graphql`, including websocket subscriptions. The GraphQL playground is at http://localhost:8080/playground .
+Open http://localhost:8080 . One process serves the web UI and `/graphql`, including websocket subscriptions. The GraphQL playground is at http://localhost:8080/playground . `-production` turns the playground off.
 
 `PORT` and `HOST` change the listen address. The default is `127.0.0.1:8080`.
 
@@ -79,6 +79,13 @@ GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./bin/gonetlogo-server
 ```bash
 ./bin/gonetlogo-server -max-sessions 32
 GONETLOGO_MAX_SESSIONS=32 ./bin/gonetlogo-server
+```
+
+`-production` (or `GONETLOGO_PRODUCTION=true` when the flag is omitted) is the mode for a server on the public internet. It turns off `/playground` and GraphQL introspection. It also stops sending `Access-Control-Allow-Origin: *`. Cross-origin browser calls, including the websocket `CheckOrigin` check, are allowed only for origins listed in `-allowed-origins` / `GONETLOGO_ALLOWED_ORIGINS` (comma-separated `http` and `https` origins, hosts compared case-insensitively). A request whose Origin host matches the request Host is always allowed, so the UI served by this process works without being listed, including behind an ALB that preserves the Host header. An empty allow list means same-origin only. An explicit flag wins, including `-production=false` and an empty `-allowed-origins`. Accepted environment values for the switch are `1`, `true`, `yes`, `on`, and the matching false forms. Without `-production`, the server stays permissive (`Access-Control-Allow-Origin: *`, playground, introspection, websocket origins open) so `./scripts/dev.sh` and the Vite proxy keep working.
+
+```bash
+./bin/gonetlogo-server -production -allowed-origins https://app.example.com -max-sessions 32 -addr 0.0.0.0:8080
+GONETLOGO_PRODUCTION=true GONETLOGO_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com ./bin/gonetlogo-server
 ```
 
 SIGINT and SIGTERM drain the web server. `http.Server.Shutdown` stops new connections and waits for in-flight HTTP requests, then the session store is closed so each session's scratch directory is removed. The limit is `-shutdown-timeout` (default `20s`, which is under ECS Fargate's 30s stop timeout) or `GONETLOGO_SHUTDOWN_TIMEOUT` when the flag is omitted. An explicit flag wins. The value is a Go duration such as `20s`. A non-positive or unparseable value prints the error on stderr and exits 2. A drain that hits the deadline closes the remaining connections and still closes the store. The log file is flushed after that. A second signal stops the process immediately. Websockets are not waited on by `Shutdown`; closing the store ends those sessions.
@@ -222,7 +229,7 @@ The schema lives in `schema/schema.graphqls`. Operations:
 
 `Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World tab reads `worldSettings` and writes with `setWorld`, then runs setup. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second.
 
-The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`.
+The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`. `-production` serves neither playground and rejects introspection. `GET /healthz` is the load-balancer check.
 
 Regenerate the Go types from `backend/` with:
 

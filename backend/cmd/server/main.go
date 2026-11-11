@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -40,6 +41,8 @@ func main() {
 	sessionHeartbeat := flag.String("session-heartbeat", "", "remove a detached web session with no heartbeat or websocket activity for this long (default 45s, three 15s beats, or "+session.EnvHeartbeat+")")
 	shutdownFor := flag.String("shutdown-timeout", "", "how long to drain connections after SIGINT or SIGTERM (default 20s, or "+envShutdownTimeout+"); an explicit flag wins")
 	maxSessions := flag.Int("max-sessions", 0, "maximum concurrent sessions; 0 means unlimited. "+envMaxSessions+" is used when this flag is omitted; an explicit flag wins")
+	production := flag.Bool("production", false, "disable the playground and introspection, and replace the wildcard CORS header with -allowed-origins. "+envProduction+" is used when this flag is omitted; an explicit flag wins")
+	allowedOrigins := flag.String("allowed-origins", "", "comma-separated http(s) origins allowed in production mode; same-origin is always allowed. "+envAllowedOrigins+" is used when this flag is omitted; an explicit flag wins")
 	flag.Parse()
 	if _, err := logs.Apply(os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "gonetlogo-server: %v\n", err)
@@ -52,6 +55,15 @@ func main() {
 	if err != nil {
 		logcfg.Fail(2, "shutdown timeout", "err", err)
 	}
+	prod, err := resolveProduction(flagExplicit("production"), *production, os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "production", "err", err)
+	}
+	origins, err := resolveAllowedOrigins(flagExplicit("allowed-origins"), *allowedOrigins, os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "allowed origins", "err", err)
+	}
+	pol := newOriginPolicy(prod, origins)
 
 	if *pprofOn {
 		ln, err := net.Listen("tcp", "127.0.0.1:6060")
@@ -89,7 +101,7 @@ func main() {
 	} else {
 		slog.Warn("model open folder not found; the web Open button uses a local file chooser")
 	}
-	srv := newHandler(store)
+	srv := newHandler(store, pol)
 
 	ui, err := openUI(*webDir)
 	if err != nil {
@@ -101,14 +113,15 @@ func main() {
 	mux.Handle("/session/end", session.EndHandler(store))
 	mux.Handle("/session/heartbeat", session.HeartbeatHandler(store))
 	mux.Handle("/model-asset/", modelAssetHandler())
+	mountUI(mux, ui, pol.production)
 	if ui != nil {
-		// The app owns /. The playground stays available beside it.
-		mux.Handle("/", spaHandler(ui))
-		mux.Handle("/playground", playground.Handler("GoNetLogo GraphQL", "/graphql"))
 		slog.Info("web UI", "url", "http://"+*addr+"/")
+	}
+	if pol.production {
+		slog.Info("production", "playground", false, "introspection", false, "allowedOrigins", origins)
+	} else if ui != nil {
 		slog.Info("GraphQL playground", "url", "http://"+*addr+"/playground")
 	} else {
-		mux.Handle("/", playground.Handler("GoNetLogo GraphQL", "/graphql"))
 		slog.Info("GraphQL playground", "url", "http://"+*addr+"/")
 	}
 	slog.Info("GraphQL endpoint", "url", "http://"+*addr+"/graphql")
@@ -116,7 +129,7 @@ func main() {
 	slog.Info("shutdown timeout", "timeout", timeout.String())
 	httpSrv := &http.Server{
 		Addr:    *addr,
-		Handler: rootHandler(logHTTP(cors(mux))),
+		Handler: rootHandler(logHTTP(withCORS(pol, mux))),
 	}
 	// The hook runs on the signal goroutine, before CloseOnSignal flushes
 	// the log. It must close the store itself: that flush then exits, and
@@ -136,12 +149,12 @@ func main() {
 	select {}
 }
 
-func newHandler(store *session.Store) http.Handler {
+func newHandler(store *session.Store, pol originPolicy) http.Handler {
 	srv := handler.New(graph.NewExecutableSchema(graph.Config{Resolvers: &graph.Resolver{Store: store}}))
 	srv.AddTransport(transport.Websocket{
 		KeepAlivePingInterval: 10 * time.Second,
 		Upgrader: websocket.Upgrader{
-			CheckOrigin: func(*http.Request) bool { return true },
+			CheckOrigin: pol.allows,
 		},
 		InitFunc: func(ctx context.Context, _ transport.InitPayload) (context.Context, *transport.InitPayload, error) {
 			if slog.Default().Enabled(ctx, slog.LevelDebug) {
@@ -164,24 +177,30 @@ func newHandler(store *session.Store) http.Handler {
 	srv.AddTransport(transport.GET{})
 	srv.AddTransport(transport.POST{})
 	srv.SetQueryCache(lru.New(256))
-	srv.Use(extension.Introspection{})
+	if !pol.production {
+		srv.Use(extension.Introspection{})
+	}
 	logGraphQL(srv)
 	return srv
 }
 
-func cors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The end beacon and the heartbeat are same-origin only. A wildcard
-		// allow-origin header would invite other sites to post them.
-		if !session.BrowserSessionPath(r.URL.Path) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+// mountUI registers the web app and, outside production mode, the GraphQL
+// playground. Production mode answers /playground with 404 so a built UI
+// cannot fall through to the playground, and it does not mount a
+// playground at / when no UI is embedded.
+func mountUI(mux *http.ServeMux, ui fs.FS, production bool) {
+	if production {
+		mux.HandleFunc("/playground", http.NotFound)
+		if ui != nil {
+			mux.Handle("/", spaHandler(ui))
 		}
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+		return
+	}
+	if ui != nil {
+		// The app owns /. The playground stays available beside it.
+		mux.Handle("/", spaHandler(ui))
+		mux.Handle("/playground", playground.Handler("GoNetLogo GraphQL", "/graphql"))
+		return
+	}
+	mux.Handle("/", playground.Handler("GoNetLogo GraphQL", "/graphql"))
 }
