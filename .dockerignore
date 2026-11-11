@@ -1,0 +1,24 @@
+# VCS and CI. The server has no version variable to stamp from git.
+.git
+.github
+
+# Rebuilt inside the image.
+**/node_modules
+frontend/dist
+backend/cmd/server/webdist
+bin
+run
+
+# Fyne desktop app. It needs cgo and X11 and is not in this image.
+cmd/gonetlogo
+internal/gui
+
+# Local and editor files.
+.DS_Store
+.idea
+.vscode
+*.log
+*.exe
+*.test
+*.out
+docs
