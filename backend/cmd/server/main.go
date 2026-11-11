@@ -33,6 +33,10 @@ func main() {
 	webDir := flag.String("web", "", "directory of a built frontend (overrides files embedded with -tags web)")
 	logs := logcfg.Register(flag.CommandLine)
 	pprofOn := flag.Bool("pprof", false, "serve Go pprof handlers on 127.0.0.1:6060 only; off by default")
+	sessionGrace := flag.String("session-grace", "", "how long a disconnected web session stays alive so a reload can reconnect (default 15s, or "+session.EnvGrace+")")
+	sessionIdle := flag.String("session-idle", "", "remove a detached web session that has been quiet for this long (default 5m, or "+session.EnvIdle+")")
+	sessionSweep := flag.String("session-sweep", "", "how often to look for idle web sessions (default 30s, or "+session.EnvSweep+")")
+	sessionHeartbeat := flag.String("session-heartbeat", "", "remove a detached web session with no heartbeat or websocket activity for this long (default 45s, three 15s beats, or "+session.EnvHeartbeat+")")
 	flag.Parse()
 	if _, err := logs.Apply(os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "gonetlogo-server: %v\n", err)
@@ -55,7 +59,13 @@ func main() {
 		}()
 	}
 
-	store := session.NewStore()
+	life, err := session.ResolveLifecycle(*sessionGrace, *sessionIdle, *sessionSweep, *sessionHeartbeat, os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "session lifecycle", "err", err)
+	}
+	slog.Info("session lifecycle", "grace", life.Grace, "idle", life.Idle, "sweep", life.Sweep, "heartbeat", life.Heartbeat)
+	store := session.NewStoreWith(life)
+	defer store.Close()
 	if dir, err := session.ModelsDir(); err != nil {
 		slog.Warn("model files unavailable; embedded demos still load", "err", err)
 	} else {
@@ -75,6 +85,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", srv)
+	mux.Handle("/session/end", session.EndHandler(store))
+	mux.Handle("/session/heartbeat", session.HeartbeatHandler(store))
 	mux.Handle("/model-asset/", modelAssetHandler())
 	if ui != nil {
 		// The app owns /. The playground stays available beside it.
@@ -127,9 +139,13 @@ func newHandler(store *session.Store) http.Handler {
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		// The end beacon and the heartbeat are same-origin only. A wildcard
+		// allow-origin header would invite other sites to post them.
+		if !session.BrowserSessionPath(r.URL.Path) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

@@ -20,6 +20,12 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+      // Tab close beacons /session/end and the page posts /session/heartbeat.
+      // Leave the Host header alone so the API can match it to Origin.
+      '/session': {
+        target: 'http://127.0.0.1:43131',
+        changeOrigin: false,
+      },
       // Info images live next to the model, under the API's models directory.
       '/model-asset': {
         target: 'http://127.0.0.1:43131',

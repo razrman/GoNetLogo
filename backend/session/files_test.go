@@ -88,6 +88,12 @@ func TestLoadModelSourceBothFormats(t *testing.T) {
 	if err := s.LoadModelSource("pace.nlogo", nlogoPace); err != nil {
 		t.Fatal(err)
 	}
+	s.mu.Lock()
+	uploaded := filepath.Join(s.scratch, "pace.nlogo")
+	s.mu.Unlock()
+	if _, err := os.Stat(uploaded); err != nil {
+		t.Fatal(err)
+	}
 	if s.modelName != "pace.nlogo" {
 		t.Fatalf("name %q", s.modelName)
 	}

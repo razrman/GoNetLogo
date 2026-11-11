@@ -16,6 +16,8 @@ import (
 	"image/color"
 	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,14 +30,27 @@ import (
 )
 
 // Store is the set of live sessions.
+//
+// mu guards the map and every session's client lease (clients, leaseGen,
+// closing, leaseTimer, lastSocket, lastHeartbeat). Session.mu is a
+// different lock. Never take Session.mu while holding Store.mu: Close
+// and the step loop take Session.mu and must not wait on the store.
 type Store struct {
-	mu       sync.Mutex
-	sessions map[string]*Session
+	mu         sync.Mutex
+	sessions   map[string]*Session
+	grace      time.Duration
+	idleTTL    time.Duration
+	sweepEvery time.Duration
+	heartbeat  time.Duration
+	stop       chan struct{}
+	sweepDone  chan struct{}
+	closed     bool
+	closeOnce  sync.Once
 }
 
-// NewStore starts an empty store.
+// NewStore starts an empty store with the default grace period and idle sweep.
 func NewStore() *Store {
-	return &Store{sessions: map[string]*Session{}}
+	return NewStoreWith(DefaultLifecycle())
 }
 
 // Models lists the embedded demo programs.
@@ -72,8 +87,19 @@ func (st *Store) Create(modelName string) (*Session, error) {
 		s.Close()
 		return nil, err
 	}
+	// loop steps the model. publishLoop snapshots on the frame-rate cap.
+	// Both exit when Close closes s.stop. The WaitGroup is how tests
+	// know those goroutines are gone.
+	s.trackLoops = true
+	s.loops.Add(2)
 	go s.loop()
 	st.mu.Lock()
+	if st.closed {
+		st.mu.Unlock()
+		s.Close()
+		return nil, fmt.Errorf("session store is closed")
+	}
+	s.lastSocket = time.Now()
 	st.sessions[s.id] = s
 	st.mu.Unlock()
 	if debugEnabled() {
@@ -82,7 +108,8 @@ func (st *Store) Create(modelName string) (*Session, error) {
 	return s, nil
 }
 
-// Get returns a session by id.
+// Get returns a session by id. It does not count as client activity, so a
+// test poll or a log line cannot postpone the idle sweep.
 func (st *Store) Get(id string) (*Session, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -90,17 +117,11 @@ func (st *Store) Get(id string) (*Session, bool) {
 	return s, ok
 }
 
-// Close stops every session loop.
-func (st *Store) Close() {
-	st.mu.Lock()
-	all := make([]*Session, 0, len(st.sessions))
-	for _, s := range st.sessions {
-		all = append(all, s)
-	}
-	st.mu.Unlock()
-	for _, s := range all {
-		s.Close()
-	}
+// Use returns a session for a resolver. A lookup is not websocket
+// activity and does not move the idle or heartbeat clocks, so a poll
+// cannot postpone teardown or cancel a pending disconnect.
+func (st *Store) Use(id string) (*Session, bool) {
+	return st.Get(id)
 }
 
 // Session is one interpreter, one world, and the widgets that drive it.
@@ -165,10 +186,35 @@ type Session struct {
 	runRNG     uint64
 	capDrawing bool
 	capPlot    bool
+	// scratch is a private directory for this session's uploaded model
+	// text. Close deletes it. Empty when the directory could not be made.
+	// Guarded by s.mu.
+	scratch string
+	// loops counts loop and publishLoop when trackLoops is set. Create adds
+	// 2 before starting them. Sessions started with a bare go s.loop()
+	// leave the counter alone.
+	trackLoops bool
+	loops      sync.WaitGroup
+	// Client lease, guarded by Store.mu and never by s.mu.
+	// clients is the number of live frames subscriptions. Teardown checks
+	// this under Store.mu and never removes a session while it is positive.
+	// leaseGen changes whenever a kill timer is armed or cancelled, so a
+	// timer that fires late is a no-op.
+	// closing is set by the end-session beacon so the log can name it.
+	// It does not bypass the client count.
+	// lastSocket is the last create, attach, or detach.
+	// lastHeartbeat is the last UI heartbeat. The idle clock is the later
+	// of the two.
+	clients       int
+	leaseGen      uint64
+	closing       bool
+	leaseTimer    *time.Timer
+	lastSocket    time.Time
+	lastHeartbeat time.Time
 }
 
 func newSession() *Session {
-	return &Session{
+	s := &Session{
 		id:          newID(),
 		running:     -1,
 		pendingOnce: nil,
@@ -179,11 +225,27 @@ func newSession() *Session {
 		rateNote:    make(chan struct{}, 1),
 		stop:        make(chan struct{}),
 	}
+	dir, err := os.MkdirTemp("", "gonetlogo-session-")
+	if err != nil {
+		slog.Warn("session storage", "session", s.id, "err", err)
+	} else {
+		s.scratch = dir
+	}
+	return s
 }
 
 func (s *Session) ID() string { return s.id }
 
-// Close stops the forever loop. It is safe to call more than once.
+// Running reports whether a forever button is stepping.
+// A closed session is not running.
+func (s *Session) Running() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed && s.running >= 0
+}
+
+// Close stops the forever loop, releases the interpreter, and deletes this
+// session's private storage. It is safe to call more than once.
 func (s *Session) Close() {
 	s.mu.Lock()
 	if s.closed {
@@ -196,11 +258,26 @@ func (s *Session) Close() {
 	s.setRunningLocked(-1, "close")
 	vm := s.vm
 	id := s.id
+	scratch := s.scratch
+	s.scratch = ""
+	listeners := s.listeners
+	s.listeners = map[int]chan struct{}{}
 	close(s.stop)
 	s.mu.Unlock()
+	// Wake subscribers after releasing s.mu. broadcastLocked sends only
+	// while it holds s.mu and only on channels still in the map, so this
+	// close cannot race a send.
+	for _, ch := range listeners {
+		close(ch)
+	}
 	s.haltVM(vm, "close")
 	if vm != nil {
 		vm.Close()
+	}
+	if scratch != "" {
+		if err := os.RemoveAll(scratch); err != nil {
+			slog.Warn("session storage", "session", id, "err", err)
+		}
 	}
 	if debugEnabled() {
 		slog.Debug("session closed", "session", id)
@@ -213,9 +290,12 @@ func (s *Session) Close() {
 const stepSlot = 30 * time.Millisecond
 
 func (s *Session) loop() {
-	// Steps stay on the speed-slider cadence. A second goroutine publishes
-	// on the frame-rate interval so it can take the latest snapshot between
+	// Steps stay on the speed-slider cadence. publishLoop, started here,
+	// publishes on the frame-rate interval so it can snapshot between
 	// steps without the step loop waiting on a subscriber.
+	if s.trackLoops {
+		defer s.loops.Done()
+	}
 	go s.publishLoop()
 	step := time.NewTicker(stepSlot)
 	defer step.Stop()
@@ -230,6 +310,9 @@ func (s *Session) loop() {
 }
 
 func (s *Session) publishLoop() {
+	if s.trackLoops {
+		defer s.loops.Done()
+	}
 	s.mu.Lock()
 	interval := nl.FrameInterval(s.frameRate)
 	s.mu.Unlock()
@@ -429,11 +512,16 @@ func (s *Session) armYield(vm *nl.VM) {
 // still observes the latest state on the next wake-up.
 func (s *Session) Subscribe() (wake <-chan struct{}, cancel func()) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		ch := make(chan struct{})
+		close(ch)
+		return ch, func() {}
+	}
 	ch := make(chan struct{}, 1)
 	id := s.nextSub
 	s.nextSub++
 	s.listeners[id] = ch
-	s.mu.Unlock()
 	return ch, func() {
 		s.mu.Lock()
 		delete(s.listeners, id)
@@ -570,7 +658,31 @@ func (s *Session) LoadModelSource(filename, source string) error {
 		slog.Warn("model load failed", "session", s.id, "model", filename, "bytes", len(source), "err", err)
 		return err
 	}
-	return s.useModelFrom(modelDisplayName(filename), source, nil)
+	if err := s.useModelFrom(modelDisplayName(filename), source, nil); err != nil {
+		return err
+	}
+	s.keepUpload(filename, source)
+	return nil
+}
+
+// keepUpload stores the uploaded model text in the session directory so
+// Close can delete it with the rest of the session's private files.
+// A disk error leaves the in-memory model in place.
+func (s *Session) keepUpload(filename, source string) {
+	s.mu.Lock()
+	dir := s.scratch
+	s.mu.Unlock()
+	if dir == "" {
+		return
+	}
+	name := filepath.Base(strings.ReplaceAll(filename, "\\", "/"))
+	if name == "." || name == ".." || name == "" || name == string(filepath.Separator) {
+		name = "upload.nlogo"
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		slog.Warn("session storage", "session", s.id, "err", err)
+	}
 }
 
 // LoadModelFile reads one model from the server models directory

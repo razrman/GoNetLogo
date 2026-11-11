@@ -25,6 +25,7 @@ import {
   SetWorld,
   SetSeedOverride,
   GenerateRngSeed,
+  SessionQuery,
   Setup,
   Step,
   Stop,
@@ -62,6 +63,7 @@ import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
 import { readSeedOverride, rngSeedError, rngSeedForApply, seedControlState, writeSeedOverride } from './rngSeed'
+import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, readStoredSession, writeStoredSession } from './sessionLife'
 import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
@@ -118,6 +120,8 @@ export function App() {
   const [, generateSeedMut] = useMutation<{ generateRngSeed: string }>(GenerateRngSeed)
 
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  sessionIdRef.current = sessionId
   const [modelName, setModelName] = useState('fire.nlogo')
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
@@ -193,8 +197,50 @@ export function App() {
   }, [sessionId, worldReady, serverOverride, setSeedOverrideMut])
 
   useEffect(() => {
+    if (sessionId) writeStoredSession(sessionId)
+  }, [sessionId])
+
+  useEffect(() => bindSessionEnd(window, () => sessionIdRef.current, (id) => {
+    postSessionEnd(id)
+  }), [])
+
+  useEffect(() => bindSessionHeartbeat(() => sessionIdRef.current, (id) => {
+    void postSessionHeartbeat(id)
+  }), [sessionId])
+
+  useEffect(() => {
     let cancel = false
+    const adopt = (info: SessionInfo) => {
+      setSessionId(info.id)
+      setModelName(info.modelName)
+      setCode(info.code)
+      setInfo(info.info ?? '')
+      setModelDir(info.modelDir ?? null)
+      setNotes(info.notes ?? [])
+      setProcedures(info.procedures ?? [])
+      rememberDynamics(info.dynamics ?? null)
+    }
     ;(async () => {
+      // A reload of this tab keeps the id in sessionStorage. Reattach
+      // instead of creating another interpreter, so the grace timer the
+      // previous page's beacon started is cancelled by the frames subscription.
+      const stored = readStoredSession()
+      if (stored) {
+        const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id: stored }).toPromise()
+        if (cancel) return
+        if (looked.data?.session) {
+          adopt(looked.data.session)
+          setBooting(false)
+          return
+        }
+        if (looked.error) {
+          const message = looked.error.message
+          if (!reportDisconnect(message)) setBanner(message)
+          setBooting(false)
+          return
+        }
+        clearStoredSession()
+      }
       const created = await createSession({ model: 'fire.nlogo' })
       if (cancel) return
       if (created.error || !created.data) {
@@ -204,14 +250,7 @@ export function App() {
         return
       }
       const info = created.data.createSession
-      setSessionId(info.id)
-      setModelName(info.modelName)
-      setCode(info.code)
-      setInfo(info.info ?? '')
-      setModelDir(info.modelDir ?? null)
-      setNotes(info.notes ?? [])
-      setProcedures(info.procedures ?? [])
-      rememberDynamics(info.dynamics ?? null)
+      adopt(info)
       await speedMut({ id: info.id, speed: 30 })
       await autoSetup(info.id, info.procedures)
       const go = await goMut({ id: info.id })
@@ -232,8 +271,13 @@ export function App() {
   }, [frame?.log])
 
   useEffect(() => {
-    if (frame && !frame.running) setActive(null)
-  }, [frame?.running])
+    if (!frame?.running) {
+      if (frame) setActive(null)
+      return
+    }
+    // A reloaded tab learns which forever button is down from the frame.
+    setActive((cur) => (cur == null ? foreverIndex(frame.widgets) : cur))
+  }, [frame])
 
   useEffect(() => {
     if (tab === 'dynamics' && !hasSystemDynamics(dynamics)) setTab('interface')
