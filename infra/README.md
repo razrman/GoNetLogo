@@ -7,7 +7,7 @@ OpenTofu layout for the web server. Two stacks:
 | `infra/bootstrap` | Local file on the machine that applied it | Yes. State bucket, GitHub OIDC provider, deploy role, ECR repository, Route 53 zone, ACM certificate, budget, image-tag parameter |
 | `infra/app` | S3 bucket from bootstrap, locked with an S3 lockfile (`use_lockfile`, no DynamoDB) | No. VPC, subnets, security groups, load balancer, ECS service, log group, and the alias record |
 
-Account `457504029722`, region `us-west-2`. The provider refuses any other account. Bootstrap is applied by hand with an administrator key. After that, GitHub Actions assumes `gonetlogo-github-deploy` through OIDC. There are no long-lived AWS keys in the repository.
+Account `457504029722`, region `us-west-2`. The provider refuses any other account. The account is a Sign up for AWS (new) free plan today, and that plan cannot use `us-west-2`. Upgrade it to a paid plan before bootstrap. Bootstrap is applied by hand with an administrator key. After that, GitHub Actions assumes `gonetlogo-github-deploy` through OIDC. There are no long-lived AWS keys in the repository.
 
 The task is Fargate on Graviton, 0.5 vCPU and 1 GB, one task, `linux/arm64`. The image is also pushed for `linux/amd64`. Graviton is the cheaper of the two sizes the Dockerfile already builds. Sessions are in memory in that one process, so the service stays at one task. A second task would split clients. The container entrypoint already sets `-addr 0.0.0.0:8080` and `-log-format json`. The task sets `GONETLOGO_PRODUCTION=1`, `GONETLOGO_MAX_SESSIONS=32`, `GONETLOGO_ALLOWED_ORIGINS=https://gonetlogo.sapienexmachina.si`, and `GONETLOGO_SHUTDOWN_TIMEOUT=20s`. Fargate's stop timeout is 30 seconds, and the load balancer waits 30 seconds before the task is signaled. The load balancer idle timeout is 300 seconds. The server pings websockets every 10 seconds and the page heartbeats every 15 seconds. `GET /healthz` is the target-group check. The image has no shell, so there is no in-container probe. `/tmp` is the task's 20 GB ephemeral disk.
 
@@ -38,22 +38,22 @@ There is no NAT gateway. A NAT gateway would be about $32 per month per availabi
 
 A monthly AWS budget of $20 (before credits) emails when actual or forecasted usage crosses that line. Left running, this stack passes $20 well before the end of the month. Torn down, it stays under it.
 
-## Free-plan accounts
+## Upgrade to a paid plan before bootstrap
 
-`ecs:*`, `elasticloadbalancing:*`, `ecr:*`, `ec2:*`, `route53:*`, `acm:*`, `logs:*`, `s3:*`, `ssm:*`, and `budgets:*` are on the published allow list for Sign up for AWS (new). Fargate is an ECS launch type, not its own service prefix.
+This account is a Sign up for AWS (new) free plan. Two controls on that plan block this stack. Both were confirmed on the account. The target region stays `us-west-2`.
 
-Two limits on that sign-up path are easy to hit:
+- The free plan is pinned to a home region, `us-east-2`. Its service control policy denies regional APIs everywhere else, so `us-west-2` is denied outright.
+- `iam:*Provider*` is denied, so the GitHub OIDC provider cannot be created.
 
-- The free-plan and paid-plan service control policies deny `iam:*Provider*` until advanced AWS features are turned on. Bootstrap creates a GitHub OIDC provider, and that call fails until then. ECS, the load balancer, ECR, Route 53, and ACM do not need that switch.
-- As a project nears a spend limit, AWS denies `elasticloadbalancing:CreateLoadBalancer`, `ecs:CreateService`, and `ecr:CreateRepository`. A limit at or below the running cost makes the next apply fail with `AccessDenied`. The $20 budget in this stack is an email. It is not that hard cap. Raise the account spend limit for any month the stack stays up, or tear the app stack down first.
+Upgrade the account to a paid plan before the first bootstrap apply. Free-plan credits carry over. Until that upgrade, bootstrap cannot create the zone, the certificate, ECR, or the OIDC provider, in `us-west-2` or otherwise.
 
-The free plan is a credit balance (up to $200) for up to six months, then the account closes unless it is moved to a paid plan. Credits do not make this stack free. The budget is configured with credits excluded, so the mail still arrives while credits are paying the bill. The first budget email is a confirmation link. Alerts do not send until that link is opened.
+A paid plan can still have a spend limit. Near that limit, AWS denies `elasticloadbalancing:CreateLoadBalancer`, `ecs:CreateService`, and `ecr:CreateRepository`. The $20 budget in this stack is an email, not that cap. Raise the spend limit for any month the app stack stays up, or tear the app stack down first.
 
-A classic account (Sign up for AWS advanced, or an account opened before that program) does not have those service control policies. The prices above still apply.
+Credits do not make the running stack free. The budget ignores credits, so the mail still arrives while credits are paying the bill. AWS sends a confirmation link to `budget_email` before any alert. Open that link.
 
 ## One-time bootstrap
 
-Install OpenTofu `1.13.9` (the pin is `infra/.opentofu-version`). From a shell whose AWS credentials are an administrator in account `457504029722`:
+Do this only after the account is on a paid plan. Install OpenTofu `1.13.9` (the pin is `infra/.opentofu-version`). From a shell whose AWS credentials are an administrator in account `457504029722`:
 
 ```bash
 cd infra/bootstrap
@@ -198,15 +198,15 @@ Bootstrap is not planned in GitHub. An empty local state on the runner would ask
 
 ## What the role can do
 
-The deploy role's trust policy is `sts:AssumeRoleWithWebIdentity` for the one subject above and audience `sts.amazonaws.com`. Its policies cover the state bucket, pushing to the `gonetlogo` ECR repository, the `gonetlogo` ECS cluster and service, registering task definitions, passing `gonetlogo-ecs-execution` to ECS, the image-tag parameter, the VPC and load balancer APIs in us-west-2, the log group, reading the certificate, and changing records in this hosted zone. It cannot delete the hosted zone, the certificate, or the ECR repository, and it cannot edit its own trust policy. The task has no task role. The server does not call AWS.
+The deploy role's trust policy is `sts:AssumeRoleWithWebIdentity` for the one subject above and audience `sts.amazonaws.com`. Its policies cover the state bucket, pushing to the `gonetlogo` ECR repository and reading that repository's tags, the `gonetlogo` ECS cluster and service, registering task definitions and listing their tags, passing `gonetlogo-ecs-execution` to ECS, the image-tag parameter, the VPC and load balancer APIs in us-west-2 (including describe), the log group, reading the certificate, and changing records in this hosted zone. It cannot delete the hosted zone, the certificate, or the ECR repository, and it cannot edit its own trust policy. The task has no task role. The server does not call AWS.
 
 Registering a task definition is granted on `*`. ECS does not accept a task-definition ARN for that action. Only `ecs:UpdateService` on `gonetlogo` can point a service at a revision.
 
 ## Troubleshooting
 
-- **AssumeRole failed.** The workflow job must set `environment: production`. Compare the subject in the error with `github_subject`. Advanced features must be on before the OIDC provider can be created.
+- **AssumeRole failed.** The workflow job must set `environment: production`. The trusted subject is `repo:razrman@1226040/GoNetLogo@1423386498:environment:production`.
+- **AccessDenied on a us-west-2 API, or on CreateOpenIDConnectProvider.** The account is still on the free plan. Upgrade to a paid plan, which keeps the credits, and apply bootstrap again.
 - **AccessDenied on CreateLoadBalancer or CreateService.** The account spend limit is in the way. Raise it, or you are near it.
-- **AccessDenied on CreateOpenIDConnectProvider.** Turn on advanced AWS features and apply bootstrap again. Resources that were created before the failure are kept.
 - **App apply cannot find a certificate.** The certificate is not `ISSUED` yet. Finish the NS delegation and wait, or run bootstrap with `-var='wait_for_certificate=true'`.
 - **Deploy says the app stack is not up.** Run Infra up. A destroyed service is not `ACTIVE`.
 - **Tasks fail to pull.** The task needs its public address and outbound 443. The image architecture must include the task architecture. The deploy pushes both.

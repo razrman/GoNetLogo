@@ -213,6 +213,7 @@ data "aws_iam_policy_document" "deploy" {
       "ecr:GetDownloadUrlForLayer",
       "ecr:InitiateLayerUpload",
       "ecr:ListImages",
+      "ecr:ListTagsForResource",
       "ecr:PutImage",
       "ecr:UploadLayerPart",
     ]
@@ -245,6 +246,7 @@ data "aws_iam_policy_document" "deploy" {
       "ecs:TagResource",
       "ecs:UntagResource",
       "ecs:UpdateCluster",
+      "ecs:UpdateClusterSettings",
       "ecs:UpdateService",
     ]
     resources = [
@@ -254,17 +256,21 @@ data "aws_iam_policy_document" "deploy" {
   }
 
   # RegisterTaskDefinition and DescribeTaskDefinition do not accept a
-  # task-definition ARN. UpdateService above is what can point the
-  # gonetlogo service at a revision.
+  # task-definition ARN. ListTagsForResource does, and both the deploy
+  # workflow and an OpenTofu refresh of aws_ecs_task_definition call it
+  # on that ARN. The cluster statement above does not match it.
+  # UpdateService on gonetlogo is what can point the service at a revision.
   statement {
     sid    = "EcsTaskDefinitions"
     effect = "Allow"
     actions = [
       "ecs:DeregisterTaskDefinition",
       "ecs:DescribeTaskDefinition",
+      "ecs:ListTagsForResource",
       "ecs:ListTaskDefinitions",
       "ecs:RegisterTaskDefinition",
       "ecs:TagResource",
+      "ecs:UntagResource",
     ]
     resources = ["*"]
   }
