@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -290,5 +291,107 @@ func TestLogFileAppends(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o644 {
 		t.Fatalf("mode = %o, want 644", info.Mode().Perm())
+	}
+}
+
+func TestSignalHookRunsBeforeLogClose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shutdown.log")
+	restore := useLogFile(t, path)
+	defer restore()
+
+	var raised syscall.Signal
+	exited := -1
+	prevRaise, prevExit := raiseSignal, signalExit
+	raiseSignal = func(s syscall.Signal) error {
+		raised = s
+		return nil
+	}
+	signalExit = func(code int) { exited = code }
+	t.Cleanup(func() {
+		raiseSignal = prevRaise
+		signalExit = prevExit
+		OnSignal(nil)
+	})
+
+	OnSignal(func(sig os.Signal) {
+		if sig != syscall.SIGTERM {
+			t.Errorf("signal %v", sig)
+		}
+		if !ToFile() {
+			t.Error("log file closed before the shutdown hook")
+		}
+		slog.Info("during-hook")
+	})
+	finishSignal(syscall.SIGTERM)
+
+	if raised != 0 {
+		t.Fatalf("hook path re-raised %v", raised)
+	}
+	if exited != 0 {
+		t.Fatalf("exit %d, want 0", exited)
+	}
+	if ToFile() {
+		t.Fatal("log file still open after the hook")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "during-hook") {
+		t.Fatalf("log file = %q, want the line written by the hook", body)
+	}
+}
+
+func TestSignalWithoutHookReraises(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rerise.log")
+	restore := useLogFile(t, path)
+	defer restore()
+
+	var raised syscall.Signal
+	exited := -1
+	prevRaise, prevExit := raiseSignal, signalExit
+	raiseSignal = func(s syscall.Signal) error {
+		raised = s
+		return nil
+	}
+	signalExit = func(code int) { exited = code }
+	t.Cleanup(func() {
+		raiseSignal = prevRaise
+		signalExit = prevExit
+		OnSignal(nil)
+	})
+	OnSignal(nil)
+	slog.Info("before-signal")
+	finishSignal(syscall.SIGINT)
+
+	if raised != syscall.SIGINT {
+		t.Fatalf("raised %v, want SIGINT", raised)
+	}
+	if exited != 1 {
+		t.Fatalf("exit %d, want 1", exited)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "before-signal") {
+		t.Fatalf("log file = %q, want the line flushed before the re-raise", body)
+	}
+}
+
+func useLogFile(t *testing.T, path string) func() {
+	t.Helper()
+	fs := flag.NewFlagSet("gonetlogo-server", flag.ContinueOnError)
+	flags := Register(fs)
+	if err := fs.Parse([]string{"-log-file", path, "-log-level", "info"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := flags.Apply(func(string) string { return "" }); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		_ = Close()
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+		log.SetOutput(io.Discard)
 	}
 }

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -37,6 +38,7 @@ func main() {
 	sessionIdle := flag.String("session-idle", "", "remove a detached web session that has been quiet for this long (default 5m, or "+session.EnvIdle+")")
 	sessionSweep := flag.String("session-sweep", "", "how often to look for idle web sessions (default 30s, or "+session.EnvSweep+")")
 	sessionHeartbeat := flag.String("session-heartbeat", "", "remove a detached web session with no heartbeat or websocket activity for this long (default 45s, three 15s beats, or "+session.EnvHeartbeat+")")
+	shutdownFor := flag.String("shutdown-timeout", "", "how long to drain connections after SIGINT or SIGTERM (default 20s, or "+envShutdownTimeout+"); an explicit flag wins")
 	flag.Parse()
 	if _, err := logs.Apply(os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "gonetlogo-server: %v\n", err)
@@ -45,6 +47,10 @@ func main() {
 	defer logcfg.Close()
 	defer logcfg.Recover()
 	logcfg.CloseOnSignal()
+	timeout, err := resolveShutdownTimeout(*shutdownFor, os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "shutdown timeout", "err", err)
+	}
 
 	if *pprofOn {
 		ln, err := net.Listen("tcp", "127.0.0.1:6060")
@@ -100,9 +106,27 @@ func main() {
 	}
 	slog.Info("GraphQL endpoint", "url", "http://"+*addr+"/graphql")
 	slog.Info("health", "url", "http://"+*addr+"/healthz")
-	if err := http.ListenAndServe(*addr, rootHandler(logHTTP(cors(mux)))); err != nil {
+	slog.Info("shutdown timeout", "timeout", timeout.String())
+	httpSrv := &http.Server{
+		Addr:    *addr,
+		Handler: rootHandler(logHTTP(cors(mux))),
+	}
+	// The hook runs on the signal goroutine, before CloseOnSignal flushes
+	// the log. It must close the store itself: that flush then exits, and
+	// main's defers do not run.
+	logcfg.OnSignal(func(sig os.Signal) {
+		slog.Info("shutdown", "signal", sig.String(), "timeout", timeout.String())
+		if err := shutdownHTTP(httpSrv, timeout, store.Close); err != nil {
+			slog.Error("shutdown", "err", err)
+		}
+	})
+	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		store.Close()
 		logcfg.Fail(1, "listen", "addr", *addr, "err", err)
 	}
+	// Shutdown unblocks ListenAndServe before the hook closes the store.
+	// Stay here so these defers do not race the hook's exit.
+	select {}
 }
 
 func newHandler(store *session.Store) http.Handler {
