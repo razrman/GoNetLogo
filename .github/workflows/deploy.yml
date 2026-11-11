@@ -1,0 +1,227 @@
+# Build the web image and roll the ECS service.
+#
+# Push a tag YYYYMMDD-XX (for example 20261111-03), or re-run a tag from
+# the Actions tab. The job uses the production environment, so the OIDC
+# subject matches the deploy role. It refuses to build when the app stack
+# is down.
+
+name: Deploy
+
+on:
+  push:
+    tags:
+      - "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag to build and deploy (YYYYMMDD-XX). The workflow checks out that tag."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gonetlogo-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    # cache-to type=gha writes the Actions cache. A token limited to
+    # contents: read cannot reserve that cache.
+    permissions:
+      contents: read
+      id-token: write
+      actions: write
+    env:
+      AWS_REGION: us-west-2
+      AWS_DEFAULT_REGION: us-west-2
+      AWS_PAGER: ""
+      CLUSTER: gonetlogo
+      SERVICE: gonetlogo
+      CONTAINER: gonetlogo
+      SSM_PARAMETER: /gonetlogo/image_tag
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - name: Resolve image tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.image_tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          case "$tag" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]) ;;
+            *)
+              echo "image tag must match YYYYMMDD-XX, got: $tag" >&2
+              exit 1
+              ;;
+          esac
+          if ! printf '%s\n' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "refusing to tag an image with unexpected sha: $SHA" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+
+      - name: Check deploy role variable
+        env:
+          ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ROLE_ARN" ]; then
+            echo "Set the repository variable AWS_DEPLOY_ROLE_ARN to the deploy_role_arn output from infra/bootstrap." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-west-2
+          role-session-name: gonetlogo-deploy
+
+      - name: Require the app stack
+        run: |
+          set -euo pipefail
+          err=$(mktemp)
+          if ! desc=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --output json 2>"$err"); then
+            echo "The app stack is not up, so there is nothing to deploy." >&2
+            echo "Start it with Actions → Infra up, wait for that run to finish, then deploy again." >&2
+            cat "$err" >&2
+            exit 1
+          fi
+          status=$(printf '%s' "$desc" | jq -r 'if ((.failures // []) | length) > 0 then "MISSING" else .services[0].status // "MISSING" end')
+          if [ "$status" != "ACTIVE" ]; then
+            echo "The app stack is not up (ECS service ${CLUSTER}/${SERVICE} status: ${status})." >&2
+            echo "Start it with Actions → Infra up, wait for that run to finish, then deploy again." >&2
+            exit 1
+          fi
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/gonetlogo:${{ steps.tag.outputs.tag }}
+            ${{ steps.ecr.outputs.registry }}/gonetlogo:${{ steps.tag.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Roll the service
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/gonetlogo:${{ steps.tag.outputs.tag }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          aws ssm put-parameter \
+            --name "$SSM_PARAMETER" \
+            --value "$IMAGE_TAG" \
+            --type String \
+            --overwrite \
+            --output text >/dev/null
+
+          task_def_arn=$(aws ecs describe-services \
+            --cluster "$CLUSTER" \
+            --services "$SERVICE" \
+            --query 'services[0].taskDefinition' \
+            --output text)
+          aws ecs describe-task-definition \
+            --task-definition "$task_def_arn" \
+            --query 'taskDefinition' \
+            --output json > task-def.json
+          if ! jq -e --arg name "$CONTAINER" '.containerDefinitions | any(.name == $name)' task-def.json >/dev/null; then
+            echo "task definition has no container named $CONTAINER" >&2
+            exit 1
+          fi
+          jq --arg image "$IMAGE" --arg name "$CONTAINER" '
+            .containerDefinitions |= map(if .name == $name then .image = $image else . end)
+            | del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .compatibilities,
+                .registeredAt,
+                .registeredBy,
+                .deregisteredAt
+              )
+          ' task-def.json > task-def-new.json
+
+          tag_args=()
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              tag_args+=("$line")
+            fi
+          done < <(aws ecs list-tags-for-resource \
+            --resource-arn "$task_def_arn" \
+            --output json \
+            | jq -r '(.tags // [])[] | "key=\(.key),value=\(.value)"')
+          if [ "${#tag_args[@]}" -eq 0 ]; then
+            tag_args=("key=Project,value=gonetlogo" "key=ManagedBy,value=opentofu")
+          fi
+
+          new_arn=$(aws ecs register-task-definition \
+            --cli-input-json file://task-def-new.json \
+            --tags "${tag_args[@]}" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "$SERVICE" \
+            --task-definition "$new_arn" \
+            --desired-count 1 \
+            --query 'service.serviceName' \
+            --output text >/dev/null
+
+          if ! aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"; then
+            echo "service did not become stable on $new_arn" >&2
+            aws ecs describe-services \
+              --cluster "$CLUSTER" \
+              --services "$SERVICE" \
+              --query 'services[0].events[:10]' \
+              --output table >&2
+            exit 1
+          fi
+          running=$(aws ecs describe-services \
+            --cluster "$CLUSTER" \
+            --services "$SERVICE" \
+            --query 'services[0].taskDefinition' \
+            --output text)
+          if [ "$running" != "$new_arn" ]; then
+            echo "service stabilized on $running, not $new_arn (the deployment rolled back)" >&2
+            aws ecs describe-services \
+              --cluster "$CLUSTER" \
+              --services "$SERVICE" \
+              --query 'services[0].events[:10]' \
+              --output table >&2
+            exit 1
+          fi
+          echo "deployed $IMAGE as $new_arn"

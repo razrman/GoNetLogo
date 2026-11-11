@@ -1,0 +1,61 @@
+# Create or update the destroyable app stack (VPC, load balancer, ECS,
+# logs, and the alias record). The hosted zone, certificate, ECR
+# repository, state bucket, and deploy role are not in this state.
+# The production environment is the approval gate.
+
+name: Infra up
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gonetlogo-production
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Apply app stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check deploy role variable
+        env:
+          ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ROLE_ARN" ]; then
+            echo "Set the repository variable AWS_DEPLOY_ROLE_ARN to the deploy_role_arn output from infra/bootstrap." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-west-2
+          role-session-name: gonetlogo-up
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version_file: infra/.opentofu-version
+          tofu_wrapper: false
+
+      - name: Apply
+        working-directory: infra/app
+        run: |
+          set -euo pipefail
+          tofu init -input=false
+          tofu apply -input=false -auto-approve -lock-timeout=10m

@@ -1,0 +1,99 @@
+# fmt and validate both stacks on pull requests that touch infra.
+# Plan the app stack only when this repo (not a fork) has
+# AWS_DEPLOY_ROLE_ARN set. A missing role skips the plan job instead of
+# failing the pull request. Bootstrap is validated but not planned:
+# its state is local to the machine that applied it, and a plan here
+# would show those resources as new.
+
+name: Infra plan
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-plan.yml"
+      - ".github/workflows/infra-up.yml"
+      - ".github/workflows/infra-down.yml"
+      - ".github/workflows/deploy.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version_file: infra/.opentofu-version
+          tofu_wrapper: false
+
+      - name: Check formatting
+        run: tofu fmt -check -diff -recursive infra
+
+  validate:
+    name: validate ${{ matrix.stack }}
+    needs: fmt
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack:
+          - bootstrap
+          - app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version_file: infra/.opentofu-version
+          tofu_wrapper: false
+
+      - name: Validate
+        working-directory: infra/${{ matrix.stack }}
+        run: |
+          set -euo pipefail
+          tofu init -backend=false -input=false
+          tofu validate
+
+  plan:
+    name: plan app
+    needs: validate
+    if: github.event.pull_request.head.repo.full_name == github.repository && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-west-2
+          role-session-name: gonetlogo-plan
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version_file: infra/.opentofu-version
+          tofu_wrapper: false
+
+      - name: Plan
+        working-directory: infra/app
+        run: |
+          set -euo pipefail
+          tofu init -input=false
+          tofu plan -input=false -no-color -lock-timeout=5m
