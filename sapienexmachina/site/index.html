@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sapien ex Machina</title>
+<meta name="description" content="Sapien ex Machina: apps by John Phelps: GoNetLogo, SpaceXAI Klondike and Bifurcate.">
+<meta name="theme-color" content="#05070d">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="Sapien ex Machina">
+<meta property="og:description" content="Apps by John Phelps.">
+<meta property="og:image" content="https://app.sapienexmachina.si/poster.jpg">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2305070d'/%3E%3Ccircle cx='32' cy='30' r='17' fill='none' stroke='%237cc4ff' stroke-width='4'/%3E%3Cpath d='M22 31q10 9 20 0' fill='none' stroke='%23ffd9a8' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='50' cy='13' r='2.5' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #05070d;
+    --fg: #eef2f8;
+    --muted: #9aa6b8;
+    --accent: #7cc4ff;
+    --warm: #ffd9a8;
+    --card: rgba(255,255,255,.04);
+    --line: rgba(255,255,255,.10);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 20% -10%, rgba(60,110,200,.22), transparent 55%),
+      radial-gradient(ellipse at 90% 110%, rgba(255,170,90,.12), transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* starfield, pure CSS */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .55;
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, #fff, transparent),
+      radial-gradient(1px 1px at 72% 12%, #cfe6ff, transparent),
+      radial-gradient(1.5px 1.5px at 38% 62%, #fff, transparent),
+      radial-gradient(1px 1px at 86% 48%, #fff, transparent),
+      radial-gradient(1px 1px at 22% 84%, #ffe9cc, transparent),
+      radial-gradient(1.5px 1.5px at 58% 32%, #fff, transparent),
+      radial-gradient(1px 1px at 93% 82%, #cfe6ff, transparent),
+      radial-gradient(1px 1px at 5% 50%, #fff, transparent);
+    background-size: 420px 420px;
+  }
+  a { color: inherit; }
+  .skip { position: absolute; left: -999px; top: 8px; background: var(--fg); color: var(--bg); padding: 8px 12px; border-radius: 8px; }
+  .skip:focus { left: 8px; }
+  main { max-width: 1040px; margin: 0 auto; padding: clamp(28px, 6vw, 72px) 20px 40px; }
+  header { text-align: center; margin-bottom: clamp(24px, 4vw, 40px); }
+  h1 {
+    margin: 0; font-weight: 300; letter-spacing: .14em; text-transform: uppercase;
+    font-size: clamp(1.8rem, 5.5vw, 3.4rem);
+    background: linear-gradient(90deg, var(--accent), #fff 50%, var(--warm));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 em { font-style: italic; font-family: Georgia, "Times New Roman", serif; text-transform: none; letter-spacing: .02em; }
+  .tag { margin: 10px 0 0; color: var(--muted); letter-spacing: .08em; font-size: .95rem; }
+  .hero {
+    position: relative; margin: 0 auto; border-radius: 22px; overflow: hidden;
+    border: 1px solid var(--line); aspect-ratio: 16 / 9; background: #000 url(poster.jpg) center / cover no-repeat;
+    box-shadow: 0 30px 80px -30px rgba(60,130,255,.35), 0 0 0 1px rgba(255,255,255,.03) inset;
+  }
+  .hero video, .hero img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .hero img { display: none; }
+  .hero figcaption {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 20px 14px;
+    background: linear-gradient(transparent, rgba(0,0,0,.7)); color: #dfe7f2; font-size: .9rem; letter-spacing: .06em;
+  }
+  h2 { font-size: .8rem; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: var(--muted); margin: clamp(32px, 5vw, 52px) 0 16px; text-align: center; }
+  .apps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card {
+    display: flex; flex-direction: column; height: 100%; padding: 22px 22px 20px; text-decoration: none;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    transition: transform .2s ease, border-color .2s ease, background .2s ease;
+  }
+  .card:hover { transform: translateY(-3px); border-color: rgba(124,196,255,.55); background: rgba(124,196,255,.06); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .card h3 { margin: 0 0 6px; font-size: 1.2rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .card h3 span[aria-hidden] { color: var(--accent); transition: transform .2s ease; }
+  .card:hover h3 span[aria-hidden] { transform: translateX(4px); }
+  .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+  .card .host { margin-top: auto; padding-top: 14px; font: .8rem/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #7f8ba0; word-break: break-all; }
+  .note { display: block; margin-top: 6px; font-size: .8rem; color: #c9a77a; }
+  .suggest {
+    max-width: 560px; margin: 0 auto;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 22px 22px 20px;
+  }
+  .suggest .lead { margin: 0 0 18px; color: var(--muted); font-size: .95rem; text-align: center; }
+  .suggest label { display: block; margin: 0 0 14px; font-size: .85rem; color: #c5cedb; }
+  .suggest .opt { color: #6c778a; font-weight: 400; }
+  .suggest input, .suggest textarea {
+    display: block; width: 100%; margin-top: 6px;
+    background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--fg); font: inherit; padding: 10px 12px;
+  }
+  .suggest input:focus, .suggest textarea:focus {
+    outline: 2px solid var(--accent); outline-offset: 1px; border-color: rgba(124,196,255,.55);
+  }
+  .suggest textarea { resize: vertical; min-height: 120px; }
+  .suggest button {
+    appearance: none; border: 1px solid rgba(124,196,255,.45);
+    background: rgba(124,196,255,.12); color: var(--fg);
+    font: inherit; font-weight: 600; letter-spacing: .04em;
+    padding: 10px 20px; border-radius: 999px; cursor: pointer;
+  }
+  .suggest button:hover { background: rgba(124,196,255,.22); }
+  .suggest button:disabled { opacity: .6; cursor: default; }
+  .suggest button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .form-status { min-height: 1.4em; margin: 12px 0 0; font-size: .9rem; color: var(--muted); }
+  .form-status.ok { color: #9cd7a4; }
+  .form-status.err { color: #f0a3a3; }
+  footer { text-align: center; color: #6c778a; font-size: .8rem; padding: 48px 20px 30px; }
+  footer p { margin: 0 auto 10px; max-width: 46rem; }
+  footer a { color: #8ea0b8; text-decoration: underline; text-underline-offset: 2px; }
+  footer a:hover, footer a:focus-visible { color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) {
+    .hero video { display: none; }
+    .hero img { display: block; }
+    .card, .card h3 span[aria-hidden] { transition: none; }
+    .card:hover { transform: none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#apps">Skip to apps</a>
+<main>
+  <header>
+    <h1>Sapien <em>ex</em> Machina</h1>
+    <p class="tag">Apps by John Phelps</p>
+  </header>
+
+  <figure class="hero" style="margin:0">
+    <video autoplay muted loop playsinline preload="auto" poster="poster.jpg" aria-label="Animation: a sleek robot transforms into a fierce man, then back again">
+      <source src="grokbot-to-fierce-man.mp4" type="video/mp4">
+    </video>
+    <img src="poster.jpg" width="848" height="480" alt="An armored chrome robot with a glowing blue visor and gold-lit seams against a starfield">
+  </figure>
+
+  <h2 id="apps">Apps</h2>
+  <ul class="apps">
+    <li>
+      <a class="card" href="https://gonetlogo.app.sapienexmachina.si">
+        <h3>GoNetLogo <span aria-hidden="true">&rarr;</span></h3>
+        <p>NetLogo, rewritten in Go. Agent-based models in the browser.
+          <span class="note">May be offline or IP-restricted.</span></p>
+        <span class="host">gonetlogo.app.sapienexmachina.si</span>
+      </a>
+    </li>
+    <li>
+      <a class="card" href="https://spacexai-klondike.grok.me/">
+        <h3>SpaceXAI Klondike <span aria-hidden="true">&rarr;</span></h3>
+        <span class="host">spacexai-klondike.grok.me</span>
+      </a>
+    </li>
+    <li>
+      <a class="card" href="https://bifurcate.grok.me">
+        <h3>Bifurcate <span aria-hidden="true">&rarr;</span></h3>
+        <p>Logistic map bifurcation diagram. Zoom and pan the period-doubling cascade.</p>
+        <span class="host">bifurcate.grok.me</span>
+      </a>
+    </li>
+  </ul>
+
+  <h2 id="suggest">Suggestions</h2>
+  <form id="suggest-form" class="suggest" action="/api/contact" method="post" novalidate>
+    <p class="lead">A note for John — a bug, an idea, or anything else.</p>
+    <label>Name <span class="opt">(optional)</span>
+      <input type="text" name="name" maxlength="200" autocomplete="name">
+    </label>
+    <label>Email <span class="opt">(optional)</span>
+      <input type="email" name="email" maxlength="254" autocomplete="email">
+    </label>
+    <label>Message
+      <textarea name="message" required maxlength="4000" rows="5"></textarea>
+    </label>
+    <div class="hp" aria-hidden="true">
+      <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+    </div>
+    <button type="submit">Send</button>
+    <p id="suggest-status" class="form-status" role="status"></p>
+  </form>
+</main>
+<footer>
+  <p>GoNetLogo is based on <a href="https://ccl.northwestern.edu/netlogo/">NetLogo</a> — Wilensky, U. (1999). NetLogo. Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.</p>
+  <p>&copy; 2026 Sapien ex Machina</p>
+</footer>
+<script>
+(function () {
+  var form = document.getElementById("suggest-form");
+  var status = document.getElementById("suggest-status");
+  var button = form.querySelector('button[type="submit"]');
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var message = (form.message.value || "").trim();
+    if (!message) {
+      status.textContent = "Please enter a message.";
+      status.className = "form-status err";
+      form.message.focus();
+      return;
+    }
+    button.disabled = true;
+    status.textContent = "Sending…";
+    status.className = "form-status";
+    fetch("/api/contact", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: form.name.value,
+        email: form.email.value,
+        message: form.message.value,
+        website: form.website.value
+      })
+    }).then(function (res) {
+      return res.json().then(function (body) {
+        return { res: res, body: body };
+      }).catch(function () {
+        return { res: res, body: {} };
+      });
+    }).then(function (result) {
+      if (result.res.ok && result.body.ok) {
+        form.reset();
+        status.textContent = "Thanks — your suggestion was received.";
+        status.className = "form-status ok";
+      } else {
+        status.textContent = result.body.error || "Something went wrong. Please try again.";
+        status.className = "form-status err";
+      }
+    }).catch(function () {
+      status.textContent = "Something went wrong. Please try again.";
+      status.className = "form-status err";
+    }).then(function () {
+      button.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>
