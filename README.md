@@ -131,6 +131,10 @@ docker buildx build --platform linux/amd64,linux/arm64 -t gonetlogo .
 
 `/tmp` must be writable. Each session creates a scratch directory there (`os.MkdirTemp`, prefix `gonetlogo-session-`) for an uploaded model file, and NetLogo `file-open` creates a relative path in the working directory, which is `/tmp`. The image sets `TMPDIR=/tmp`. The distroless nonroot image ships `/tmp` mode `1777`. On ECS, mount a tmpfs at `/tmp` or rely on Fargate ephemeral storage. A read-only root with no writable `/tmp` leaves a session without its scratch directory, and `file-open` cannot create a file.
 
+## AWS
+
+The web server's AWS layout is OpenTofu under `infra/`: a persistent stack (state bucket, deploy role, ECR, the `gonetlogo.sapienexmachina.si` zone, the certificate) and a destroyable app stack (VPC, load balancer, Fargate). The runbook is [infra/README.md](infra/README.md). It covers the one-time GoDaddy name-server delegation, bringing the app up and down, and what a month costs in each state.
+
 ## macOS (Apple Silicon)
 
 These scripts install, build, and run GoNetLogo on a Mac with Apple Silicon (arm64), including a Mac mini M4. GoNetLogo runs as a plain executable. The scripts use the bash and BSD tools that ship with macOS.

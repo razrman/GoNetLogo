@@ -6,3 +6,15 @@
 backend/cmd/server/webdist/
 frontend/node_modules
 frontend/dist
+
+# OpenTofu. Bootstrap state stays on the machine that applied it.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
