@@ -374,6 +374,7 @@ data "aws_iam_policy_document" "infra" {
       "ec2:DeleteTags",
       "ec2:DeleteVpc",
       "ec2:Describe*",
+      "ec2:Get*",
       "ec2:DetachInternetGateway",
       "ec2:DisassociateRouteTable",
       "ec2:ModifySubnetAttribute",
@@ -409,6 +410,7 @@ data "aws_iam_policy_document" "infra" {
       "elasticloadbalancing:ModifyTargetGroup",
       "elasticloadbalancing:ModifyTargetGroupAttributes",
       "elasticloadbalancing:RemoveTags",
+      "elasticloadbalancing:SetIpAddressType",
       "elasticloadbalancing:SetSecurityGroups",
       "elasticloadbalancing:SetSubnets",
     ]
@@ -427,8 +429,10 @@ data "aws_iam_policy_document" "infra" {
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
+      "logs:DeleteRetentionPolicy",
       "logs:DescribeLogGroups",
       "logs:ListTagsForResource",
+      "logs:ListTagsLogGroup",
       "logs:PutRetentionPolicy",
       "logs:TagResource",
       "logs:UntagResource",
