@@ -34,18 +34,31 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
+# A rename replaces this zone. create_before_destroy matches the
+# certificate: the new validation CNAME has to be written in the new zone
+# before the old record, the old certificate, and the old zone are removed.
+# force_destroy deletes the old validation CNAME with the old zone if that
+# record is no longer the one Terraform is tracking.
 resource "aws_route53_zone" "app" {
-  name          = var.domain_name
-  comment       = "Delegated from GoDaddy. The parent apex and www stay at GoDaddy."
+  name          = var.zone_name
+  comment       = "Delegated from GoDaddy for names under this zone. The parent apex and www stay at GoDaddy."
   force_destroy = true
 
   tags = {
-    Name = var.domain_name
+    Name = var.zone_name
+  }
+
+  lifecycle {
+    create_before_destroy = true
+    precondition {
+      condition     = var.app_hostname == var.zone_name || endswith(var.app_hostname, ".${var.zone_name}")
+      error_message = "app_hostname must be zone_name or a name under it."
+    }
   }
 }
 
 resource "aws_acm_certificate" "app" {
-  domain_name       = var.domain_name
+  domain_name       = var.app_hostname
   validation_method = "DNS"
 
   lifecycle {
@@ -60,6 +73,10 @@ resource "aws_route53_record" "cert_validation" {
   ttl             = 300
   records         = [tolist(aws_acm_certificate.app.domain_validation_options)[0].resource_record_value]
   allow_overwrite = true
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_acm_certificate_validation" "app" {

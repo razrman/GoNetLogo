@@ -23,8 +23,18 @@ output "image_tag_parameter" {
   value       = aws_ssm_parameter.image_tag.name
 }
 
+output "zone_name" {
+  description = "Delegated zone. At GoDaddy this is NS records for host app in sapienexmachina.si."
+  value       = aws_route53_zone.app.name
+}
+
+output "app_hostname" {
+  description = "GoNetLogo name inside the delegated zone."
+  value       = var.app_hostname
+}
+
 output "name_servers" {
-  description = "Add these four values at GoDaddy as NS records for host gonetlogo. One time. Leave the apex and www records alone."
+  description = "Add these four values at GoDaddy as NS records for host app in the sapienexmachina.si zone. One time. Leave the apex and www records alone."
   value       = aws_route53_zone.app.name_servers
 }
 

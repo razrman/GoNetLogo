@@ -133,7 +133,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t gonetlogo .
 
 ## AWS
 
-The web server's AWS layout is OpenTofu under `infra/`: a persistent stack (state bucket, deploy role, ECR, the `gonetlogo.sapienexmachina.si` zone, the certificate) and a destroyable app stack (VPC, load balancer, Fargate). The runbook is [infra/README.md](infra/README.md). It covers the one-time GoDaddy name-server delegation, bringing the app up and down, and what a month costs in each state.
+The web server's AWS layout is OpenTofu under `infra/`: a persistent stack (state bucket, deploy role, ECR, the `app.sapienexmachina.si` zone, the certificate for `gonetlogo.app.sapienexmachina.si`) and a destroyable app stack (VPC, load balancer, Fargate). The runbook is [infra/README.md](infra/README.md). It covers the one-time GoDaddy name-server delegation, bringing the app up and down, and what a month costs in each state.
 
 ## macOS (Apple Silicon)
 

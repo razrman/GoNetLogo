@@ -1,5 +1,5 @@
 data "aws_acm_certificate" "app" {
-  domain      = var.domain_name
+  domain      = var.app_hostname
   statuses    = ["ISSUED"]
   most_recent = true
 }
