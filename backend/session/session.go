@@ -32,15 +32,16 @@ import (
 // Store is the set of live sessions.
 //
 // mu guards the map and every session's client lease (clients, leaseGen,
-// closing, leaseTimer, lastTouch). Session.mu is a different lock. Never
-// take Session.mu while holding Store.mu: Close and the step loop take
-// Session.mu and must not wait on the store.
+// closing, leaseTimer, lastSocket, lastHeartbeat). Session.mu is a
+// different lock. Never take Session.mu while holding Store.mu: Close
+// and the step loop take Session.mu and must not wait on the store.
 type Store struct {
 	mu         sync.Mutex
 	sessions   map[string]*Session
 	grace      time.Duration
 	idleTTL    time.Duration
 	sweepEvery time.Duration
+	heartbeat  time.Duration
 	stop       chan struct{}
 	sweepDone  chan struct{}
 	closed     bool
@@ -98,7 +99,7 @@ func (st *Store) Create(modelName string) (*Session, error) {
 		s.Close()
 		return nil, fmt.Errorf("session store is closed")
 	}
-	s.lastTouch = time.Now()
+	s.lastSocket = time.Now()
 	st.sessions[s.id] = s
 	st.mu.Unlock()
 	if debugEnabled() {
@@ -116,18 +117,11 @@ func (st *Store) Get(id string) (*Session, bool) {
 	return s, ok
 }
 
-// Use returns a session and records that a request just touched it.
-// Resolvers call this. The idle sweep uses the timestamp; a pending
-// disconnect is not cancelled, because a lookup is not a reconnected client.
+// Use returns a session for a resolver. A lookup is not websocket
+// activity and does not move the idle or heartbeat clocks, so a poll
+// cannot postpone teardown or cancel a pending disconnect.
 func (st *Store) Use(id string) (*Session, bool) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	s, ok := st.sessions[id]
-	if !ok {
-		return nil, false
-	}
-	s.lastTouch = time.Now()
-	return s, true
+	return st.Get(id)
 }
 
 // Session is one interpreter, one world, and the widgets that drive it.
@@ -202,17 +196,21 @@ type Session struct {
 	trackLoops bool
 	loops      sync.WaitGroup
 	// Client lease, guarded by Store.mu and never by s.mu.
-	// clients is the number of live frames subscriptions.
+	// clients is the number of live frames subscriptions. Teardown checks
+	// this under Store.mu and never removes a session while it is positive.
 	// leaseGen changes whenever a kill timer is armed or cancelled, so a
 	// timer that fires late is a no-op.
-	// closing is set by the end-session beacon. The timer then ends the
-	// session even if a websocket is still marked open.
-	// lastTouch is the last create, request, attach, detach, or beacon.
-	clients    int
-	leaseGen   uint64
-	closing    bool
-	leaseTimer *time.Timer
-	lastTouch  time.Time
+	// closing is set by the end-session beacon so the log can name it.
+	// It does not bypass the client count.
+	// lastSocket is the last create, attach, or detach.
+	// lastHeartbeat is the last UI heartbeat. The idle clock is the later
+	// of the two.
+	clients       int
+	leaseGen      uint64
+	closing       bool
+	leaseTimer    *time.Timer
+	lastSocket    time.Time
+	lastHeartbeat time.Time
 }
 
 func newSession() *Session {

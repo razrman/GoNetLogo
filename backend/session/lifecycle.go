@@ -13,42 +13,51 @@ import (
 )
 
 // Lifecycle is how long a web session outlives its client.
-// Grace is the quiet period after the last frames subscription drops,
-// or after the end-session beacon, before the session is stopped and
-// removed. A new subscription in that window cancels the removal, so a
-// reload or a short network blip keeps the same interpreter and world.
-// Idle is the safety net for a session that never connected, or whose
-// disconnect was missed: with no frames subscription and no request for
-// this long, the sweep removes it. Sweep is how often that check runs.
+// Grace is how long after the last frames subscription drops, or after
+// the end-session beacon, before the server looks again. A new
+// subscription in that window cancels the removal, so a reload or a
+// short network blip keeps the same interpreter and world.
+// Heartbeat is how long a detached session may go without a UI heartbeat
+// or websocket activity before it is removed. The default is three missed
+// beats of the 15s page heartbeat. A live heartbeat keeps the session
+// through a websocket reconnect that lasts longer than Grace.
+// Idle is the longer safety net, measured from the same last-seen clock.
+// Sweep is how often that check runs.
+// Neither the grace timer nor the sweep removes a session that still has
+// an attached frames subscription.
 type Lifecycle struct {
-	Grace time.Duration
-	Idle  time.Duration
-	Sweep time.Duration
+	Grace     time.Duration
+	Idle      time.Duration
+	Sweep     time.Duration
+	Heartbeat time.Duration
 }
 
 const (
-	// EnvGrace, EnvIdle, and EnvSweep override the defaults when the
-	// matching server flag is omitted.
-	EnvGrace = "GONETLOGO_SESSION_GRACE"
-	EnvIdle  = "GONETLOGO_SESSION_IDLE"
-	EnvSweep = "GONETLOGO_SESSION_SWEEP"
+	// EnvGrace, EnvIdle, EnvSweep, and EnvHeartbeat override the defaults
+	// when the matching server flag is omitted.
+	EnvGrace     = "GONETLOGO_SESSION_GRACE"
+	EnvIdle      = "GONETLOGO_SESSION_IDLE"
+	EnvSweep     = "GONETLOGO_SESSION_SWEEP"
+	EnvHeartbeat = "GONETLOGO_SESSION_HEARTBEAT"
 )
 
-// DefaultLifecycle keeps a disconnected client for 15 seconds and sweeps
-// sessions that have been idle for 5 minutes every 30 seconds.
+// DefaultLifecycle keeps a disconnected client for 15 seconds, allows 45
+// seconds without a heartbeat (three 15s beats), and sweeps every 30
+// seconds. The 5 minute idle TTL is the longer backstop.
 func DefaultLifecycle() Lifecycle {
 	return Lifecycle{
-		Grace: 15 * time.Second,
-		Idle:  5 * time.Minute,
-		Sweep: 30 * time.Second,
+		Grace:     15 * time.Second,
+		Idle:      5 * time.Minute,
+		Sweep:     30 * time.Second,
+		Heartbeat: 45 * time.Second,
 	}
 }
 
 // ResolveLifecycle builds a Lifecycle. A non-empty flag wins over the
-// environment, and an empty environment value keeps the default. Idle
-// must be at least Grace so the sweep cannot remove a session that is
-// still inside its reconnect window.
-func ResolveLifecycle(graceFlag, idleFlag, sweepFlag string, getenv func(string) string) (Lifecycle, error) {
+// environment, and an empty environment value keeps the default. Idle and
+// Heartbeat must be at least Grace so a session inside its reconnect
+// window is not removed.
+func ResolveLifecycle(graceFlag, idleFlag, sweepFlag, heartbeatFlag string, getenv func(string) string) (Lifecycle, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
 	}
@@ -63,8 +72,14 @@ func ResolveLifecycle(graceFlag, idleFlag, sweepFlag string, getenv func(string)
 	if base.Sweep, err = pickDuration(sweepFlag, getenv(EnvSweep), base.Sweep, EnvSweep); err != nil {
 		return Lifecycle{}, err
 	}
+	if base.Heartbeat, err = pickDuration(heartbeatFlag, getenv(EnvHeartbeat), base.Heartbeat, EnvHeartbeat); err != nil {
+		return Lifecycle{}, err
+	}
 	if base.Idle < base.Grace {
 		return Lifecycle{}, fmt.Errorf("session idle TTL %s is shorter than the grace period %s", base.Idle, base.Grace)
+	}
+	if base.Heartbeat < base.Grace {
+		return Lifecycle{}, fmt.Errorf("session heartbeat timeout %s is shorter than the grace period %s", base.Heartbeat, base.Grace)
 	}
 	return base, nil
 }
@@ -94,6 +109,8 @@ func durationFlag(env string) string {
 		return "session-idle"
 	case EnvSweep:
 		return "session-sweep"
+	case EnvHeartbeat:
+		return "session-heartbeat"
 	default:
 		return env
 	}
@@ -101,7 +118,7 @@ func durationFlag(env string) string {
 
 // NewStoreWith starts an empty store that ends disconnected sessions on lc.
 func NewStoreWith(lc Lifecycle) *Store {
-	if lc.Grace <= 0 || lc.Idle <= 0 || lc.Sweep <= 0 {
+	if lc.Grace <= 0 || lc.Idle <= 0 || lc.Sweep <= 0 || lc.Heartbeat <= 0 {
 		panic("session lifecycle durations must be positive")
 	}
 	st := &Store{
@@ -109,6 +126,7 @@ func NewStoreWith(lc Lifecycle) *Store {
 		grace:      lc.Grace,
 		idleTTL:    lc.Idle,
 		sweepEvery: lc.Sweep,
+		heartbeat:  lc.Heartbeat,
 		stop:       make(chan struct{}),
 		sweepDone:  make(chan struct{}),
 	}
@@ -151,26 +169,35 @@ func (st *Store) sweepLoop() {
 	}
 }
 
-// sweep removes sessions that have no frames subscription and have not
-// been touched for the idle TTL. A connected client is left alone. A
-// beacon already scheduled its own timer; this is the backstop.
+// sweep removes detached sessions whose last heartbeat or websocket
+// activity is older than the heartbeat timeout, or older than the idle
+// TTL. The client count is read under Store.mu. A session with clients
+// greater than zero is left alone, including one whose beacon already
+// fired and whose clocks are stale.
 func (st *Store) sweep(now time.Time) {
 	st.mu.Lock()
 	var dead []*Session
+	reasons := make([]string, 0)
 	for id, s := range st.sessions {
-		if s.clients > 0 && !s.closing {
+		if s.clients > 0 {
 			continue
 		}
-		if now.Sub(s.lastTouch) < st.idleTTL {
+		quiet := now.Sub(s.lastSeenLocked())
+		if quiet < st.heartbeat && quiet < st.idleTTL {
 			continue
+		}
+		reason := "idle"
+		if quiet < st.idleTTL {
+			reason = "heartbeat"
 		}
 		st.disarmLocked(s)
 		delete(st.sessions, id)
 		dead = append(dead, s)
+		reasons = append(reasons, reason)
 	}
 	st.mu.Unlock()
-	for _, s := range dead {
-		st.finish(s, "idle")
+	for i, s := range dead {
+		st.finish(s, reasons[i])
 	}
 }
 
@@ -189,7 +216,7 @@ func (st *Store) Attach(id string) (*Session, bool) {
 	}
 	s.clients++
 	s.closing = false
-	s.lastTouch = time.Now()
+	s.lastSocket = time.Now()
 	st.disarmLocked(s)
 	return s, true
 }
@@ -208,17 +235,34 @@ func (st *Store) Detach(id string) {
 		return
 	}
 	s.clients--
-	s.lastTouch = time.Now()
+	s.lastSocket = time.Now()
 	if s.clients == 0 {
 		st.armLocked(s)
 	}
 }
 
-// Release is the end-session beacon. The session is stopped after the
-// grace period even if the websocket has not closed yet, unless Attach
-// runs first and cancels it. A page reload fires the beacon and then
-// subscribes again; the subscribe wins when it arrives inside the window.
-// Unknown ids report false and leave the registry unchanged.
+// Heartbeat records that the open tab pinged. It does not attach a
+// websocket and it does not cancel a grace timer by itself: the timer
+// reads this timestamp when it fires and waits out the heartbeat window
+// when the ping is fresh. Unknown ids report false.
+func (st *Store) Heartbeat(id string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.closed {
+		return false
+	}
+	s, ok := st.sessions[id]
+	if !ok {
+		return false
+	}
+	s.lastHeartbeat = time.Now()
+	return true
+}
+
+// Release is the end-session beacon. It arms the grace timer. The timer
+// does not remove the session while a frames subscription is still
+// attached; a reload that subscribes again disarms it. Unknown ids
+// report false and leave the registry unchanged.
 func (st *Store) Release(id string) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -230,10 +274,11 @@ func (st *Store) Release(id string) bool {
 		return false
 	}
 	s.closing = true
-	s.lastTouch = time.Now()
-	st.armLocked(s)
+	if s.clients == 0 {
+		st.armLocked(s)
+	}
 	if debugEnabled() {
-		slog.Debug("session end requested", "session", id, "grace", st.grace)
+		slog.Debug("session end requested", "session", id, "grace", st.grace, "clients", s.clients)
 	}
 	return true
 }
@@ -247,21 +292,52 @@ func (st *Store) disarmLocked(s *Session) {
 }
 
 func (st *Store) armLocked(s *Session) {
+	st.armAfterLocked(s, st.grace)
+}
+
+func (st *Store) armAfterLocked(s *Session, delay time.Duration) {
+	if delay < time.Millisecond {
+		delay = time.Millisecond
+	}
 	s.leaseGen++
 	gen := s.leaseGen
 	id := s.id
 	if s.leaseTimer != nil {
 		s.leaseTimer.Stop()
 	}
-	s.leaseTimer = time.AfterFunc(st.grace, func() {
+	s.leaseTimer = time.AfterFunc(delay, func() {
 		st.expire(id, gen)
 	})
+}
+
+// lastSeenLocked is the later of the last UI heartbeat and the last
+// websocket attach, detach, or create. Caller holds Store.mu.
+func (s *Session) lastSeenLocked() time.Time {
+	if s.lastHeartbeat.After(s.lastSocket) {
+		return s.lastHeartbeat
+	}
+	return s.lastSocket
 }
 
 func (st *Store) expire(id string, gen uint64) {
 	st.mu.Lock()
 	s, ok := st.sessions[id]
-	if !ok || st.closed || s.leaseGen != gen || (s.clients > 0 && !s.closing) {
+	if !ok || st.closed || s.leaseGen != gen {
+		st.mu.Unlock()
+		return
+	}
+	// Re-check under the lock. A client that re-attached, or that was
+	// still attached when a beacon armed this timer, keeps the session.
+	// The generation bump in Attach already ignores this callback; the
+	// client count is the second check for a timer that was not disarmed.
+	if s.clients > 0 {
+		s.leaseTimer = nil
+		st.mu.Unlock()
+		return
+	}
+	silence := time.Since(s.lastSeenLocked())
+	if silence < st.heartbeat {
+		st.armAfterLocked(s, st.heartbeat-silence)
 		st.mu.Unlock()
 		return
 	}
@@ -280,17 +356,45 @@ func (st *Store) finish(s *Session, reason string) {
 	s.Close()
 }
 
+// BrowserSessionPath reports the routes that must not carry
+// Access-Control-Allow-Origin: *. They are same-origin POSTs from the
+// web UI (the end beacon and the heartbeat).
+func BrowserSessionPath(path string) bool {
+	switch path {
+	case "/session/end", "/session/heartbeat":
+		return true
+	default:
+		return false
+	}
+}
+
 // EndHandler is POST /session/end. The body is the session id as
 // text/plain (what navigator.sendBeacon sends), a JSON object with id
 // or sessionId, or a form field id. A query parameter id is used when
 // the body is empty. The handler schedules the grace period; it does
 // not stop the session on this request, so a reload can subscribe again
-// and keep it. An unknown id is still 204.
+// and keep it. An unknown id is still 204. A cross-origin request is 403
+// and does not schedule anything.
 func EndHandler(st *Store) http.Handler {
+	return sessionPost(func(id string) { st.Release(id) })
+}
+
+// HeartbeatHandler is POST /session/heartbeat. The body is the session
+// id, in the same shapes as /session/end. A same-origin ping records
+// last-seen. A cross-origin request is 403 and does not.
+func HeartbeatHandler(st *Store) http.Handler {
+	return sessionPost(func(id string) { st.Heartbeat(id) })
+}
+
+func sessionPost(fn func(string)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !sameOrigin(r) {
+			http.Error(w, "cross-origin request rejected", http.StatusForbidden)
 			return
 		}
 		id, err := endSessionID(w, r)
@@ -298,9 +402,42 @@ func EndHandler(st *Store) http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		st.Release(id)
+		fn(id)
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// sameOrigin accepts a request whose Origin host equals the request
+// host. When Origin is absent, Referer's host is used instead. A request
+// with neither header is rejected. The comparison is the host as sent,
+// including a non-default port.
+func sameOrigin(r *http.Request) bool {
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return false
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		return hostEqual(originHost(origin), host)
+	}
+	if ref := strings.TrimSpace(r.Header.Get("Referer")); ref != "" {
+		return hostEqual(originHost(ref), host)
+	}
+	return false
+}
+
+func originHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+func hostEqual(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.EqualFold(a, b)
 }
 
 func endSessionID(w http.ResponseWriter, r *http.Request) (string, error) {

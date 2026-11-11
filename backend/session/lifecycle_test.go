@@ -7,12 +7,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 func shortLife(grace time.Duration) Lifecycle {
-	return Lifecycle{Grace: grace, Idle: time.Hour, Sweep: time.Hour}
+	return Lifecycle{Grace: grace, Idle: time.Hour, Sweep: time.Hour, Heartbeat: grace}
 }
 
 func waitGone(t *testing.T, st *Store, id string) {
@@ -235,8 +236,7 @@ func TestBeaconEndsSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := EndHandler(st)
-	req := httptest.NewRequest(http.MethodPost, "/session/end", strings.NewReader(s.ID()))
-	req.Header.Set("Content-Type", "text/plain")
+	req := sameOriginPost("/session/end", s.ID(), "text/plain")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
@@ -256,23 +256,21 @@ func TestBeaconEndsSession(t *testing.T) {
 
 	// A second call for a session that is already gone is still success.
 	// The first request's body has been consumed, so this is a new POST.
-	again := httptest.NewRequest(http.MethodPost, "/session/end", strings.NewReader(s.ID()))
-	again.Header.Set("Content-Type", "text/plain")
+	again := sameOriginPost("/session/end", s.ID(), "text/plain")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, again)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("missing session status %d body %s", rec.Code, rec.Body.String())
 	}
 
-	jsonReq := httptest.NewRequest(http.MethodPost, "/session/end", strings.NewReader(`{"sessionId":"0123456789abcdef"}`))
-	jsonReq.Header.Set("Content-Type", "application/json")
+	jsonReq := sameOriginPost("/session/end", `{"sessionId":"0123456789abcdef"}`, "application/json")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, jsonReq)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("json status %d", rec.Code)
 	}
 
-	bad := httptest.NewRequest(http.MethodPost, "/session/end", strings.NewReader("nope"))
+	bad := sameOriginPost("/session/end", "nope", "text/plain")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, bad)
 	if rec.Code != http.StatusBadRequest {
@@ -287,7 +285,7 @@ func TestBeaconEndsSession(t *testing.T) {
 }
 
 func TestIdleSweepRemovesOrphan(t *testing.T) {
-	st := NewStoreWith(Lifecycle{Grace: time.Hour, Idle: time.Hour, Sweep: time.Hour})
+	st := NewStoreWith(Lifecycle{Grace: time.Hour, Idle: time.Hour, Sweep: time.Hour, Heartbeat: time.Hour})
 	t.Cleanup(st.Close)
 	s, err := st.Create("fire.nlogo")
 	if err != nil {
@@ -297,17 +295,19 @@ func TestIdleSweepRemovesOrphan(t *testing.T) {
 		t.Fatal("attach")
 	}
 	st.mu.Lock()
-	s.lastTouch = time.Now().Add(-2 * time.Hour)
+	s.lastSocket = time.Now().Add(-2 * time.Hour)
+	s.lastHeartbeat = time.Time{}
 	st.mu.Unlock()
 	st.sweep(time.Now())
 	if _, ok := st.Get(s.ID()); !ok {
 		t.Fatal("sweep removed a connected session")
 	}
 	st.Detach(s.ID())
-	// Detach refreshed lastTouch and armed a long grace timer. An orphan
+	// Detach refreshed lastSocket and armed a long grace timer. An orphan
 	// is one that nobody is subscribed to and that has been quiet.
 	st.mu.Lock()
-	s.lastTouch = time.Now().Add(-2 * time.Hour)
+	s.lastSocket = time.Now().Add(-2 * time.Hour)
+	s.lastHeartbeat = time.Time{}
 	st.mu.Unlock()
 	st.sweep(time.Now())
 	if _, ok := st.Get(s.ID()); ok {
@@ -315,7 +315,7 @@ func TestIdleSweepRemovesOrphan(t *testing.T) {
 	}
 	waitLoops(t, s)
 
-	live := NewStoreWith(Lifecycle{Grace: time.Hour, Idle: 40 * time.Millisecond, Sweep: 10 * time.Millisecond})
+	live := NewStoreWith(Lifecycle{Grace: time.Hour, Idle: 40 * time.Millisecond, Sweep: 10 * time.Millisecond, Heartbeat: time.Hour})
 	t.Cleanup(live.Close)
 	orphan, err := live.Create("fire.nlogo")
 	if err != nil {
@@ -326,7 +326,7 @@ func TestIdleSweepRemovesOrphan(t *testing.T) {
 }
 
 func TestResolveLifecycle(t *testing.T) {
-	got, err := ResolveLifecycle("", "", "", func(string) string { return "" })
+	got, err := ResolveLifecycle("", "", "", "", func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,26 +335,267 @@ func TestResolveLifecycle(t *testing.T) {
 		t.Fatalf("defaults %+v, want %+v", got, want)
 	}
 	env := map[string]string{EnvGrace: "12s", EnvIdle: "2m"}
-	got, err = ResolveLifecycle("", "", "", func(k string) string { return env[k] })
+	got, err = ResolveLifecycle("", "", "", "", func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Grace != 12*time.Second || got.Idle != 2*time.Minute || got.Sweep != want.Sweep {
+	if got.Grace != 12*time.Second || got.Idle != 2*time.Minute || got.Sweep != want.Sweep || got.Heartbeat != want.Heartbeat {
 		t.Fatalf("env %+v", got)
 	}
-	got, err = ResolveLifecycle("20s", "", "5s", func(k string) string { return env[k] })
+	got, err = ResolveLifecycle("20s", "", "5s", "1m", func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Grace != 20*time.Second || got.Idle != 2*time.Minute || got.Sweep != 5*time.Second {
+	if got.Grace != 20*time.Second || got.Idle != 2*time.Minute || got.Sweep != 5*time.Second || got.Heartbeat != time.Minute {
 		t.Fatalf("flag %+v", got)
 	}
-	if _, err := ResolveLifecycle("nope", "", "", func(string) string { return "" }); err == nil {
+	if _, err := ResolveLifecycle("nope", "", "", "", func(string) string { return "" }); err == nil {
 		t.Fatal("invalid duration accepted")
 	}
-	if _, err := ResolveLifecycle("30s", "10s", "", func(string) string { return "" }); err == nil {
+	if _, err := ResolveLifecycle("30s", "10s", "", "", func(string) string { return "" }); err == nil {
 		t.Fatal("idle shorter than grace accepted")
 	}
+	if _, err := ResolveLifecycle("30s", "", "", "10s", func(string) string { return "" }); err == nil {
+		t.Fatal("heartbeat shorter than grace accepted")
+	}
+}
+
+func sameOriginPost(path, body, contentType string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Host = "app.example:43131"
+	req.Header.Set("Origin", "http://app.example:43131")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	return req
+}
+
+func TestAttachedClientPreventsTeardown(t *testing.T) {
+	grace := 40 * time.Millisecond
+	st := NewStoreWith(shortLife(grace))
+	t.Cleanup(st.Close)
+	s, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Attach(s.ID()); !ok {
+		t.Fatal("attach")
+	}
+	if !st.Release(s.ID()) {
+		t.Fatal("beacon")
+	}
+	st.mu.Lock()
+	s.lastSocket = time.Now().Add(-time.Hour)
+	s.lastHeartbeat = time.Time{}
+	gen := s.leaseGen
+	st.mu.Unlock()
+	st.expire(s.ID(), gen)
+	st.sweep(time.Now())
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("attached session was torn down")
+	}
+	time.Sleep(grace * 3)
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("grace timer tore down an attached session")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			st.Release(s.ID())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			st.sweep(time.Now().Add(24 * time.Hour))
+			st.mu.Lock()
+			g := s.leaseGen
+			st.mu.Unlock()
+			st.expire(s.ID(), g)
+		}
+	}()
+	wg.Wait()
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("teardown fired while a client was attached")
+	}
+}
+
+func TestReattachInsideGracePreventsTeardown(t *testing.T) {
+	grace := 50 * time.Millisecond
+	st := NewStoreWith(shortLife(grace))
+	t.Cleanup(st.Close)
+	s, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Attach(s.ID()); !ok {
+		t.Fatal("attach")
+	}
+	st.Detach(s.ID())
+	st.mu.Lock()
+	stale := s.leaseGen
+	st.mu.Unlock()
+	if _, ok := st.Attach(s.ID()); !ok {
+		t.Fatal("re-attach")
+	}
+	st.expire(s.ID(), stale)
+	time.Sleep(grace * 3)
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("re-attach inside the grace window did not keep the session")
+	}
+}
+
+func TestSweepUsesLatestHeartbeatOrSocket(t *testing.T) {
+	st := NewStoreWith(Lifecycle{Grace: time.Hour, Idle: time.Hour, Sweep: time.Hour, Heartbeat: time.Minute})
+	t.Cleanup(st.Close)
+	s, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Lock()
+	s.lastSocket = time.Now().Add(-2 * time.Minute)
+	s.lastHeartbeat = time.Now().Add(-10 * time.Second)
+	st.mu.Unlock()
+	st.sweep(time.Now())
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("fresh heartbeat was swept")
+	}
+	st.mu.Lock()
+	s.lastHeartbeat = time.Now().Add(-2 * time.Minute)
+	s.lastSocket = time.Now().Add(-5 * time.Second)
+	st.mu.Unlock()
+	st.sweep(time.Now())
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("fresh websocket activity was swept")
+	}
+	st.mu.Lock()
+	s.lastSocket = time.Now().Add(-2 * time.Minute)
+	s.lastHeartbeat = time.Now().Add(-2 * time.Minute)
+	st.mu.Unlock()
+	st.sweep(time.Now())
+	if _, ok := st.Get(s.ID()); ok {
+		t.Fatal("stale detached session was kept")
+	}
+}
+
+func TestHeartbeatKeepsDetachedSession(t *testing.T) {
+	grace := 30 * time.Millisecond
+	beat := 150 * time.Millisecond
+	st := NewStoreWith(Lifecycle{Grace: grace, Idle: time.Hour, Sweep: time.Hour, Heartbeat: beat})
+	t.Cleanup(st.Close)
+	s, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Attach(s.ID()); !ok {
+		t.Fatal("attach")
+	}
+	st.Detach(s.ID())
+	time.Sleep(grace + 20*time.Millisecond)
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("grace timer removed a session still inside the heartbeat window")
+	}
+	if !st.Heartbeat(s.ID()) {
+		t.Fatal("heartbeat")
+	}
+	time.Sleep(beat / 2)
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("a fresh heartbeat did not keep the detached session")
+	}
+	waitGone(t, st, s.ID())
+}
+
+func TestSessionPostSameOrigin(t *testing.T) {
+	st := NewStoreWith(Lifecycle{Grace: time.Hour, Idle: time.Hour, Sweep: time.Hour, Heartbeat: time.Hour})
+	t.Cleanup(st.Close)
+	s, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := EndHandler(st)
+	beat := HeartbeatHandler(st)
+
+	cross := httptest.NewRequest(http.MethodPost, "/session/heartbeat", strings.NewReader(s.ID()))
+	cross.Host = "app.example:43131"
+	cross.Header.Set("Origin", "http://evil.example")
+	cross.Header.Set("Content-Type", "text/plain")
+	rec := httptest.NewRecorder()
+	beat.ServeHTTP(rec, cross)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin heartbeat %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("heartbeat allow-origin %q", got)
+	}
+	st.mu.Lock()
+	if !s.lastHeartbeat.IsZero() || s.closing {
+		st.mu.Unlock()
+		t.Fatal("cross-origin heartbeat changed the session")
+	}
+	st.mu.Unlock()
+
+	crossEnd := httptest.NewRequest(http.MethodPost, "/session/end", strings.NewReader(s.ID()))
+	crossEnd.Host = "app.example:43131"
+	crossEnd.Header.Set("Origin", "https://evil.example")
+	crossEnd.Header.Set("Content-Type", "text/plain")
+	rec = httptest.NewRecorder()
+	end.ServeHTTP(rec, crossEnd)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin end %d", rec.Code)
+	}
+	st.mu.Lock()
+	if s.closing || s.leaseTimer != nil {
+		st.mu.Unlock()
+		t.Fatal("cross-origin end scheduled teardown")
+	}
+	st.mu.Unlock()
+
+	missing := httptest.NewRequest(http.MethodPost, "/session/end", strings.NewReader(s.ID()))
+	missing.Host = "app.example:43131"
+	missing.Header.Set("Content-Type", "text/plain")
+	rec = httptest.NewRecorder()
+	end.ServeHTTP(rec, missing)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing origin %d", rec.Code)
+	}
+
+	referer := httptest.NewRequest(http.MethodPost, "/session/heartbeat", strings.NewReader(s.ID()))
+	referer.Host = "app.example:43131"
+	referer.Header.Set("Referer", "http://app.example:43131/model")
+	referer.Header.Set("Content-Type", "text/plain")
+	rec = httptest.NewRecorder()
+	beat.ServeHTTP(rec, referer)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("referer heartbeat %d body %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("referer allow-origin %q", got)
+	}
+	st.mu.Lock()
+	if s.lastHeartbeat.IsZero() {
+		st.mu.Unlock()
+		t.Fatal("same-origin referer did not record a heartbeat")
+	}
+	st.mu.Unlock()
+
+	badRef := httptest.NewRequest(http.MethodPost, "/session/end", strings.NewReader(s.ID()))
+	badRef.Host = "app.example:43131"
+	badRef.Header.Set("Referer", "http://evil.example/app")
+	badRef.Header.Set("Content-Type", "text/plain")
+	rec = httptest.NewRecorder()
+	end.ServeHTTP(rec, badRef)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("bad referer %d", rec.Code)
+	}
+	st.mu.Lock()
+	if s.closing {
+		st.mu.Unlock()
+		t.Fatal("bad referer scheduled teardown")
+	}
+	st.mu.Unlock()
 }
 
 func openFDs(path string) int {

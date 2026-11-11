@@ -63,7 +63,7 @@ import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
 import { readSeedOverride, rngSeedError, rngSeedForApply, seedControlState, writeSeedOverride } from './rngSeed'
-import { bindSessionEnd, clearStoredSession, postSessionEnd, readStoredSession, writeStoredSession } from './sessionLife'
+import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, readStoredSession, writeStoredSession } from './sessionLife'
 import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
@@ -203,6 +203,10 @@ export function App() {
   useEffect(() => bindSessionEnd(window, () => sessionIdRef.current, (id) => {
     postSessionEnd(id)
   }), [])
+
+  useEffect(() => bindSessionHeartbeat(() => sessionIdRef.current, (id) => {
+    void postSessionHeartbeat(id)
+  }), [sessionId])
 
   useEffect(() => {
     let cancel = false

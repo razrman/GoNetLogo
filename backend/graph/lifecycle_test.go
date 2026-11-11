@@ -16,9 +16,10 @@ import (
 func lifecycleClient(t *testing.T, grace time.Duration) (*session.Store, *client.Client) {
 	t.Helper()
 	store := session.NewStoreWith(session.Lifecycle{
-		Grace: grace,
-		Idle:  time.Hour,
-		Sweep: time.Hour,
+		Grace:     grace,
+		Idle:      time.Hour,
+		Sweep:     time.Hour,
+		Heartbeat: grace,
 	})
 	t.Cleanup(store.Close)
 	h := handler.New(NewExecutableSchema(Config{Resolvers: &Resolver{Store: store}}))
