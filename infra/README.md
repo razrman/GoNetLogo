@@ -134,7 +134,7 @@ That creates the network, the load balancer, the ECS service, the log group, and
 
 Until an image tag has been published, the service is created at desired count 0, because the SSM parameter still says `bootstrap` and that image does not exist. The first tag deploy starts the task. After that, the parameter holds the real tag, and a later Infra up starts the last image without another deploy.
 
-The alias is updated in the same apply that creates the load balancer. The load balancer's own DNS name changes every time the app stack is created. GoDaddy does not. Clients use `https://gonetlogo.app.sapienexmachina.si`, and only from `allowed_cidrs` (default `68.118.144.13/32`) on ports 80 and 443.
+The alias is updated in the same apply that creates the load balancer. The load balancer's own DNS name changes every time the app stack is created. GoDaddy does not. Clients use `https://gonetlogo.app.sapienexmachina.si`. The load balancer security group allows `allowed_cidrs` (default `0.0.0.0/0`, public) on ports 80 and 443. The load balancer itself is IPv4-only, so there is no IPv6 (`::/0`) rule and no AAAA record.
 
 Infra up fails with a missing-certificate error if it runs before ACM has issued the certificate. Wait for `ISSUED` and run it again.
 
@@ -167,7 +167,7 @@ A tag pushed while the stack is down fails the Deploy workflow before the image 
 
 ## Change who can connect
 
-Edit `allowed_cidrs` in `infra/app/variables.tf`. The default is `68.118.144.13/32`. Merge that change, or apply locally, then run Infra up. The security group updates in place. Tasks are not replaced. An empty list is rejected.
+Edit `allowed_cidrs` in `infra/app/variables.tf` to change who can reach the load balancer, for example to a single `/32` if you want it locked down again. The default is `0.0.0.0/0` (public). Merge that change, or apply locally, then run Infra up. The security group updates in place. Tasks are not replaced. An empty list is rejected. IPv6 is not advertised: the load balancer uses `ip_address_type = "ipv4"`.
 
 CPU, memory, the session cap, and the allowed origin are the other defaults in that file. Changing them and running Infra up registers a new task definition and rolls the service. The next image deploy copies whatever task definition is running, so apply infra changes before you rely on the next tag to carry them.
 

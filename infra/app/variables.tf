@@ -30,8 +30,8 @@ variable "allowed_origins" {
 
 variable "allowed_cidrs" {
   type        = list(string)
-  description = "IPv4 CIDRs allowed to open the load balancer on ports 80 and 443. Edit this and apply to change who can connect."
-  default     = ["68.118.144.13/32"]
+  description = "IPv4 CIDRs allowed to open the load balancer on ports 80 and 443. The default is public. Edit this and apply to lock the load balancer down again."
+  default     = ["0.0.0.0/0"]
 
   validation {
     condition = length(var.allowed_cidrs) > 0 && alltrue([
