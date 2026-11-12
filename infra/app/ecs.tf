@@ -51,7 +51,9 @@ resource "aws_ecs_task_definition" "app" {
       image     = "${data.aws_ecr_repository.app.repository_url}:${local.image_tag}"
       essential = true
       # The image entrypoint already passes -addr 0.0.0.0:8080 and
-      # -log-format json, so ADDR, PORT, and the log flags are not set.
+      # -log-format json, so ADDR, PORT, and -log-format are not set.
+      # Log verbosity comes from GONETLOGO_LOG_LEVEL (the image does not
+      # pass -log-level, so the environment variable is honored).
       # /tmp is the task's ephemeral storage (20 GiB). Distroless has no
       # shell, so there is no container health command; the ALB calls
       # GET /healthz.
@@ -71,6 +73,10 @@ resource "aws_ecs_task_definition" "app" {
         {
           name  = "GONETLOGO_MAX_SESSIONS"
           value = tostring(var.max_sessions)
+        },
+        {
+          name  = "GONETLOGO_LOG_LEVEL"
+          value = var.log_level
         },
         {
           name  = "GONETLOGO_PRODUCTION"

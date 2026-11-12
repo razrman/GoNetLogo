@@ -52,16 +52,27 @@ variable "max_sessions" {
   }
 }
 
+variable "log_level" {
+  type        = string
+  description = "GONETLOGO_LOG_LEVEL. Used when the image does not pass -log-level. One of debug, info, warn, or error."
+  default     = "debug"
+
+  validation {
+    condition     = contains(["debug", "info", "warn", "warning", "error"], lower(var.log_level))
+    error_message = "log_level must be debug, info, warn, or error."
+  }
+}
+
 variable "cpu" {
   type        = number
-  description = "Fargate task CPU units. 512 is 0.5 vCPU. With 512, memory may be 1024, 2048, 3072, or 4096."
-  default     = 512
+  description = "Fargate task CPU units. 2048 is 2 vCPU. With 2048, memory may be 4096 to 16384 in 1024 MiB steps."
+  default     = 2048
 }
 
 variable "memory" {
   type        = number
-  description = "Fargate task memory in MiB. 1024 is the 0.5 vCPU minimum."
-  default     = 1024
+  description = "Fargate task memory in MiB. 4096 is the 2 vCPU minimum."
+  default     = 4096
 }
 
 variable "cpu_architecture" {
