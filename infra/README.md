@@ -9,9 +9,9 @@ OpenTofu layout for the web server. Two stacks:
 
 Account `457504029722`, region `us-west-2`. The provider refuses any other account. The account is a Sign up for AWS (new) free plan today, and that plan cannot use `us-west-2`. Upgrade it to a paid plan before bootstrap. Bootstrap is applied by hand with an administrator key. After that, GitHub Actions assumes `gonetlogo-github-deploy` through OIDC. There are no long-lived AWS keys in the repository.
 
-The task is Fargate on Graviton, 0.5 vCPU and 1 GB, one task, `linux/arm64`. The image is also pushed for `linux/amd64`. Graviton is the cheaper of the two sizes the Dockerfile already builds. Sessions are in memory in that one process, so the service stays at one task. A second task would split clients. The container entrypoint already sets `-addr 0.0.0.0:8080` and `-log-format json`. The task sets `GONETLOGO_PRODUCTION=1`, `GONETLOGO_MAX_SESSIONS=32`, `GONETLOGO_ALLOWED_ORIGINS=https://gonetlogo.app.sapienexmachina.si`, and `GONETLOGO_SHUTDOWN_TIMEOUT=20s`. Fargate's stop timeout is 30 seconds, and the load balancer waits 30 seconds before the task is signaled. The load balancer idle timeout is 300 seconds. The server pings websockets every 10 seconds and the page heartbeats every 15 seconds. `GET /healthz` is the target-group check. The image has no shell, so there is no in-container probe. `/tmp` is the task's 20 GB ephemeral disk.
+The task is Fargate on Graviton, 2 vCPU and 4 GB, one task, `linux/arm64`. The image is also pushed for `linux/amd64`. Graviton is the cheaper of the two sizes the Dockerfile already builds. Sessions are in memory in that one process, so the service stays at one task. A second task would split clients. The container entrypoint already sets `-addr 0.0.0.0:8080` and `-log-format json`. The task sets `GONETLOGO_PRODUCTION=1`, `GONETLOGO_MAX_SESSIONS=32`, `GONETLOGO_ALLOWED_ORIGINS=https://gonetlogo.app.sapienexmachina.si`, and `GONETLOGO_SHUTDOWN_TIMEOUT=20s`. Fargate's stop timeout is 30 seconds, and the load balancer waits 30 seconds before the task is signaled. The load balancer idle timeout is 300 seconds. The server pings websockets every 10 seconds and the page heartbeats every 15 seconds. `GET /healthz` is the target-group check. The image has no shell, so there is no in-container probe. `/tmp` is the task's 20 GB ephemeral disk.
 
-The app README's note about 32 sessions on a 2 GB task is a larger size than this one. With 512 CPU units, memory can be raised to 2048, 3072, or 4096 in `infra/app/variables.tf` without changing the CPU.
+The app README's note about 32 sessions on a 2 GB task still applies; this task is 4 GB. With 2048 CPU units, memory may be 4096 to 16384 in 1024 MiB steps in `infra/app/variables.tf`.
 
 ## Cost
 
@@ -25,11 +25,11 @@ Prices checked against the public AWS list for us-west-2 on 2026-11-11. A month 
 | ECR storage for a handful of images | a few cents |
 | S3 state, ACM, IAM, SSM, the budget (the first two budgets are free) | a few cents |
 
-**Running** (app stack up, one task): about **$45 to $55 per month**, plus the zone.
+**Running** (app stack up, one task): about **$90 to $100 per month**, plus the zone.
 
 | Piece | About |
 | --- | --- |
-| Fargate 0.5 vCPU and 1 GB, ARM, always on | $14 |
+| Fargate 2 vCPU and 4 GB, ARM, always on | $58 |
 | Application load balancer hourly charge, plus a small amount of capacity at low traffic | $18 to $22 |
 | Public IPv4: two on the load balancer and one on the task, at $0.005 per hour | $11 |
 | Logs, data transfer under the free 100 GB, the zone | $1 to $2 |
