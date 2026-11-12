@@ -9,7 +9,7 @@ OpenTofu layout for the web server. Two stacks:
 
 Account `457504029722`, region `us-west-2`. The provider refuses any other account. The account is a Sign up for AWS (new) free plan today, and that plan cannot use `us-west-2`. Upgrade it to a paid plan before bootstrap. Bootstrap is applied by hand with an administrator key. After that, GitHub Actions assumes `gonetlogo-github-deploy` through OIDC. There are no long-lived AWS keys in the repository.
 
-The task is Fargate on Graviton, 2 vCPU and 4 GB, one task, `linux/arm64`. The image is also pushed for `linux/amd64`. Graviton is the cheaper of the two sizes the Dockerfile already builds. Sessions are in memory in that one process, so the service stays at one task. A second task would split clients. The container entrypoint already sets `-addr 0.0.0.0:8080` and `-log-format json`. The task sets `GONETLOGO_PRODUCTION=1`, `GONETLOGO_MAX_SESSIONS=32`, `GONETLOGO_ALLOWED_ORIGINS=https://gonetlogo.app.sapienexmachina.si`, and `GONETLOGO_SHUTDOWN_TIMEOUT=20s`. Fargate's stop timeout is 30 seconds, and the load balancer waits 30 seconds before the task is signaled. The load balancer idle timeout is 300 seconds. The server pings websockets every 10 seconds and the page heartbeats every 15 seconds. `GET /healthz` is the target-group check. The image has no shell, so there is no in-container probe. `/tmp` is the task's 20 GB ephemeral disk.
+The task is Fargate on Graviton, 2 vCPU and 4 GB, one task, `linux/arm64`. The image is also pushed for `linux/amd64`. Graviton is the cheaper of the two sizes the Dockerfile already builds. Sessions are in memory in that one process, so the service stays at one task. A second task would split clients. The container entrypoint already sets `-addr 0.0.0.0:8080` and `-log-format json`. The task sets `GONETLOGO_PRODUCTION=1`, `GONETLOGO_MAX_SESSIONS=32`, `GONETLOGO_LOG_LEVEL=debug`, `GONETLOGO_ALLOWED_ORIGINS=https://gonetlogo.app.sapienexmachina.si`, and `GONETLOGO_SHUTDOWN_TIMEOUT=20s`. Fargate's stop timeout is 30 seconds, and the load balancer waits 30 seconds before the task is signaled. The load balancer idle timeout is 300 seconds. The server pings websockets every 10 seconds and the page heartbeats every 15 seconds. `GET /healthz` is the target-group check. The image has no shell, so there is no in-container probe. `/tmp` is the task's 20 GB ephemeral disk.
 
 The app README's note about 32 sessions on a 2 GB task still applies; this task is 4 GB. With 2048 CPU units, memory may be 4096 to 16384 in 1024 MiB steps in `infra/app/variables.tf`.
 
@@ -169,7 +169,7 @@ A tag pushed while the stack is down fails the Deploy workflow before the image 
 
 Edit `allowed_cidrs` in `infra/app/variables.tf`. The default is `68.118.144.13/32`. Merge that change, or apply locally, then run Infra up. The security group updates in place. Tasks are not replaced. An empty list is rejected.
 
-CPU, memory, the session cap, and the allowed origin are the other defaults in that file. Changing them and running Infra up registers a new task definition and rolls the service. The next image deploy copies whatever task definition is running, so apply infra changes before you rely on the next tag to carry them.
+CPU, memory, the log level, the session cap, and the allowed origin are the other defaults in that file. Changing them and running Infra up registers a new task definition and rolls the service. The next image deploy copies whatever task definition is running, so apply infra changes before you rely on the next tag to carry them.
 
 ## Full teardown
 

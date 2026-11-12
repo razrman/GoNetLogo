@@ -52,6 +52,17 @@ variable "max_sessions" {
   }
 }
 
+variable "log_level" {
+  type        = string
+  description = "GONETLOGO_LOG_LEVEL. Used when the image does not pass -log-level. One of debug, info, warn, or error."
+  default     = "debug"
+
+  validation {
+    condition     = contains(["debug", "info", "warn", "warning", "error"], lower(var.log_level))
+    error_message = "log_level must be debug, info, warn, or error."
+  }
+}
+
 variable "cpu" {
   type        = number
   description = "Fargate task CPU units. 2048 is 2 vCPU. With 2048, memory may be 4096 to 16384 in 1024 MiB steps."
