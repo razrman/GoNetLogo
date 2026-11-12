@@ -255,6 +255,21 @@ data "aws_iam_policy_document" "deploy" {
     ]
   }
 
+  statement {
+    sid    = "EcsServiceDeployments"
+    effect = "Allow"
+    actions = [
+      "ecs:DescribeServiceDeployments",
+      "ecs:DescribeServiceRevisions",
+      "ecs:ListServiceDeployments",
+    ]
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:${var.account_id}:service/gonetlogo/*",
+      "arn:aws:ecs:${var.aws_region}:${var.account_id}:service-deployment/gonetlogo/*",
+      "arn:aws:ecs:${var.aws_region}:${var.account_id}:service-revision/gonetlogo/*",
+    ]
+  }
+
   # RegisterTaskDefinition and DescribeTaskDefinition do not accept a
   # task-definition ARN. ListTagsForResource does, and both the deploy
   # workflow and an OpenTofu refresh of aws_ecs_task_definition call it
