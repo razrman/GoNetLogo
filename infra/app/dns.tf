@@ -6,8 +6,8 @@ data "aws_route53_zone" "app" {
 # A name inside the delegated zone, not the zone apex. Other apps can
 # take other names in the same zone. Recreating the load balancer changes
 # its DNS name; this alias is updated in the same apply, so GoDaddy stays
-# untouched. IPv4 only: ingress is an IPv4 allow-list, and an AAAA record
-# would advertise an address that list does not accept.
+# untouched. The load balancer is IPv4-only, so this is an A record
+# only. There is no AAAA record to advertise.
 resource "aws_route53_record" "app" {
   zone_id = data.aws_route53_zone.app.zone_id
   name    = var.app_hostname
