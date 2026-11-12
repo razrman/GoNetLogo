@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
+import { syncBitmap } from './canvasSurface'
 import type { Frame, PlotPenDelta, PlotPoint, PlotView } from './types'
 
 export type PenSeries = { epoch: number; seq: number; points: PlotPoint[] }
@@ -43,15 +44,15 @@ function penKey(plot: number, pen: number) {
 export function PlotCard({ plot, series }: { plot: PlotView; series: PlotSeries }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const points = countPoints(plot, series)
-  useEffect(() => {
+  // useLayoutEffect paints before the browser composites. Assigning
+  // canvas.width in the passive effect ran after paint and discarded the
+  // bitmap on every frame; see syncBitmap.
+  useLayoutEffect(() => {
     const canvas = ref.current
     if (!canvas) return
-    const width = canvas.clientWidth || 240
-    const height = canvas.clientHeight || 150
     const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.max(1, Math.round(width * dpr))
-    canvas.height = Math.max(1, Math.round(height * dpr))
-    const ctx = canvas.getContext('2d')
+    const { width, height } = syncBitmap(canvas, canvas.clientWidth, canvas.clientHeight, dpr)
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
     if (!ctx) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     paintPlot(ctx, width, height, plot, series)

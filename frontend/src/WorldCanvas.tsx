@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { assignBitmapSize, blitSource, softwareSurface, type SoftwareSurface } from './canvasSurface'
 import type { TurtleShape, World } from './types'
 import { beginPatchBlit, canvasTransform, view2dPose, worldToScreen } from './view2d'
 import { wrapSegments2D } from './wrapSegment'
@@ -47,7 +48,25 @@ export function WorldCanvas({ world }: { world: World | null }) {
   )
 }
 
-const scratch = document.createElement('canvas')
+// Patch colors and the stamp layer are scratch bitmaps, not elements.
+// A detached <canvas> is still an accelerated surface; while the plot
+// widget reallocated its own bitmap every frame, Chrome would present
+// this one inside the plot. softwareSurface keeps them off that pool.
+let patchSurface: SoftwareSurface | null = null
+let drawSurface: SoftwareSurface | null = null
+
+function scratchSurface(slot: 'patch' | 'draw', width: number, height: number): SoftwareSurface | null {
+  const current = slot === 'patch' ? patchSurface : drawSurface
+  if (!current) {
+    const created = softwareSurface(width, height)
+    if (!created) return null
+    if (slot === 'patch') patchSurface = created
+    else drawSurface = created
+    return created
+  }
+  assignBitmapSize(current.canvas, Math.max(1, width), Math.max(1, height))
+  return current
+}
 
 function draw(canvas: HTMLCanvasElement, world: World | null) {
   const dpr = window.devicePixelRatio || 1
@@ -83,13 +102,10 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
   const rgb = decodeRGB(world.patchColors)
   const need = world.width * world.height * 3
   if (rgb && rgb.length === need) {
-    if (scratch.width !== world.width || scratch.height !== world.height) {
-      scratch.width = world.width
-      scratch.height = world.height
-    }
-    const sctx = scratch.getContext('2d')
-    if (sctx) {
-      const img = sctx.createImageData(world.width, world.height)
+    const patch = scratchSurface('patch', world.width, world.height)
+    const source = patch ? blitSource(canvas, patch.canvas) : null
+    if (patch && source) {
+      const img = patch.ctx.createImageData(world.width, world.height)
       const data = img.data
       for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
         data[j] = rgb[i]
@@ -97,8 +113,8 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
         data[j + 2] = rgb[i + 2]
         data[j + 3] = 255
       }
-      sctx.putImageData(img, 0, 0)
-      ctx.drawImage(scratch, 0, 0, blit.w, blit.h)
+      patch.ctx.putImageData(img, 0, 0)
+      ctx.drawImage(source, 0, 0, blit.w, blit.h)
     }
   }
 
@@ -108,16 +124,14 @@ function draw(canvas: HTMLCanvasElement, world: World | null) {
     const dh = world.height * scale
     const lw = Math.max(1, Math.round(dw))
     const lh = Math.max(1, Math.round(dh))
-    if (layer.width !== lw || layer.height !== lh) {
-      layer.width = lw
-      layer.height = lh
-    }
-    const lctx = layer.getContext('2d')
-    if (lctx) {
+    const layer = scratchSurface('draw', lw, lh)
+    const source = layer ? blitSource(canvas, layer.canvas) : null
+    if (layer && source) {
+      const lctx = layer.ctx as CanvasRenderingContext2D
       lctx.clearRect(0, 0, lw, lh)
       lctx.imageSmoothingEnabled = false
       drawDrawing(lctx, world, dw / world.width, shapes)
-      ctx.drawImage(layer, 0, 0, blit.w, blit.h)
+      ctx.drawImage(source, 0, 0, blit.w, blit.h)
     }
   }
   ctx.restore()
@@ -210,8 +224,6 @@ function paintBadge(ctx: CanvasRenderingContext2D, x: number, y: number, text: s
   ctx.fillStyle = '#e8e8e0'
   ctx.fillText(text, x + pad * 2, y + pad * 2)
 }
-
-const layer = document.createElement('canvas')
 
 function agentRadius(size: number, scale: number) {
   return Math.max(2, size * scale * 0.45)
