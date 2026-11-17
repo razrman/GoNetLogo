@@ -89,6 +89,13 @@ type Mutation {
   snapshots are skipped instead of queued.
   """
   setFrameRate(sessionId: ID!, fps: Int!): Session!
+  """
+  Choose whether the view redraws on ticks or continuously.
+  mode is "ticks" or "continuous". The running session uses it immediately.
+  The loaded model text is rewritten so a later save keeps the choice:
+  graphics-window line 21 in a classic file, updateMode in .nlogox.
+  """
+  setViewUpdates(sessionId: ID!, mode: String!): Session!
   setSlider(sessionId: ID!, index: Int!, value: Float!): Session!
   setSwitch(sessionId: ID!, index: Int!, on: Boolean!): Session!
   setChooser(sessionId: ID!, index: Int!, current: Int!): Session!
@@ -406,6 +413,12 @@ type WorldSettings {
   A random-seed command in the model still runs afterward.
   """
   seedOverride: Boolean!
+  """
+  How the view refreshes. "ticks" is NetLogo's on ticks: the picture
+  changes at tick, reset-ticks, tick-advance, display, and when a button
+  or command finishes. "continuous" redraws while a button runs.
+  """
+  viewUpdates: String!
 }
 
 type World {
@@ -445,6 +458,12 @@ type World {
   A random-seed command in the model still runs afterward.
   """
   seedOverride: Boolean!
+  """
+  How the view refreshes. "ticks" is NetLogo's on ticks: the picture
+  changes at tick, reset-ticks, tick-advance, display, and when a button
+  or command finishes. "continuous" redraws while a button runs.
+  """
+  viewUpdates: String!
   """
   Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.

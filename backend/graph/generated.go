@@ -183,6 +183,7 @@ type ComplexityRoot struct {
 		SetSlider       func(childComplexity int, sessionID string, index int, value float64) int
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
+		SetViewUpdates  func(childComplexity int, sessionID string, mode string) int
 		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) int
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
@@ -371,6 +372,7 @@ type ComplexityRoot struct {
 		SubjectZ     func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
 		Turtles      func(childComplexity int) int
+		ViewUpdates  func(childComplexity int) int
 		Voxels       func(childComplexity int) int
 		Width        func(childComplexity int) int
 		WrapX        func(childComplexity int) int
@@ -390,6 +392,7 @@ type ComplexityRoot struct {
 		RngSeed      func(childComplexity int) int
 		SeedOverride func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
+		ViewUpdates  func(childComplexity int) int
 		WrapX        func(childComplexity int) int
 		WrapY        func(childComplexity int) int
 		WrapZ        func(childComplexity int) int
@@ -412,6 +415,7 @@ type MutationResolver interface {
 	PressButton(ctx context.Context, sessionID string, index int) (*model.Session, error)
 	SetSpeed(ctx context.Context, sessionID string, speed float64) (*model.Session, error)
 	SetFrameRate(ctx context.Context, sessionID string, fps int) (*model.Session, error)
+	SetViewUpdates(ctx context.Context, sessionID string, mode string) (*model.Session, error)
 	SetSlider(ctx context.Context, sessionID string, index int, value float64) (*model.Session, error)
 	SetSwitch(ctx context.Context, sessionID string, index int, on bool) (*model.Session, error)
 	SetChooser(ctx context.Context, sessionID string, index int, current int) (*model.Session, error)
@@ -1238,6 +1242,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.SetSwitch(childComplexity, args["sessionId"].(string), args["index"].(int), args["on"].(bool)), true
+
+	case "Mutation.setViewUpdates":
+		if e.complexity.Mutation.SetViewUpdates == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setViewUpdates_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetViewUpdates(childComplexity, args["sessionId"].(string), args["mode"].(string)), true
 
 	case "Mutation.setWorld":
 		if e.complexity.Mutation.SetWorld == nil {
@@ -2301,6 +2317,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Turtles(childComplexity), true
 
+	case "World.viewUpdates":
+		if e.complexity.World.ViewUpdates == nil {
+			break
+		}
+
+		return e.complexity.World.ViewUpdates(childComplexity), true
+
 	case "World.voxels":
 		if e.complexity.World.Voxels == nil {
 			break
@@ -2412,6 +2435,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.WorldSettings.ThreeD(childComplexity), true
+
+	case "WorldSettings.viewUpdates":
+		if e.complexity.WorldSettings.ViewUpdates == nil {
+			break
+		}
+
+		return e.complexity.WorldSettings.ViewUpdates(childComplexity), true
 
 	case "WorldSettings.wrapX":
 		if e.complexity.WorldSettings.WrapX == nil {
@@ -2646,6 +2676,13 @@ type Mutation {
   snapshots are skipped instead of queued.
   """
   setFrameRate(sessionId: ID!, fps: Int!): Session!
+  """
+  Choose whether the view redraws on ticks or continuously.
+  mode is "ticks" or "continuous". The running session uses it immediately.
+  The loaded model text is rewritten so a later save keeps the choice:
+  graphics-window line 21 in a classic file, updateMode in .nlogox.
+  """
+  setViewUpdates(sessionId: ID!, mode: String!): Session!
   setSlider(sessionId: ID!, index: Int!, value: Float!): Session!
   setSwitch(sessionId: ID!, index: Int!, on: Boolean!): Session!
   setChooser(sessionId: ID!, index: Int!, current: Int!): Session!
@@ -2963,6 +3000,12 @@ type WorldSettings {
   A random-seed command in the model still runs afterward.
   """
   seedOverride: Boolean!
+  """
+  How the view refreshes. "ticks" is NetLogo's on ticks: the picture
+  changes at tick, reset-ticks, tick-advance, display, and when a button
+  or command finishes. "continuous" redraws while a button runs.
+  """
+  viewUpdates: String!
 }
 
 type World {
@@ -3002,6 +3045,12 @@ type World {
   A random-seed command in the model still runs afterward.
   """
   seedOverride: Boolean!
+  """
+  How the view refreshes. "ticks" is NetLogo's on ticks: the picture
+  changes at tick, reset-ticks, tick-advance, display, and when a button
+  or command finishes. "continuous" redraws while a button runs.
+  """
+  viewUpdates: String!
   """
   Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
@@ -3651,6 +3700,30 @@ func (ec *executionContext) field_Mutation_setSwitch_args(ctx context.Context, r
 		}
 	}
 	args["on"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setViewUpdates_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 string
+	if tmp, ok := rawArgs["mode"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("mode"))
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["mode"] = arg1
 	return args, nil
 }
 
@@ -6851,6 +6924,8 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_rngSeed(ctx, field)
 			case "seedOverride":
 				return ec.fieldContext_World_seedOverride(ctx, field)
+			case "viewUpdates":
+				return ec.fieldContext_World_viewUpdates(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -9170,6 +9245,111 @@ func (ec *executionContext) fieldContext_Mutation_setFrameRate(ctx context.Conte
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_setFrameRate_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setViewUpdates(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setViewUpdates(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetViewUpdates(rctx, fc.Args["sessionId"].(string), fc.Args["mode"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.Session)
+	fc.Result = res
+	return ec.marshalNSession2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setViewUpdates(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setViewUpdates_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -11592,6 +11772,8 @@ func (ec *executionContext) fieldContext_Query_worldSettings(ctx context.Context
 				return ec.fieldContext_WorldSettings_rngSeed(ctx, field)
 			case "seedOverride":
 				return ec.fieldContext_WorldSettings_seedOverride(ctx, field)
+			case "viewUpdates":
+				return ec.fieldContext_WorldSettings_viewUpdates(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type WorldSettings", field.Name)
 		},
@@ -12881,6 +13063,8 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_rngSeed(ctx, field)
 			case "seedOverride":
 				return ec.fieldContext_World_seedOverride(ctx, field)
+			case "viewUpdates":
+				return ec.fieldContext_World_viewUpdates(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -16183,6 +16367,50 @@ func (ec *executionContext) fieldContext_World_seedOverride(_ context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _World_viewUpdates(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_viewUpdates(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ViewUpdates, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_viewUpdates(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _World_voxels(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_World_voxels(ctx, field)
 	if err != nil {
@@ -17525,6 +17753,50 @@ func (ec *executionContext) fieldContext_WorldSettings_seedOverride(_ context.Co
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WorldSettings_viewUpdates(ctx context.Context, field graphql.CollectedField, obj *model.WorldSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WorldSettings_viewUpdates(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ViewUpdates, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WorldSettings_viewUpdates(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WorldSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -20189,6 +20461,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "setViewUpdates":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setViewUpdates(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "setSlider":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setSlider(ctx, field)
@@ -21399,6 +21678,11 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "viewUpdates":
+			out.Values[i] = ec._World_viewUpdates(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "voxels":
 			out.Values[i] = ec._World_voxels(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21555,6 +21839,11 @@ func (ec *executionContext) _WorldSettings(ctx context.Context, sel ast.Selectio
 			}
 		case "seedOverride":
 			out.Values[i] = ec._WorldSettings_seedOverride(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "viewUpdates":
+			out.Values[i] = ec._WorldSettings_viewUpdates(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

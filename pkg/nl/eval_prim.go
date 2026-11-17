@@ -159,12 +159,14 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		w.ResetTicks()
 		vm.setupPlots()
 		vm.updatePlots()
+		vm.showViewLocked()
 	case "tick":
 		vm.requireObserver(pos, "tick")
 		if err := w.Tick(); err != nil {
 			return err
 		}
 		vm.updatePlots()
+		vm.showViewLocked()
 	case "clear-all-plots":
 		vm.clearAllPlots()
 	case "clear-plot":
@@ -215,7 +217,11 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		if err != nil {
 			return err
 		}
-		return w.TickAdvance(n)
+		if err := w.TickAdvance(n); err != nil {
+			return err
+		}
+		vm.showViewLocked()
+		return nil
 	case "random-seed":
 		d, err := args[0].Num()
 		if err != nil {
@@ -486,7 +492,10 @@ func (vm *VM) primCmd(name string, args []Value, pos Pos) error {
 		time.Sleep(time.Duration(n * float64(time.Second)))
 	case "display":
 		vm.DisplayOn = true
+		vm.showViewLocked()
 	case "no-display":
+		// Freeze the world as it is, then stop further view updates.
+		vm.showViewLocked()
 		vm.DisplayOn = false
 	case "run":
 		return vm.doRun(args, pos)

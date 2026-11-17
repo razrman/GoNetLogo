@@ -2,10 +2,12 @@ package nl
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -31,7 +33,21 @@ type ViewSpec struct {
 	Set      bool
 	// Is3D marks a NetLogo 3D view (view3d in .nlogox3d, or a .nlogo3d file).
 	Is3D bool
+	// UpdateMode is UpdateContinuous (0) or UpdateOnTicks (1). The classic
+	// file stores it on graphics-window line 21. .nlogox uses updateMode.
+	// On ticks, the view changes at tick, reset-ticks, tick-advance, display,
+	// and when a button or command finishes. Continuous redraws while the
+	// button runs. A missing value stays continuous.
+	UpdateMode int
 }
+
+const (
+	// UpdateContinuous redraws the view while a button is running.
+	UpdateContinuous = 0
+	// UpdateOnTicks is NetLogo's "on ticks" view. States inside a
+	// procedure are not drawn.
+	UpdateOnTicks = 1
+)
 
 // Depth is the number of patch layers. It is 1 for a 2D view.
 func (v ViewSpec) Depth() int {
@@ -259,6 +275,10 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 		}
 		if m.Is3D {
 			parseView3DLines(&v, lines)
+		} else if lineAt(lines, 21) == "1" {
+			// 2D line 21 is the update mode. 1 is "on ticks". A 3D file
+			// stores min-pzcor there instead.
+			v.UpdateMode = UpdateOnTicks
 		}
 		m.View = v
 	case "BUTTON":
@@ -658,6 +678,9 @@ func viewFromXML(se xml.StartElement) ViewSpec {
 		PatchSize: ps,
 		FontSize:  atoi(attr(se, "fontSize")),
 		Set:       true,
+	}
+	if attr(se, "updateMode") == "1" {
+		v.UpdateMode = UpdateOnTicks
 	}
 	if se.Name.Local == "view3d" {
 		v.Is3D = true
@@ -1276,6 +1299,7 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 		w.Seed(seed)
 	}
 	vm := NewVM(prog, w)
+	vm.UpdatesOnTicks = v.UpdateMode == UpdateOnTicks
 	if m.Path != "" {
 		vm.ModelDir = filepath.Dir(m.Path)
 	}
@@ -1420,4 +1444,111 @@ func atof(s string) float64 {
 		return 0
 	}
 	return n
+}
+
+// ErrUpdateModeNotStored means this file has no view-update field to rewrite.
+// Classic 3D files keep min-pzcor on the line a 2D file uses for the mode.
+var ErrUpdateModeNotStored = errors.New("view update mode is not stored in this file")
+
+// ParseUpdateMode accepts the web control's values and the file's 0 or 1.
+func ParseUpdateMode(s string) (int, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "0", "continuous":
+		return UpdateContinuous, nil
+	case "1", "ticks", "on ticks", "on-ticks":
+		return UpdateOnTicks, nil
+	default:
+		return 0, fmt.Errorf("view updates must be \"ticks\" or \"continuous\"")
+	}
+}
+
+// UpdateModeName is the value the web UI sends and stores. "ticks" is
+// NetLogo's on ticks. Anything else is continuous.
+func UpdateModeName(mode int) string {
+	if mode == UpdateOnTicks {
+		return "ticks"
+	}
+	return "continuous"
+}
+
+// RewriteUpdateMode sets the view update mode in a model file's text.
+// A classic 2D file stores it on graphics-window line 21. A .nlogox file
+// stores it in the view element's updateMode attribute. The rest of the
+// file is left as it was, so a later save keeps the choice.
+func RewriteUpdateMode(source string, mode int) (string, error) {
+	if mode != UpdateContinuous && mode != UpdateOnTicks {
+		return source, fmt.Errorf("view update mode must be 0 or 1")
+	}
+	if ModelTextIsXML(source) {
+		return rewriteXMLUpdateMode(source, mode)
+	}
+	return rewriteClassicUpdateMode(source, mode)
+}
+
+// ModelTextIsXML reports whether the file text is a .nlogox document.
+func ModelTextIsXML(source string) bool {
+	trim := strings.TrimSpace(source)
+	return strings.HasPrefix(trim, "<?xml") || strings.HasPrefix(trim, "<model") || strings.Contains(trim, "<view")
+}
+
+var updateModeAttr = regexp.MustCompile(`updateMode="[01]"`)
+var viewOpenTag = regexp.MustCompile(`<view(?:3d)?\b[^>]*?>`)
+
+func rewriteXMLUpdateMode(source string, mode int) (string, error) {
+	attr := fmt.Sprintf(`updateMode="%d"`, mode)
+	if updateModeAttr.MatchString(source) {
+		return updateModeAttr.ReplaceAllString(source, attr), nil
+	}
+	loc := viewOpenTag.FindStringIndex(source)
+	if loc == nil {
+		return source, ErrUpdateModeNotStored
+	}
+	tag := source[loc[0]:loc[1]]
+	if strings.HasSuffix(tag, "/>") {
+		tag = strings.TrimSuffix(tag, "/>") + " " + attr + "/>"
+	} else {
+		tag = strings.TrimSuffix(tag, ">") + " " + attr + ">"
+	}
+	return source[:loc[0]] + tag + source[loc[1]:], nil
+}
+
+func rewriteClassicUpdateMode(source string, mode int) (string, error) {
+	nl := "\n"
+	if strings.Contains(source, "\r\n") {
+		nl = "\r\n"
+	}
+	norm := strings.ReplaceAll(source, "\r\n", "\n")
+	parts := strings.Split(norm, sectionSep)
+	if len(parts) < 2 {
+		return source, fmt.Errorf("model has no widget section")
+	}
+	if len(parts) > 4 && strings.Contains(parts[4], "NetLogo 3D") {
+		return source, ErrUpdateModeNotStored
+	}
+	lines := strings.Split(parts[1], "\n")
+	i := 0
+	for i < len(lines) {
+		if strings.TrimSpace(lines[i]) == "" {
+			i++
+			continue
+		}
+		start := i
+		for i < len(lines) && strings.TrimSpace(lines[i]) != "" {
+			i++
+		}
+		if !strings.EqualFold(strings.TrimSpace(lines[start]), "GRAPHICS-WINDOW") {
+			continue
+		}
+		if start+21 >= i {
+			return source, fmt.Errorf("graphics window has no update-mode line")
+		}
+		lines[start+21] = strconv.Itoa(mode)
+		parts[1] = strings.Join(lines, "\n")
+		out := strings.Join(parts, sectionSep)
+		if nl == "\r\n" {
+			out = strings.ReplaceAll(out, "\n", "\r\n")
+		}
+		return out, nil
+	}
+	return source, fmt.Errorf("model has no graphics window")
 }

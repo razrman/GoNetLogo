@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gonetlogo/backend/graph/model"
@@ -181,6 +182,16 @@ type Session struct {
 	id        string
 	modelName string
 	model     *nl.FileModel
+	// modelSource is the full file text. Changing the view update mode
+	// rewrites that text so a later save keeps the choice.
+	modelSource string
+	// uploadPath is the scratch copy of an uploaded file. Empty when the
+	// model was not uploaded. It is rewritten with modelSource.
+	uploadPath string
+	// frozenWorld is the last world the view is allowed to show.
+	// On-ticks and no-display frames copy it instead of the live world.
+	// The interpreter stores it with the world lock held and without s.mu.
+	frozenWorld atomic.Pointer[model.World]
 	// modelDir is the loaded file's folder relative to the models
 	// directory. Nil when the text was not read from that directory.
 	// A pointer to an empty string is the models root.
@@ -510,8 +521,10 @@ func (s *Session) publishDueLocked(now time.Time) {
 	s.broadcastLocked()
 }
 
-// refreshDueLocked publishes the in-progress world without counting a step.
-// A long button calls it from the yield callback so the view keeps moving.
+// refreshDueLocked publishes a frame from the yield timer without counting
+// a step. A long button calls it so output and the running flag stay
+// current. When the model updates on ticks, or no-display is in effect,
+// the world in that frame is the last snapshot, not the live world.
 func (s *Session) refreshDueLocked(now time.Time) {
 	before := s.pub.Dropped()
 	if !s.pub.Refresh(now, nl.FrameInterval(s.frameRate)) {
@@ -607,6 +620,8 @@ func (s *Session) useModelFrom(name, content string, modelDir *string) error {
 	s.log = nil
 	s.logMu.Unlock()
 	s.installLocked(name, m, vm)
+	s.modelSource = content
+	s.uploadPath = ""
 	if modelDir == nil {
 		s.modelDir = nil
 	} else {
@@ -622,7 +637,12 @@ func (s *Session) installLocked(name string, m *nl.FileModel, vm *nl.VM) {
 	s.modelName = name
 	s.model = m
 	s.vm = vm
+	s.frozenWorld.Store(nil)
+	if vm != nil {
+		vm.SetViewHook(func() { s.captureViewLocked() })
+	}
 	if old != nil && old != vm {
+		old.SetViewHook(nil)
 		old.Close()
 	}
 	s.pendingOnce = nil
@@ -730,6 +750,9 @@ func (s *Session) keepUpload(filename, source string) {
 		name = "upload.nlogo"
 	}
 	path := filepath.Join(dir, name)
+	s.mu.Lock()
+	s.uploadPath = path
+	s.mu.Unlock()
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
 		slog.Warn("session storage", "session", s.id, "err", err)
 	}
@@ -782,6 +805,7 @@ func (s *Session) RunCommand(text string) (output string, err error) {
 		return "", fmt.Errorf("no model is loaded")
 	}
 	output, err = s.vm.ExecuteLine(text)
+	s.captureFinishedViewLocked()
 	if err != nil {
 		s.appendLogLocked(err.Error())
 		slog.Warn("command failed", "session", s.id, "err", err)
@@ -916,6 +940,7 @@ func (s *Session) Step() error {
 	if i < 0 {
 		if s.vm != nil && s.vm.Prog != nil && s.vm.Prog.Proc("go") != nil {
 			_, err := s.vm.Call("go")
+			s.captureFinishedViewLocked()
 			if err != nil {
 				s.appendLogLocked("go: " + err.Error())
 			}
@@ -1096,6 +1121,9 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 			return err
 		}
 		s.finishSeedLocked(seed, seedOverride)
+		// The resized world has new patches and no turtles. Drop the
+		// snapshot so the next frame shows that world.
+		s.frozenWorld.Store(nil)
 		s.broadcastLocked()
 		return nil
 	}
@@ -1103,6 +1131,7 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		return err
 	}
 	s.finishSeedLocked(seed, seedOverride)
+	s.frozenWorld.Store(nil)
 	s.broadcastLocked()
 	return nil
 }
@@ -1279,6 +1308,7 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 	s.mu.Lock()
 	vm := s.vm
 	fps := s.frameRateCap()
+	updates := viewUpdatesName(vm)
 	override := s.seedOverride
 	overrideSeed := s.overrideSeed
 	s.mu.Unlock()
@@ -1290,6 +1320,7 @@ func (s *Session) WorldSettings() (*model.WorldSettings, error) {
 		w := vm.World
 		out = &model.WorldSettings{
 			FrameRateCap: fps,
+			ViewUpdates:  updates,
 			MinPxcor:     w.MinPxcor,
 			MaxPxcor:     w.MaxPxcor,
 			MinPycor:     w.MinPycor,
@@ -1315,6 +1346,74 @@ func displayedRNGSeed(live int64, override bool, overrideSeed int64) string {
 		return nl.FormatRNGSeed(overrideSeed)
 	}
 	return nl.FormatRNGSeed(live)
+}
+
+// SetViewUpdates selects on-ticks or continuous for this session and
+// rewrites the loaded model text. "ticks" snapshots the world at tick,
+// reset-ticks, tick-advance, display, and when a button or command
+// finishes. "continuous" keeps publishing the live world on the timer.
+// The change applies to a run that is already going.
+func (s *Session) SetViewUpdates(mode string) error {
+	n, err := nl.ParseUpdateMode(mode)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vm == nil {
+		return fmt.Errorf("no model is loaded")
+	}
+	if err := s.rewriteViewUpdatesLocked(n); err != nil {
+		return err
+	}
+	s.vm.UpdatesOnTicks = n == nl.UpdateOnTicks
+	if s.model != nil {
+		s.model.View.UpdateMode = n
+	}
+	if s.vm.UpdatesOnTicks {
+		// Idle: freeze the world as it is now. A running button holds
+		// the world lock, so the next tick records the snapshot instead.
+		if !s.busy && s.vm.DisplayOn {
+			s.vm.ShowView()
+		}
+	} else if s.vm.DisplayOn {
+		s.frozenWorld.Store(nil)
+	}
+	s.broadcastLocked()
+	return nil
+}
+
+// rewriteViewUpdatesLocked edits the stored model text. Caller holds s.mu.
+// A classic 3D file has no update-mode field; the live setting still changes.
+func (s *Session) rewriteViewUpdatesLocked(mode int) error {
+	if s.modelSource == "" {
+		return nil
+	}
+	if s.model != nil && s.model.Is3D && !nl.ModelTextIsXML(s.modelSource) {
+		return nil
+	}
+	next, err := nl.RewriteUpdateMode(s.modelSource, mode)
+	if err != nil {
+		if errors.Is(err, nl.ErrUpdateModeNotStored) {
+			return nil
+		}
+		return err
+	}
+	s.modelSource = next
+	if s.uploadPath == "" {
+		return nil
+	}
+	if err := os.WriteFile(s.uploadPath, []byte(next), 0o600); err != nil {
+		slog.Warn("session storage", "session", s.id, "err", err)
+	}
+	return nil
+}
+
+// ModelSource is the loaded model text, including a view-update edit.
+func (s *Session) ModelSource() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.modelSource
 }
 
 // SetFrameRate sets the publish cap. Values outside 1..120 are clamped.
@@ -1469,6 +1568,7 @@ func (s *Session) runNamed(name string, forever bool) error {
 				s.reseedForSetupLocked()
 			}
 			_, err := s.vm.Call(name)
+			s.captureFinishedViewLocked()
 			if err != nil {
 				s.appendLogLocked(name + ": " + err.Error())
 			}
@@ -1521,6 +1621,9 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 	}
 	s.busy = true
 	s.armYield(vm)
+	if vm != nil && vm.UpdatesOnTicks && vm.DisplayOn && s.frozenWorld.Load() == nil {
+		vm.ShowView()
+	}
 	s.mu.Unlock()
 	var halted bool
 	defer func() {
@@ -1560,6 +1663,7 @@ func (s *Session) runIndexLocked(i int) (stopped bool, err error) {
 		}
 		if vm != nil {
 			s.sampleTicksLocked()
+			s.captureFinishedViewLocked()
 		}
 		s.busy = false
 	}()
@@ -1943,8 +2047,9 @@ func (s *Session) sessionLocked() *model.Session {
 			}
 		}
 		out.Widgets = s.widgetsLocked()
-		out.World = worldLocked(w)
+		out.World = s.publishedWorldLocked(w)
 		s.applySeedView(&out.World)
+		out.World.ViewUpdates = viewUpdatesName(s.vm)
 	})
 	s.shownStarted = started
 	s.shownTicks = ticks
@@ -2089,6 +2194,47 @@ func shapeViews(w *nl.World) []model.TurtleShape {
 		})
 	}
 	return out
+}
+
+func viewUpdatesName(vm *nl.VM) string {
+	if vm != nil && vm.UpdatesOnTicks {
+		return nl.UpdateModeName(nl.UpdateOnTicks)
+	}
+	return nl.UpdateModeName(nl.UpdateContinuous)
+}
+
+// captureViewLocked stores the world the view should keep showing.
+// Caller holds World.mu and must not take s.mu.
+func (s *Session) captureViewLocked() {
+	if s == nil || s.vm == nil || s.vm.World == nil {
+		return
+	}
+	snap := worldLocked(s.vm.World)
+	s.frozenWorld.Store(&snap)
+}
+
+// captureFinishedViewLocked records the world when a button or command
+// finishes. Caller holds s.mu and does not hold the world lock.
+// Continuous mode leaves the timer to publish the live world.
+func (s *Session) captureFinishedViewLocked() {
+	if s.vm != nil && s.vm.UpdatesOnTicks && s.vm.DisplayOn {
+		s.vm.ShowView()
+	}
+}
+
+// publishedWorldLocked is the world a frame should carry.
+// Caller holds s.mu and the world lock.
+func (s *Session) publishedWorldLocked(w *nl.World) model.World {
+	if s.vm != nil && s.vm.FreezeView() {
+		if snap := s.frozenWorld.Load(); snap != nil {
+			out := *snap
+			// The picture stays frozen. The seed is not part of that
+			// picture; the World tab reads it from every frame.
+			out.RngSeed = nl.FormatRNGSeed(w.RNGSeed())
+			return out
+		}
+	}
+	return worldLocked(w)
 }
 
 func worldLocked(w *nl.World) model.World {

@@ -7,11 +7,10 @@ package graph
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"time"
-
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
+	"log/slog"
+	"time"
 )
 
 // CreateSession is the resolver for the createSession field.
@@ -169,6 +168,18 @@ func (r *mutationResolver) SetFrameRate(ctx context.Context, sessionID string, f
 		return nil, err
 	}
 	s.SetFrameRate(fps)
+	return s.Session(), nil
+}
+
+// SetViewUpdates is the resolver for the setViewUpdates field.
+func (r *mutationResolver) SetViewUpdates(ctx context.Context, sessionID string, mode string) (*model.Session, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.SetViewUpdates(mode); err != nil {
+		return nil, err
+	}
 	return s.Session(), nil
 }
 
