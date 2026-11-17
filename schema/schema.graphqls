@@ -59,6 +59,15 @@ type Mutation {
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
   """
+  Replace the interface from the Widgets tab text and rebuild the side panel.
+  For a classic model the text is the widget section. For .nlogox it is the
+  widgets element. A parse error leaves the running widgets in place and
+  names a line when the parser has one. Code, info, and shapes stay as they
+  are. Turtles and patches stay when the view bounds and wrapping do not
+  change. Rejected while go is running.
+  """
+  setWidgets(sessionId: ID!, text: String!): CompileResult!
+  """
   Replace the system dynamics diagram from the Dynamics tab text and recompile.
   A definition the parser rejects leaves the diagram unchanged. A diagram that
   parses but whose generated procedures do not compile stays on the model, the
@@ -155,6 +164,12 @@ type Session {
   id: ID!
   modelName: String!
   code: String!
+  """
+  Interface section shown on the Widgets tab. Classic models send the
+  widget section between the first two @#$#@#$#@ separators. .nlogox
+  models send the widgets element.
+  """
+  widgetText: String!
   """
   Procedure names defined by the compiled model.
   NetLogo compares these case-insensitively, and the names here are

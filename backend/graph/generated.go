@@ -184,6 +184,7 @@ type ComplexityRoot struct {
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
 		SetViewUpdates  func(childComplexity int, sessionID string, mode string) int
+		SetWidgets      func(childComplexity int, sessionID string, text string) int
 		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) int
 		Setup           func(childComplexity int, sessionID string) int
 		Step            func(childComplexity int, sessionID string) int
@@ -269,6 +270,7 @@ type ComplexityRoot struct {
 		TicksStarted  func(childComplexity int) int
 		Timer         func(childComplexity int) int
 		Tps           func(childComplexity int) int
+		WidgetText    func(childComplexity int) int
 		Widgets       func(childComplexity int) int
 		World         func(childComplexity int) int
 	}
@@ -405,6 +407,7 @@ type MutationResolver interface {
 	LoadModelSource(ctx context.Context, sessionID string, filename string, source string) (*model.Session, error)
 	LoadModelFile(ctx context.Context, sessionID string, path string) (*model.Session, error)
 	SetCode(ctx context.Context, sessionID string, code string) (*model.CompileResult, error)
+	SetWidgets(ctx context.Context, sessionID string, text string) (*model.CompileResult, error)
 	SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error)
 	SetDynamicsDt(ctx context.Context, sessionID string, dt string) (*model.CompileResult, error)
 	RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error)
@@ -1255,6 +1258,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.SetViewUpdates(childComplexity, args["sessionId"].(string), args["mode"].(string)), true
 
+	case "Mutation.setWidgets":
+		if e.complexity.Mutation.SetWidgets == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setWidgets_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetWidgets(childComplexity, args["sessionId"].(string), args["text"].(string)), true
+
 	case "Mutation.setWorld":
 		if e.complexity.Mutation.SetWorld == nil {
 			break
@@ -1737,6 +1752,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Session.Tps(childComplexity), true
+
+	case "Session.widgetText":
+		if e.complexity.Session.WidgetText == nil {
+			break
+		}
+
+		return e.complexity.Session.WidgetText(childComplexity), true
 
 	case "Session.widgets":
 		if e.complexity.Session.Widgets == nil {
@@ -2646,6 +2668,15 @@ type Mutation {
   loadModelFile(sessionId: ID!, path: String!): Session!
   setCode(sessionId: ID!, code: String!): CompileResult!
   """
+  Replace the interface from the Widgets tab text and rebuild the side panel.
+  For a classic model the text is the widget section. For .nlogox it is the
+  widgets element. A parse error leaves the running widgets in place and
+  names a line when the parser has one. Code, info, and shapes stay as they
+  are. Turtles and patches stay when the view bounds and wrapping do not
+  change. Rejected while go is running.
+  """
+  setWidgets(sessionId: ID!, text: String!): CompileResult!
+  """
   Replace the system dynamics diagram from the Dynamics tab text and recompile.
   A definition the parser rejects leaves the diagram unchanged. A diagram that
   parses but whose generated procedures do not compile stays on the model, the
@@ -2742,6 +2773,12 @@ type Session {
   id: ID!
   modelName: String!
   code: String!
+  """
+  Interface section shown on the Widgets tab. Classic models send the
+  widget section between the first two @#$#@#$#@ separators. .nlogox
+  models send the widgets element.
+  """
+  widgetText: String!
   """
   Procedure names defined by the compiled model.
   NetLogo compares these case-insensitively, and the names here are
@@ -3727,6 +3764,30 @@ func (ec *executionContext) field_Mutation_setViewUpdates_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setWidgets_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 string
+	if tmp, ok := rawArgs["text"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("text"))
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["text"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_setWorld_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
 	var err error
 	args := map[string]interface{}{}
@@ -4604,6 +4665,8 @@ func (ec *executionContext) fieldContext_CommandResult_session(_ context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -4783,6 +4846,8 @@ func (ec *executionContext) fieldContext_CompileResult_session(_ context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -7887,6 +7952,8 @@ func (ec *executionContext) fieldContext_Mutation_createSession(ctx context.Cont
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -7992,6 +8059,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModel(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -8097,6 +8166,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModelSource(ctx context.Co
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -8202,6 +8273,8 @@ func (ec *executionContext) fieldContext_Mutation_loadModelFile(ctx context.Cont
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -8319,6 +8392,69 @@ func (ec *executionContext) fieldContext_Mutation_setCode(ctx context.Context, f
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_setCode_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setWidgets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setWidgets(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetWidgets(rctx, fc.Args["sessionId"].(string), fc.Args["text"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.CompileResult)
+	fc.Result = res
+	return ec.marshalNCompileResult2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐCompileResult(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setWidgets(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "ok":
+				return ec.fieldContext_CompileResult_ok(ctx, field)
+			case "error":
+				return ec.fieldContext_CompileResult_error(ctx, field)
+			case "session":
+				return ec.fieldContext_CompileResult_session(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CompileResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setWidgets_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -8561,6 +8697,8 @@ func (ec *executionContext) fieldContext_Mutation_setup(ctx context.Context, fie
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -8666,6 +8804,8 @@ func (ec *executionContext) fieldContext_Mutation_go(ctx context.Context, field 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -8771,6 +8911,8 @@ func (ec *executionContext) fieldContext_Mutation_stop(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -8876,6 +9018,8 @@ func (ec *executionContext) fieldContext_Mutation_step(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -8981,6 +9125,8 @@ func (ec *executionContext) fieldContext_Mutation_pressButton(ctx context.Contex
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9086,6 +9232,8 @@ func (ec *executionContext) fieldContext_Mutation_setSpeed(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9191,6 +9339,8 @@ func (ec *executionContext) fieldContext_Mutation_setFrameRate(ctx context.Conte
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9296,6 +9446,8 @@ func (ec *executionContext) fieldContext_Mutation_setViewUpdates(ctx context.Con
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9401,6 +9553,8 @@ func (ec *executionContext) fieldContext_Mutation_setSlider(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9506,6 +9660,8 @@ func (ec *executionContext) fieldContext_Mutation_setSwitch(ctx context.Context,
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9611,6 +9767,8 @@ func (ec *executionContext) fieldContext_Mutation_setChooser(ctx context.Context
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9716,6 +9874,8 @@ func (ec *executionContext) fieldContext_Mutation_setInput(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9821,6 +9981,8 @@ func (ec *executionContext) fieldContext_Mutation_setWorld(ctx context.Context, 
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -9981,6 +10143,8 @@ func (ec *executionContext) fieldContext_Mutation_setSeedOverride(ctx context.Co
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -11645,6 +11809,8 @@ func (ec *executionContext) fieldContext_Query_session(ctx context.Context, fiel
 				return ec.fieldContext_Session_modelName(ctx, field)
 			case "code":
 				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
 			case "procedures":
 				return ec.fieldContext_Session_procedures(ctx, field)
 			case "info":
@@ -12106,6 +12272,50 @@ func (ec *executionContext) _Session_code(ctx context.Context, field graphql.Col
 }
 
 func (ec *executionContext) fieldContext_Session_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Session",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Session_widgetText(ctx context.Context, field graphql.CollectedField, obj *model.Session) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Session_widgetText(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.WidgetText, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Session_widgetText(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Session",
 		Field:      field,
@@ -20391,6 +20601,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "setWidgets":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setWidgets(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "setDynamics":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setDynamics(ctx, field)
@@ -21038,6 +21255,11 @@ func (ec *executionContext) _Session(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "code":
 			out.Values[i] = ec._Session_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "widgetText":
+			out.Values[i] = ec._Session_widgetText(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

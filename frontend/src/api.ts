@@ -165,6 +165,7 @@ const openedModelFields = `
   id
   modelName
   code
+  widgetText
   info
   modelDir
   notes
@@ -214,6 +215,12 @@ export function hasProcedure(procedures: readonly string[] | null | undefined, n
 export const SetCode = `
   mutation SetCode($id: ID!, $code: String!) {
     setCode(sessionId: $id, code: $code) { ok error session { procedures } }
+  }
+`
+
+export const SetWidgets = `
+  mutation SetWidgets($id: ID!, $text: String!) {
+    setWidgets(sessionId: $id, text: $text) { ok error session { widgetText } }
   }
 `
 
