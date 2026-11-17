@@ -218,7 +218,7 @@ func Close() error {
 // cleanup, and it closed the log first so those steps could not record
 // anything. The hook should do that work and return. CloseOnSignal then
 // flushes the log and exits. Without a hook, the log is flushed and the
-// signal is re-raised, which is what the desktop process still relies on.
+// signal is re-raised so the process still exits with the default action.
 func OnSignal(fn func(os.Signal)) {
 	signalHookMu.Lock()
 	signalHook = fn

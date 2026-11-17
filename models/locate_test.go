@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestDiscoverModelsRootFromRootBinAndApp(t *testing.T) {
+func TestDiscoverModelsRootFromRootAndBin(t *testing.T) {
 	root := t.TempDir()
 	modelsDir := filepath.Join(root, "models")
 	lib := filepath.Join(modelsDir, "library", "Sample Models")
@@ -16,17 +16,9 @@ func TestDiscoverModelsRootFromRootBinAndApp(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(modelsDir, "fire.nlogo"), []byte("to setup\nend\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	macOS := filepath.Join(root, "bin", "GoNetLogo.app", "Contents", "MacOS")
-	if err := os.MkdirAll(macOS, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	resources := filepath.Join(root, "bin", "GoNetLogo.app", "Contents", "Resources")
-
 	checks := []string{
 		root,
 		filepath.Join(root, "bin"),
-		macOS,
-		resources,
 		modelsDir,
 	}
 	for _, start := range checks {

@@ -8,15 +8,12 @@ import (
 )
 
 // How far above the working directory or the executable to look for models.
-// A macOS bundle is bin/GoNetLogo.app/Contents/MacOS/<binary>, so the repo
-// root is four directories up from the executable. Eight covers that and a
-// launch from bin/ without walking the whole disk.
+// Eight covers a launch from bin/ without walking the whole disk.
 const modelsSearchDepth = 8
 
 // ModelsRoot is the directory of demo models and the bundled library.
 // MODELS_DIR overrides discovery when it is set. Otherwise the search
-// starts at the working directory and the executable (including
-// Contents/Resources inside a macOS .app) and walks upward for a
+// starts at the working directory and the executable and walks upward for a
 // directory that contains fire.nlogo or library/Sample Models.
 // The result is absolute, with symlinks resolved.
 func ModelsRoot() (string, error) {
@@ -92,8 +89,6 @@ func searchStarts() []string {
 	}
 	exeDir := filepath.Dir(exe)
 	starts = append(starts, exeDir)
-	// GoNetLogo.app/Contents/MacOS/<bin> → Contents/Resources
-	starts = append(starts, filepath.Clean(filepath.Join(exeDir, "..", "Resources")))
 	return starts
 }
 

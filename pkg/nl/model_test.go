@@ -272,8 +272,8 @@ func TestTermitesConserveChips(t *testing.T) {
 }
 
 // TestWolfSheepConcurrentRender runs the model while other goroutines paint.
-// Reading the live turtle map from RenderWorld used to fatal on the desktop
-// draw thread (concurrent map iteration during hatch/die).
+// Reading the live turtle map from RenderWorld used to fatal during
+// hatch/die (concurrent map iteration).
 func TestWolfSheepConcurrentRender(t *testing.T) {
 	m := loadModel(t, "wolfsheep.nlogo")
 	vm, err := m.NewVM(1)

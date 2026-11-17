@@ -1,6 +1,4 @@
-# Vet and test the web server, the frontend, and the container image.
-# cmd/gonetlogo and internal/gui are the Fyne desktop app. They need cgo
-# and X11 and are not built here.
+# Vet, build, and test the web server, the frontend, and the container image.
 
 name: CI
 
@@ -33,21 +31,12 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Vet and test
+      - name: Vet, build, and test
         run: |
           set -euo pipefail
-          # Name the non-GUI roots. go list ./... also loads the desktop
-          # packages, and that fails when cgo is off.
-          pkgs=$(go list \
-            ./backend/... \
-            ./pkg/... \
-            ./models \
-            ./internal/locale \
-            ./internal/logcfg \
-            ./cmd/modelcheck)
-          echo "$pkgs"
-          go vet $pkgs
-          go test $pkgs
+          go vet ./...
+          go build ./...
+          go test ./...
 
   frontend:
     name: Frontend

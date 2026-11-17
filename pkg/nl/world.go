@@ -92,9 +92,9 @@ type World struct {
 	drawing drawingLog
 
 	// mu guards mutation of the world against a concurrent render.
-	// The desktop draw thread never holds it: it paints the last view
-	// published by unlockPublish. Interpreter entry points hold it for
-	// one command, then publish.
+	// A painter reads the last view published by unlockPublish and does
+	// not hold mu. Interpreter entry points hold it for one command,
+	// then publish.
 	mu   sync.Mutex
 	view atomic.Pointer[ViewSnap]
 	// dirty means the published view is behind the world. Commands set it

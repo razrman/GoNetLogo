@@ -458,7 +458,7 @@ func Snapshot(m *FileModel, vm *VM, path string) error {
 	return png.Encode(f, img)
 }
 
-// ComposeInterface paints a desktop-style frame around the world view.
+// ComposeInterface paints a frame around the world view.
 func ComposeInterface(m *FileModel, vm *VM) *image.RGBA {
 	const W, H = 1040, 720
 	img := image.NewRGBA(image.Rect(0, 0, W, H))

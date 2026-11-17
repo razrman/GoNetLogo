@@ -7,8 +7,7 @@
 # embeds that UI. The server package has no version variable, so the
 # linker flags are -s -w only; there is nothing to set with -X.
 # Stage 3 is a distroless nonroot image: the static binary plus models/
-# at /models. The Fyne desktop app (cmd/gonetlogo, internal/gui) is not
-# copied and is not compiled.
+# at /models.
 #
 # linux/amd64 and linux/arm64: the Node and Go stages run on the builder
 # (BUILDPLATFORM) and the Go compile sets GOOS/GOARCH to the target.

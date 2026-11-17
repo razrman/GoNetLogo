@@ -2,7 +2,7 @@
 
 GoNetLogo is an agent-based modeling environment written in Go. It is a from-scratch reimplementation of a working subset of [NetLogo](https://www.netlogo.org/): a language, a world, and an interface for editing a model and watching it run.
 
-The language core is a Go package. Two clients use it. The web UI talks only to a GraphQL API. The optional desktop window calls the package in process.
+The language core is a Go package. The web UI is the client. It talks to that package through a GraphQL API.
 
 NetLogo was created by Uri Wilensky at the Center for Connected Learning and Computer-Based Modeling (CCL), Northwestern University. The language, the world topology, the color model, and the `.nlogo` / `.nlogox` widget layout implemented here follow that design. This program is a derivative work of the NetLogo source (GPL-2.0-or-later) and is released under the **GNU General Public License, version 2 or any later version**. See `LICENSE`.
 
@@ -28,9 +28,11 @@ https://github.com/NetLogo/NetLogo
 
 Commercial licenses of NetLogo remain available from Uri Wilensky. This port does not change that.
 
+The running site is [https://gonetlogo.app.sapienexmachina.si](https://gonetlogo.app.sapienexmachina.si).
+
 ## Ubuntu native install
 
-These scripts install, build, and run GoNetLogo on Ubuntu 22.04 or 24.04 without containers. `setup.sh` uses apt for the C toolchain and the Fyne headers (`gcc`, `libgl1-mesa-dev`, `xorg-dev`). Go comes from the official tarball when the copy on `PATH` is older than `go.mod`. Node.js 22 comes from nodejs.org when the installed Node is older than Vite needs. Anything already new enough is skipped, and sudo is used only for apt and for writing under `/usr/local`.
+These scripts install, build, and run GoNetLogo on Ubuntu 22.04 or 24.04 without containers. The server is built with cgo off, so the scripts do not install a C toolchain or graphics libraries. Go comes from the official tarball when the copy on `PATH` is older than `go.mod`. Node.js 22 comes from nodejs.org when the installed Node is older than Vite needs. Anything already new enough is skipped, and sudo is used only for apt and for writing under `/usr/local`.
 
 ```bash
 ./setup.sh
@@ -49,7 +51,7 @@ HOST=0.0.0.0 PORT=8080 ./startup.sh
 
 ### Logging
 
-`gonetlogo-server` and the desktop `gonetlogo` binary share `-log-level`, `-log-format`, and `-log-file`.
+`gonetlogo-server` takes `-log-level`, `-log-format`, and `-log-file`.
 
 | Flag | Values | Default |
 | --- | --- | --- |
@@ -57,7 +59,7 @@ HOST=0.0.0.0 PORT=8080 ./startup.sh
 | `-log-format` | `text`, `json` | `text` |
 | `-log-file` | a path, or `-` for stderr | `-` (stderr) |
 
-`GONETLOGO_LOG_LEVEL` sets the level when `-log-level` is omitted. `GONETLOGO_LOG_FILE` sets the file when `-log-file` is omitted. An explicit flag wins, including an invalid level or a path that cannot be opened. `warning` is accepted as an alias of `warn`. An unknown level or format, or a log file that cannot be opened, prints the error on stderr and exits 2. `-` and a blank value mean stderr. A real path is created if needed (mode `0644`) and opened for append. On a normal exit, and on SIGINT or SIGTERM, the file is flushed and closed. The desktop process then re-raises the signal so it still exits. The web server runs its drain first and does not re-raise, so that work can finish and still write to the log. `startup.sh` does not forward extra arguments; it does pass the environment through, so `GONETLOGO_LOG_LEVEL=debug ./startup.sh` and `GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./startup.sh` work.
+`GONETLOGO_LOG_LEVEL` sets the level when `-log-level` is omitted. `GONETLOGO_LOG_FILE` sets the file when `-log-file` is omitted. An explicit flag wins, including an invalid level or a path that cannot be opened. `warning` is accepted as an alias of `warn`. An unknown level or format, or a log file that cannot be opened, prints the error on stderr and exits 2. `-` and a blank value mean stderr. A real path is created if needed (mode `0644`) and opened for append. On a normal exit, and on SIGINT or SIGTERM, the file is flushed and closed. The server runs its drain first and does not re-raise the signal, so that work can finish and still write to the log. `startup.sh` does not forward extra arguments; it does pass the environment through, so `GONETLOGO_LOG_LEVEL=debug ./startup.sh` and `GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./startup.sh` work.
 
 Lines from the standard `log` package go through the same logger. `log.Fatal` and a panic are also written to stderr, so the reason the process died stays on the terminal when the log file is somewhere else.
 
@@ -66,7 +68,6 @@ Lines from the standard `log` package go through the same logger. `log.Fatal` an
 ./bin/gonetlogo-server -log-file /var/log/gonetlogo.log -log-level info
 GONETLOGO_LOG_LEVEL=warn ./bin/gonetlogo-server
 GONETLOGO_LOG_FILE=/tmp/gonetlogo.log ./bin/gonetlogo-server
-./bin/gonetlogo -log-level debug -log-file /tmp/gonetlogo.log
 ./bin/gonetlogo-server -pprof
 ```
 
@@ -96,14 +97,14 @@ SIGINT and SIGTERM drain the web server. `http.Server.Shutdown` stops new connec
 
 What each level records:
 
-- **info** — startup. The server logs the model directory, web UI, playground, GraphQL URL, `/healthz`, the session cap, the shutdown timeout, and the pprof URL when `-pprof` is set. The desktop binary logs version and commit (when the build recorded them), the log level, format, and file, and whether `internal/locale` replaced a `C` / `POSIX` / invalid tag (the old value and the replacement). Both clients log a model load (name, widget count, plot count, world size), a button press, start, and stop, a world resize, and, on the desktop, the window opening and closing and a tab change.
-- **debug** — HTTP requests other than `/graphql` (method, path, status, duration); GraphQL queries and mutations (method, path, operation name, type, duration); websocket connect and disconnect; the frames subscription connect and disconnect; session create and close; model compile (byte length, not source); the forever-button run loop (start, and stop with the reason: halt, stop, error, or finished); command-center lines, truncated; split-pane drags on the desktop. About every five seconds while a button runs, one progress line: tick, turtles, patches, drawing marks, plot points, output length, `rng_calls`, and `rng_per_sec`. The stop line repeats `rng_calls` and `rng_per_sec` for that run. A frame publish or UI refresh slower than a quarter second is included here when it is not already a warning. Nothing is logged per tick or per agent.
+- **info** — startup. The server logs the model directory, web UI, playground, GraphQL URL, `/healthz`, the session cap, the shutdown timeout, and the pprof URL when `-pprof` is set. It also logs a model load (name, widget count, plot count, world size), a button press, start, and stop, and a world resize.
+- **debug** — HTTP requests other than `/graphql` (method, path, status, duration); GraphQL queries and mutations (method, path, operation name, type, duration); websocket connect and disconnect; the frames subscription connect and disconnect; session create and close; model compile (byte length, not source); the forever-button run loop (start, and stop with the reason: halt, stop, error, or finished); command-center lines, truncated. About every five seconds while a button runs, one progress line: tick, turtles, patches, drawing marks, plot points, output length, `rng_calls`, and `rng_per_sec`. The stop line repeats `rng_calls` and `rng_per_sec` for that run. A frame publish or UI refresh slower than a quarter second is included here when it is not already a warning. Nothing is logged per tick or per agent.
 - **warn** — model load or compile failure, a session create rejected because the server is at its session cap, a button that did not compile, a NetLogo runtime error (procedure and source line when the interpreter recorded them), a websocket error, a request ignored because a run is already active (at most about one line per second per session), dropped frames summarized about once a second, the drawing layer or a plot hitting its 8192 cap, and a lock wait or UI refresh longer than 250ms.
 - **error** — the process cannot serve the UI, bind the pprof port, or listen on `-addr`. The process then exits 1. A drain that hits `-shutdown-timeout` is also logged here; the store is still closed and the process then exits.
 
 `rng_calls` counts every draw from the world's random source (`random`, `random-float`, `one-of`, `n-of`, `shuffle`, and the shuffle `ask` does over an agentset, including extra draws `Intn` takes when it rejects a sample). `clear-all` (and therefore `setup`, which runs it), a setup button, and `random-seed` set the counter back to zero. `rng_per_sec` is how fast that counter moved over the progress interval, or over the whole run on a stop line.
 
-Logs do not include model source, GraphQL variables, or frame payloads. A short session id is included when the client sent one. The desktop process used to accept `-log-level debug` and then print nothing, because the flags were applied and no desktop code called the logger. Startup now writes an info line before the window opens.
+Logs do not include model source, GraphQL variables, or frame payloads. A short session id is included when the client sent one.
 
 Foreground is the default; Ctrl-C stops the process. Background mode writes `run/gonetlogo-server.pid` and `run/gonetlogo-server.log`:
 
@@ -113,11 +114,9 @@ Foreground is the default; Ctrl-C stops the process. Background mode writes `run
 ./startup.sh stop
 ```
 
-`./build.sh --desktop` also builds the Fyne window at `bin/gonetlogo`. Run that binary when you want the local window.
-
 ## Docker
 
-The web server is a container image. The React UI is compiled into the binary. `models/` is copied to `/models`, and `MODELS_DIR` is `/models`. The process listens on `0.0.0.0:8080` (`-addr`) and writes JSON logs (`-log-format json`). The Fyne desktop app is not in the image.
+The web server is a container image. The React UI is compiled into the binary. `models/` is copied to `/models`, and `MODELS_DIR` is `/models`. The process listens on `0.0.0.0:8080` (`-addr`) and writes JSON logs (`-log-format json`). The binary is built with `CGO_ENABLED=0`.
 
 ```bash
 docker build -t gonetlogo . && docker run -p 8080:8080 gonetlogo
@@ -139,7 +138,7 @@ The web server's AWS layout is OpenTofu under `infra/`: a persistent stack (stat
 
 These scripts install, build, and run GoNetLogo on a Mac with Apple Silicon (arm64), including a Mac mini M4. GoNetLogo runs as a plain executable. The scripts use the bash and BSD tools that ship with macOS.
 
-`setup-mac.sh` is safe to run more than once. It checks Xcode Command Line Tools with `xcode-select -p` and runs `xcode-select --install` when they are missing. Clang from those tools is what Fyne's cgo build uses. Homebrew supplies Go (at least the version in `go.mod`), Node.js and npm (Vite needs Node.js 20.19+ or 22.12+), and `pkg-config`. If `brew` is not on `PATH`, the script loads `brew shellenv` from `/opt/homebrew` (Apple Silicon) or `/usr/local`. It does not install Homebrew; the hint is the command from https://brew.sh. Frontend dependencies are installed with `npm ci` when they are missing or out of date.
+`setup-mac.sh` is safe to run more than once. Homebrew supplies Go (at least the version in `go.mod`) and Node.js and npm (Vite needs Node.js 20.19+ or 22.12+). If `brew` is not on `PATH`, the script loads `brew shellenv` from `/opt/homebrew` (Apple Silicon) or `/usr/local`. It does not install Homebrew; the hint is the command from https://brew.sh. Frontend dependencies are installed with `npm ci` when they are missing or out of date. The server is built with cgo off.
 
 ```bash
 ./setup-mac.sh
@@ -147,20 +146,17 @@ These scripts install, build, and run GoNetLogo on a Mac with Apple Silicon (arm
 ./startup-mac.sh
 ```
 
-`./build-mac.sh` builds the web UI, then `bin/gonetlogo-server` and `bin/gonetlogo` for `darwin/arm64` with `CGO_ENABLED=1`. `./build-mac.sh --desktop` is accepted; the desktop binary is always built. `./build-mac.sh --app` runs `fyne package -os darwin` when the `fyne` command is on `PATH` and writes `bin/GoNetLogo.app`. That bundle is optional, and `setup-mac.sh` does not install the `fyne` CLI (`go install fyne.io/fyne/v2/cmd/fyne@v2.5.4`). The `.app` is unsigned.
+`./build-mac.sh` builds the web UI, then `bin/gonetlogo-server` for `darwin/arm64` with `CGO_ENABLED=0`.
 
-`./startup-mac.sh` follows `./startup.sh`: foreground by default, `PORT` and `HOST`, `--background`, `status`, and `stop`. The listen address defaults to `127.0.0.1:8080`. `GONETLOGO_LOG_LEVEL` and `GONETLOGO_LOG_FILE` pass through to the server and the desktop binary. The script does not add `-log-level` arguments. `--open` opens the web UI with `open`. A busy port is reported with `lsof`. `--desktop` launches `bin/gonetlogo`, so `GONETLOGO_LOG_LEVEL` and `GONETLOGO_LOG_FILE` still apply. If that binary is missing and `bin/GoNetLogo.app` is present, `--desktop` opens the bundle instead. `--desktop` alone leaves the server stopped. `--server`, `--background`, or `--open` starts the server as well.
+`./startup-mac.sh` follows `./startup.sh`: foreground by default, `PORT` and `HOST`, `--background`, `status`, and `stop`. The listen address defaults to `127.0.0.1:8080`. `GONETLOGO_LOG_LEVEL` and `GONETLOGO_LOG_FILE` pass through to the server. The script does not add `-log-level` arguments. `--open` opens the web UI with `open`. A busy port is reported with `lsof`.
 
 ```bash
 ./startup-mac.sh --open
 ./startup-mac.sh --background
 ./startup-mac.sh status
 ./startup-mac.sh stop
-./startup-mac.sh --desktop
-./startup-mac.sh --desktop --server
 PORT=9090 ./startup-mac.sh
 GONETLOGO_LOG_LEVEL=debug ./startup-mac.sh
-open ./bin/GoNetLogo.app
 ```
 
 ## Run both
@@ -173,7 +169,7 @@ Go 1.22 or newer, and Node 22. From the repo root:
 
 The script starts the API on `0.0.0.0:43131` and the UI on `0.0.0.0:43132`. Open [http://127.0.0.1:43132](http://127.0.0.1:43132). The page loads the forest-fire model, runs setup, and starts go. The model menu is labeled **Models**. **setup** runs once. **go** is the forever button; click it again to stop. **step** runs go a single time. The speed slider slows the loop below the midpoint and runs extra steps per frame above it. If the browser loses the server, the page shows the banner "Server disconnected. Reconnecting…" and the websocket keeps trying.
 
-The tabs are **Interface**, **World**, **Info**, and **Code**. Interface is the view and the widget column. Info renders the model's Info section from its Markdown. A model with no Info section says so. Links open in a new tab. World holds max fps, min and max pxcor and pycor, patch size, wrap x, wrap y, and **Apply**. Max fps is sent as you edit it. **Apply** calls `setWorld` and then runs setup; if go is running, it stops first. Leaving World with unapplied coordinate, patch-size, or wrap edits shows "Apply changes?". **Apply** there does the same thing and then switches tabs. **Cancel** stays on World.
+The tabs are **Interface**, **World**, **Info**, and **Code**. Interface is the view and the widget column. Info renders the model's Info section from its Markdown. A model with no Info section says so. Links open in a new tab. World holds max fps, view updates, min and max pxcor and pycor, patch size, wrap x, wrap y, and **Apply**. View updates is the NetLogo dropdown: **on ticks** redraws at `tick`, `reset-ticks`, `tick-advance`, `display`, and when a button or command finishes; **continuous** redraws while a button runs. A loaded model starts on the mode stored in its file. Changing the dropdown applies immediately and is written back into the model text (graphics-window line 21, or `.nlogox` `updateMode`) so a later save keeps it. Max fps is sent as you edit it. **Apply** calls `setWorld` and then runs setup; if go is running, it stops first. Leaving World with unapplied coordinate, patch-size, or wrap edits shows "Apply changes?". **Apply** there does the same thing and then switches tabs. **Cancel** stays on World.
 
 ### Tests
 
@@ -183,30 +179,9 @@ go vet ./...
 npm run build --prefix frontend
 ```
 
-`go test` covers the language, the demo models, and the GraphQL API (two sessions stay isolated, the command center evaluates `2 + 3 * 4`, setup and step move the tick counter, a slider write sticks, and a websocket subscription observes setup). `npm run build` typechecks the UI and produces a production bundle.
-
-### Desktop window
-
-The Fyne window is still there. It needs cgo and, on Linux, a C compiler plus OpenGL / X11 headers (`build-essential`, `libgl1-mesa-dev`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`). It has Interface, World, and Code tabs, and the model menu is labeled Models. World holds max fps, the coordinates, patch size, wrapping, and Apply. Apply resizes the world in the process. Stop sets the halt flag without taking the session lock.
+`go test` covers the language, the demo models, and the GraphQL API (two sessions stay isolated, the command center evaluates `2 + 3 * 4`, setup and step move the tick counter, a slider write sticks, and a websocket subscription observes setup). `npm run build` typechecks the UI and produces a production bundle. A Wolf Sheep timing check lives with the language tests:
 
 ```bash
-go build -o gonetlogo ./cmd/gonetlogo
-./gonetlogo
-```
-
-Headless still of that window, after `setup` and 30 `go` steps:
-
-```bash
-./gonetlogo -snapshot fire.png -model fire.nlogo -steps 30 -seed 1
-```
-
-`-model` is a built-in name (`fire`, `life`, `termites`, `wolfsheep`, `edge`, `output`, `plot`, `Robby the Robot`) or a path. `-seed 0` keeps a clock seed.
-
-Headless Wolf Sheep benchmark (the model's world, fixed seed, samples every 100 ticks, optional CPU profile):
-
-```bash
-./gonetlogo -bench -ticks 1000 -seed 1 -cpuprofile wolf.pprof
-go tool pprof -top wolf.pprof
 go test -bench=BenchmarkWolfSheep101 -benchtime=1x ./pkg/nl
 ```
 
@@ -214,11 +189,7 @@ go test -bench=BenchmarkWolfSheep101 -benchtime=1x ./pkg/nl
 
 ## Why the web client is React
 
-The UI is TypeScript, React, and Vite, with [urql](https://formidable.com/open-source/urql/) and [graphql-ws](https://github.com/enisdenjo/graphql-ws). The screen is a widget desktop: a canvas, tabs, sliders, switches, a command line, and a live subscription. React is the usual way to build that, and urql's subscription exchange is a small adapter onto the `graphql-transport-ws` protocol that gqlgen already speaks. Vite's dev server proxies `/graphql` (HTTP and websocket) so the browser has one origin. Svelte would also be a reasonable fit; React won because the widget panel and the subscription are ordinary component state, and the GraphQL client story is the one most people already know how to debug.
-
-## Why the desktop app stays
-
-The Fyne window is an optional client of `pkg/nl`. It does not speak GraphQL. A native window and an in-process interpreter share memory, which is what a desktop modeler wants: no session id, no socket, and the same binary as before. Putting that window behind the API would add a network hop and would not give the window any new capability. The web UI is the GraphQL client. Build the window when you want a local app; run `./scripts/dev.sh` when you want the browser.
+The UI is TypeScript, React, and Vite, with [urql](https://formidable.com/open-source/urql/) and [graphql-ws](https://github.com/enisdenjo/graphql-ws). The screen is a panel of widgets: a canvas, tabs, sliders, switches, a command line, and a live subscription. React is the usual way to build that, and urql's subscription exchange is a small adapter onto the `graphql-transport-ws` protocol that gqlgen already speaks. Vite's dev server proxies `/graphql` (HTTP and websocket) so the browser has one origin. Svelte would also be a reasonable fit; React won because the widget panel and the subscription are ordinary component state, and the GraphQL client story is the one most people already know how to debug.
 
 ## Architecture
 
@@ -230,14 +201,13 @@ backend/graph              generated schema and resolvers
 pkg/nl                     lexer, parser, interpreter, world, file loader
 models                     original demo programs (embedded)
 frontend                   React UI; GraphQL only
-internal/gui               optional Fyne desktop
-internal/logcfg            log level, format, and file for both binaries
-cmd/gonetlogo              desktop window, or -snapshot
+internal/logcfg            log level, format, and file
+cmd/modelcheck             check a model file from the command line
 ```
 
-The interpreter is a tree walk, not a bytecode compiler. `pkg/nl` does not import the API or either UI, so another Go program can embed it.
+The interpreter is a tree walk, not a bytecode compiler. `pkg/nl` does not import the API or the UI, so another Go program can embed it.
 
-Each GraphQL session has its own VM, its own world, and its own widget values. `createSession` does not run setup; the client does. While go is running, a goroutine steps the model about every 30ms, and another publishes a frame on the frame-rate cap (default 24). A long button releases the world lock about every 50ms, so the view and stop keep working through a run such as Robby the Robot. The desktop window yields on that same interval, and its Stop button sets the halt flag without taking the session lock. The speed slider matches the desktop: at 50 and above, several steps run per frame; below 50, frames are skipped. While a run is active, the server ignores another button, setup, step, a command-center line, a code edit, a model load, and a world change. Pressing the running forever button still stops it. Slider, switch, chooser, input, and speed writes still apply.
+Each GraphQL session has its own VM, its own world, and its own widget values. `createSession` does not run setup; the client does. While go is running, a goroutine steps the model about every 30ms, and another publishes a frame on the frame-rate cap (default 24). A long button releases the world lock about every 50ms, so the view and stop keep working through a run such as Robby the Robot. The speed slider, at 50 and above, runs several steps per frame; below 50, frames are skipped. While a run is active, the server ignores another button, setup, step, a command-center line, a code edit, a model load, and a world change. Pressing the running forever button still stops it. Slider, switch, chooser, input, speed, frame-rate, and view-update writes still apply.
 
 A frame carries ticks, widget values (including monitor readings), output lines, plots, and the world: patch colors, the drawing layer, turtle shapes, labels, turtles, and links. It does not carry the source, so a running model does not reset the code editor. Mutations that compile, run a command, or edit a widget publish a frame as well.
 
@@ -248,10 +218,10 @@ The schema lives in `schema/schema.graphqls`. Operations:
 | Kind | Fields |
 | --- | --- |
 | Query | `models`, `session(id)`, `worldSettings(sessionId)` |
-| Mutation | `createSession`, `loadModel`, `loadModelSource`, `loadModelFile`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setFrameRate`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
+| Mutation | `createSession`, `loadModel`, `loadModelSource`, `loadModelFile`, `setCode`, `runCommand`, `setup`, `go`, `stop`, `step`, `pressButton`, `setSpeed`, `setFrameRate`, `setViewUpdates`, `setSlider`, `setSwitch`, `setChooser`, `setInput`, `setWorld` |
 | Subscription | `frames(sessionId)` over a websocket |
 
-`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World tab reads `worldSettings` and writes with `setWorld`, then runs setup. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second.
+`Session` is the full snapshot, including code. `Frame` is the same view without the code. Widgets are buttons, sliders, switches, choosers, inputs, monitors, notes, an output area, and plots. The world reports `minPxcor` / `maxPxcor` / `minPycor` / `maxPycor`, patch size, wrapping, turtles, links, labels, turtle shapes, the drawing layer, and `patchColors` (base64 RGB, one pixel per patch, so a 100×100 world stays one image). The web UI's World tab reads `worldSettings` and writes with `setWorld`, then runs setup. `setWorld` and `resize-world` both kill turtles and links and reset patches. A world must contain the origin and is limited to 256 patches on a side. `setFrameRate` clamps the publish cap to 1..120 frames per second. `setViewUpdates` takes `ticks` or `continuous`. `ticks` publishes the world snapshot taken at `tick`, `reset-ticks`, `tick-advance`, `display`, and when a button or command finishes. `continuous` publishes the live world on the timer. The choice is stored on the world as `viewUpdates` and rewritten into the loaded model text.
 
 The endpoint is `POST /graphql`. Subscriptions use the websocket on that same path (`graphql-transport-ws`, and the older `graphql-ws` protocol the test client speaks). `./scripts/dev.sh` serves a playground at `/` on the API port. The native `./bin/gonetlogo-server` binary serves the web UI at `/` and the playground at `/playground`. `-production` serves neither playground and rejects introspection. `GET /healthz` is the load-balancer check.
 
@@ -294,7 +264,7 @@ Colors are NetLogo numbers in `[0, 140)`, with the fourteen base hues and the sa
 
 `models/` holds the original demo programs, the embedded sample `Robby the Robot.nlogo` (CC0; the citation is in `models/README.md`), and `models/library/`, a snapshot of the NetLogo Models Library. Those library files keep their own licenses, mostly CC BY-NC-SA 3.0, some public domain. See `models/library/README.md`. `Robby the Robot.nlogo` stays at that path so existing demos and tests keep working. The library copy of the same model is the current `.nlogox` file.
 
-`loadModel` still serves only the embedded demos. **Open model…** in the web UI lists the library from the server and loads the chosen file with `loadModelFile`. If that folder cannot be resolved, the button falls back to choosing a file on this computer (`loadModelSource`). The desktop **Open** button and **File → Open…** start in the same folder. `GONETLOGO_MODELS_DIR` overrides that folder when it names an existing directory. A missing override is ignored. `MODELS_DIR` is the only directory the server will read. When it is unset, GoNetLogo looks for `models/` from the working directory and from the executable, including `bin/` and a `GoNetLogo.app` bundle that still sits next to the repo (`Contents/MacOS` walks up to the repo, and `Contents/Resources/models` is checked too). Absolute paths and any `..` segment are rejected. The web browser can list `GONETLOGO_MODELS_DIR` only when that directory is inside `MODELS_DIR`; the desktop dialog can still open an outside folder.
+`loadModel` still serves only the embedded demos. **Open model…** in the web UI lists the library from the server and loads the chosen file with `loadModelFile`. If that folder cannot be resolved, the button falls back to choosing a file on this computer (`loadModelSource`). `GONETLOGO_MODELS_DIR` overrides the Open folder when it names an existing directory. A missing override is ignored. `MODELS_DIR` is the only directory the server will read. When it is unset, GoNetLogo looks for `models/` from the working directory and from the executable, including `bin/`. Absolute paths and any `..` segment are rejected. The browser can list `GONETLOGO_MODELS_DIR` only when that directory is inside `MODELS_DIR`.
 
 | Model | What it shows |
 | --- | --- |
