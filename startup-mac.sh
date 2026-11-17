@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # Start the native GoNetLogo server (web UI and GraphQL on one port).
 # Foreground is the default. Background mode records a pid and a log.
-# --desktop launches the Fyne window. --open uses open(1) for the browser.
+# --open uses open(1) for the browser.
 #
 #   ./startup-mac.sh                      # foreground, http://localhost:8080
 #   PORT=9090 ./startup-mac.sh            # another port
 #   HOST=0.0.0.0 ./startup-mac.sh         # listen beyond localhost
 #   ./startup-mac.sh --background         # detach; pid and log under ./run
 #   ./startup-mac.sh --open               # also open the web UI
-#   ./startup-mac.sh --desktop            # Fyne window, no server
-#   ./startup-mac.sh --desktop --server   # window and server
 #   ./startup-mac.sh stop
 #   ./startup-mac.sh status
 #
@@ -24,29 +22,23 @@ cd "$root"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8080}"
 BIN="${BIN:-$root/bin/gonetlogo-server}"
-DESKTOP_BIN="${DESKTOP_BIN:-$root/bin/gonetlogo}"
-APP_BUNDLE="${APP_BUNDLE:-$root/bin/GoNetLogo.app}"
 RUNDIR="${RUNDIR:-$root/run}"
 PIDFILE="${PIDFILE:-$RUNDIR/gonetlogo-server.pid}"
 LOGFILE="${LOGFILE:-$RUNDIR/gonetlogo-server.log}"
-DESKTOP_LOG="${DESKTOP_LOG:-$RUNDIR/gonetlogo-desktop.log}"
 
 usage() {
   cat <<EOF
-usage: ./startup-mac.sh [start] [--background|-d] [--open] [--desktop] [--server]
+usage: ./startup-mac.sh [start] [--background|-d] [--open]
        ./startup-mac.sh stop
        ./startup-mac.sh status
 
   HOST         bind address (default 127.0.0.1)
   PORT         bind port (default 8080)
   BIN          server binary (default ./bin/gonetlogo-server)
-  DESKTOP_BIN  desktop binary (default ./bin/gonetlogo)
 
 Foreground is the default. Ctrl-C stops the server.
 --background writes ${PIDFILE} and ${LOGFILE}.
 --open opens the web UI with open(1).
---desktop launches the Fyne window. Alone, it does not start the server.
---server, --background, or --open with --desktop starts the server too.
 GONETLOGO_LOG_LEVEL and GONETLOGO_LOG_FILE pass through. This script does not
 add -log-level, -log-format, or -log-file; set those on the binary, or use the
 environment variables, the same way ./startup.sh does.
@@ -197,14 +189,6 @@ require_bin() {
   fi
 }
 
-require_desktop() {
-  if [[ -x "$DESKTOP_BIN" || -d "$APP_BUNDLE" ]]; then
-    return 0
-  fi
-  echo "startup-mac.sh: desktop app is missing. Run ./build-mac.sh first." >&2
-  exit 1
-}
-
 ensure_port_free() {
   local pid lsof
   if ! pid=$(foreign_listener); then
@@ -303,30 +287,6 @@ schedule_open() {
   ) >/dev/null 2>&1 &
 }
 
-launch_desktop_background() {
-  local pid
-  if [[ -x "$DESKTOP_BIN" ]]; then
-    mkdir -p "$RUNDIR"
-    : >>"$DESKTOP_LOG"
-    # macOS does not ship setsid. nohup keeps the window after this script exits.
-    nohup "$DESKTOP_BIN" >>"$DESKTOP_LOG" 2>&1 </dev/null &
-    pid=$!
-    echo "desktop pid ${pid} (log: ${DESKTOP_LOG})"
-    return 0
-  fi
-  open "$APP_BUNDLE"
-  echo "opened ${APP_BUNDLE}"
-}
-
-launch_desktop_foreground() {
-  if [[ -x "$DESKTOP_BIN" ]]; then
-    echo "GoNetLogo desktop"
-    exec "$DESKTOP_BIN"
-  fi
-  open "$APP_BUNDLE"
-  echo "opened ${APP_BUNDLE}"
-}
-
 start_foreground() {
   if [[ "$do_open" -eq 1 ]]; then
     schedule_open
@@ -381,42 +341,17 @@ require_apple_silicon() {
 }
 
 start_requested() {
-  local start_server=1
-  if [[ "$desktop" -eq 1 && "$server_flag" -eq 0 && "$background" -eq 0 && "$do_open" -eq 0 && "$saw_start_word" -eq 0 ]]; then
-    start_server=0
-  fi
-
-  if [[ "$start_server" -eq 1 ]]; then
-    require_bin
-  fi
-  if [[ "$desktop" -eq 1 ]]; then
-    require_desktop
-  fi
+  require_bin
 
   local already=0 pid=""
-  if [[ "$start_server" -eq 1 ]]; then
-    if pid=$(current_pid); then
-      already=1
-    else
-      ensure_port_free
-    fi
-  fi
-
-  if [[ "$desktop" -eq 1 ]]; then
-    if [[ "$start_server" -eq 1 ]]; then
-      launch_desktop_background
-    else
-      launch_desktop_foreground
-      return
-    fi
-  fi
-
-  if [[ "$start_server" -eq 0 ]]; then
-    return 0
+  if pid=$(current_pid); then
+    already=1
+  else
+    ensure_port_free
   fi
 
   if [[ "$already" -eq 1 ]]; then
-    if [[ "$background" -eq 1 || "$desktop" -eq 1 || "$do_open" -eq 1 ]]; then
+    if [[ "$background" -eq 1 || "$do_open" -eq 1 ]]; then
       echo "already running (pid ${pid})"
       public_url
       if [[ "$do_open" -eq 1 ]]; then
@@ -437,19 +372,14 @@ start_requested() {
 
 action=start
 background=0
-desktop=0
 do_open=0
-server_flag=0
-saw_start_word=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    start) action=start; saw_start_word=1 ;;
+    start) action=start ;;
     stop) action=stop ;;
     status) action=status ;;
     --background|-d|--daemon) background=1 ;;
     --open) do_open=1 ;;
-    --desktop) desktop=1 ;;
-    --server) server_flag=1 ;;
     -h|--help) usage; exit 0 ;;
     *)
       echo "startup-mac.sh: unknown argument: $1" >&2
@@ -466,14 +396,6 @@ if [[ "$action" != "start" && "$background" -eq 1 ]]; then
 fi
 if [[ "$action" != "start" && "$do_open" -eq 1 ]]; then
   echo "startup-mac.sh: --open applies to start" >&2
-  exit 1
-fi
-if [[ "$action" != "start" && "$desktop" -eq 1 ]]; then
-  echo "startup-mac.sh: --desktop applies to start" >&2
-  exit 1
-fi
-if [[ "$action" != "start" && "$server_flag" -eq 1 ]]; then
-  echo "startup-mac.sh: --server applies to start" >&2
   exit 1
 fi
 

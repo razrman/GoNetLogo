@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
 # Build the React UI and a single Go server that embeds it.
 # Output: ./bin/gonetlogo-server
-# Optional: ./build.sh --desktop also writes ./bin/gonetlogo (Fyne, needs cgo).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
 cd "$root"
 
-desktop=0
 for arg in "$@"; do
   case "$arg" in
-    --desktop) desktop=1 ;;
     -h|--help)
-      echo "usage: ./build.sh [--desktop]"
+      echo "usage: ./build.sh"
       echo "  builds ./bin/gonetlogo-server (web UI + GraphQL on one port)"
-      echo "  --desktop also builds ./bin/gonetlogo, the Fyne window"
       exit 0
       ;;
     *)
       echo "build.sh: unknown argument: $arg" >&2
-      echo "usage: ./build.sh [--desktop]" >&2
+      echo "usage: ./build.sh" >&2
       exit 1
       ;;
   esac
@@ -57,14 +53,6 @@ mkdir -p "$root/bin"
 echo "building bin/gonetlogo-server"
 CGO_ENABLED=0 go build -tags web -o "$root/bin/gonetlogo-server" ./backend/cmd/server
 
-if [[ "$desktop" -eq 1 ]]; then
-  echo "building bin/gonetlogo (desktop)"
-  CGO_ENABLED=1 go build -o "$root/bin/gonetlogo" ./cmd/gonetlogo
-fi
-
 echo
 echo "Built $root/bin/gonetlogo-server"
-if [[ "$desktop" -eq 1 ]]; then
-  echo "Built $root/bin/gonetlogo"
-fi
 echo "Start it with ./startup.sh"

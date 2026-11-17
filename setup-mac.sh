@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Install GoNetLogo's native build dependencies on macOS (Apple Silicon).
-# Xcode Command Line Tools supply clang for cgo. Homebrew supplies Go, Node.js,
-# and pkg-config. Fyne on macOS does not need X11 or Mesa headers.
+# Homebrew supplies Go and Node.js. The server is built with cgo off.
 # Safe to run more than once: anything already new enough is left alone.
 # macOS ships bash 3.2 and BSD tools. No associative arrays, mapfile, or ${var,,}.
 set -euo pipefail
@@ -13,8 +12,7 @@ if [[ $# -gt 0 ]]; then
   case "$1" in
     -h|--help)
       echo "usage: ./setup-mac.sh"
-      echo "  installs Xcode Command Line Tools (if missing), checks Homebrew,"
-      echo "  and installs Go, Node.js, pkg-config, and the frontend dependencies"
+      echo "  checks Homebrew and installs Go, Node.js, and the frontend dependencies"
       exit 0
       ;;
     *)
@@ -134,26 +132,6 @@ node_native() {
   local arch
   arch=$(node -p process.arch 2>/dev/null || true)
   [[ "$arch" == "arm64" ]]
-}
-
-require_clt() {
-  if xcode-select -p >/dev/null 2>&1; then
-    echo "Xcode Command Line Tools: $(xcode-select -p)"
-    return 0
-  fi
-  echo "setup-mac.sh: Xcode Command Line Tools are not installed." >&2
-  echo "A dialog will open. When it finishes, run ./setup-mac.sh again." >&2
-  xcode-select --install || true
-  exit 1
-}
-
-require_clang() {
-  if ! command -v clang >/dev/null 2>&1; then
-    echo "setup-mac.sh: clang is not on PATH. Re-run after the Command Line Tools finish installing." >&2
-    exit 1
-  fi
-  echo "clang: $(clang --version | head -n 1)"
-  echo "Fyne: cgo uses this clang. X11 and Mesa packages are not installed on macOS."
 }
 
 find_brew() {
@@ -289,9 +267,6 @@ install_frontend() {
   )
 }
 
-require_clt
-require_clang
-
 brew_bin=
 if ! brew_bin=$(find_brew); then
   brew_hint
@@ -313,13 +288,6 @@ if ! command -v tar >/dev/null 2>&1; then
   echo "setup-mac.sh: tar is not on PATH" >&2
   exit 1
 fi
-if command -v pkg-config >/dev/null 2>&1; then
-  echo "pkg-config: $(pkg-config --version)"
-else
-  brew_install pkg-config
-  use_brew_path
-fi
-
 install_go
 install_node
 install_frontend
@@ -328,5 +296,3 @@ echo
 echo "Ready to build. From the repo root:"
 echo "  ./build-mac.sh"
 echo "  ./startup-mac.sh"
-echo "Desktop window: ./build-mac.sh writes ./bin/gonetlogo"
-echo "Optional app bundle: ./build-mac.sh --app"

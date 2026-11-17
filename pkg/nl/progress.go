@@ -1,7 +1,7 @@
 package nl
 
-// Progress is a point-in-time sample of a running model. The desktop and
-// the server log it on a timer. It is not a frame and it does not copy
+// Progress is a point-in-time sample of a running model. The server logs
+// it on a timer. It is not a frame and it does not copy
 // turtles or plot points.
 type Progress struct {
 	Ticks      float64

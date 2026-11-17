@@ -74,8 +74,8 @@ func (vm *VM) checkpoint() {
 	}
 	vm.lastYield = now
 	// The published view is a copy taken when dirty is set. A long button
-	// used to publish only when it returned, so the desktop painter kept
-	// the frame from before go. Mark it stale before dropping the lock.
+	// used to publish only when it returned, so a painter kept the frame
+	// from before go. Mark it stale before dropping the lock.
 	vm.World.dirty.Store(true)
 	vm.World.mu.Unlock()
 	func() {

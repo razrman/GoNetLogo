@@ -78,7 +78,7 @@ const gradientSize = 256
 func (vm *VM) paletteCommand(name string, args []Value, pos Pos) (error, bool) {
 	switch name {
 	case "palette:scheme-dialog":
-		return fmt.Errorf("palette:scheme-dialog needs a desktop dialog and is not available in this runtime"), true
+		return fmt.Errorf("palette:scheme-dialog is not available in this runtime"), true
 	case "palette:set-alpha":
 		return vm.paletteSetAlpha(args, false, pos), true
 	case "palette:set-transparency":

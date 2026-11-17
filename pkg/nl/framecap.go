@@ -33,7 +33,7 @@ func FrameInterval(fps int) time.Duration {
 
 // FramePublisher counts model steps that were never published.
 // Publish keeps the latest snapshot only: it does not queue and it does
-// not block the step loop. Web and desktop share this counter.
+// not block the step loop.
 type FramePublisher struct {
 	pending      int
 	published    int

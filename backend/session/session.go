@@ -2478,7 +2478,7 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// stepsFor matches the desktop speed slider for speeds below 100.
+// stepsFor matches the speed slider for speeds below 100.
 // At 50 and above, several model steps run per frame.
 // Below 50, frames are skipped so the model slows down.
 // Speed 100 is not used as a step count: the slot runner treats it as

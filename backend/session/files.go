@@ -41,8 +41,7 @@ type LibraryListing struct {
 
 // OpenPath is the default Open folder relative to ModelsDir.
 // ok is false when that folder is missing or sits outside the models
-// directory. The desktop dialog may still open an outside
-// GONETLOGO_MODELS_DIR; the server will not read it.
+// directory. An outside GONETLOGO_MODELS_DIR is ignored by the server.
 func OpenPath() (string, bool) {
 	root, err := ModelsDir()
 	if err != nil {

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install GoNetLogo's native build dependencies on Ubuntu 22.04 or 24.04.
-# Apt supplies the C toolchain and Fyne headers. Go and Node.js come from
-# their official tarballs when the copies already on PATH are too old.
+# Go and Node.js come from their official tarballs when the copies already
+# on PATH are too old. The server is built with cgo off, so no C toolchain
+# or graphics headers are required.
 # Safe to run more than once: anything already new enough is left alone.
 set -euo pipefail
 
@@ -97,11 +98,6 @@ node_ok() {
 install_apt() {
   local pkg missing=()
   local pkgs=(
-    build-essential
-    gcc
-    pkg-config
-    libgl1-mesa-dev
-    xorg-dev
     ca-certificates
     curl
     tar
@@ -113,7 +109,7 @@ install_apt() {
     fi
   done
   if [[ ${#missing[@]} -eq 0 ]]; then
-    echo "apt: build tools, OpenGL, and X11 headers already installed"
+    echo "apt: download tools already installed"
     return 0
   fi
   echo "apt: installing ${missing[*]}"
@@ -300,4 +296,3 @@ echo
 echo "Ready to build. From the repo root:"
 echo "  ./build.sh"
 echo "  ./startup.sh"
-echo "Optional desktop window: ./build.sh --desktop && ./bin/gonetlogo"
