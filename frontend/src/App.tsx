@@ -15,6 +15,7 @@ import {
   RunCommand,
   SetChooser,
   SetCode,
+  SetWidgets,
   SetDynamics,
   SetDynamicsDt,
   SetInput,
@@ -40,6 +41,7 @@ import {
 } from './api'
 import type { Frame, PlotView, SessionInfo, SystemDynamics, Widget, WorldView } from './types'
 import { viewUpdateChoices, viewUpdatesFromModel, type ViewUpdates } from './viewUpdates'
+import { presentWidgetError, settleWidgetApply, widgetsApplyEnabled, widgetsLockedMessage } from './widgetsTab'
 import {
   dynamicsApplyEnabled,
   dynamicsDefinitionReadOnly,
@@ -80,6 +82,7 @@ type FileResult = { loadModelFile: SessionInfo }
 type SourceResult = { loadModelSource: SessionInfo }
 type LibraryResult = { library: LibraryListing }
 type CodeResult = { setCode: { ok: boolean; error: string | null; session?: { procedures: string[] } } }
+type WidgetResult = { setWidgets: { ok: boolean; error: string | null; session?: { widgetText: string } } }
 type DynamicsApply = {
   setDynamics: {
     ok: boolean
@@ -103,6 +106,7 @@ export function App() {
   const [, loadModelFile] = useMutation<FileResult>(LoadModelFile)
   const [, loadModelSource] = useMutation<SourceResult>(LoadModelSource)
   const [, setCodeMut] = useMutation<CodeResult>(SetCode)
+  const [, setWidgetsMut] = useMutation<WidgetResult>(SetWidgets)
   const [, setDynamicsMut] = useMutation<DynamicsApply>(SetDynamics)
   const [, setDtMut] = useMutation<DynamicsDtResult>(SetDynamicsDt)
   const [, runCommand] = useMutation<CommandResult>(RunCommand)
@@ -128,6 +132,8 @@ export function App() {
   const [modelName, setModelName] = useState('fire.nlogo')
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
+  const [widgetText, setWidgetText] = useState('')
+  const [widgetError, setWidgetError] = useState<string | null>(null)
   const [dynamics, setDynamics] = useState<SystemDynamics | null>(null)
   const [definition, setDefinition] = useState('')
   const [dynamicsError, setDynamicsError] = useState<string | null>(null)
@@ -217,6 +223,8 @@ export function App() {
       setSessionId(info.id)
       setModelName(info.modelName)
       setCode(info.code)
+      setWidgetText(info.widgetText ?? '')
+      setWidgetError(null)
       setInfo(info.info ?? '')
       setModelDir(info.modelDir ?? null)
       setNotes(info.notes ?? [])
@@ -298,6 +306,8 @@ export function App() {
     const info = res.data.loadModel
     setModelName(info.modelName)
     setCode(info.code)
+    setWidgetText(info.widgetText ?? '')
+    setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
@@ -362,6 +372,24 @@ export function App() {
     }
   }
 
+  async function applyWidgets() {
+    if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
+    const res = await setWidgetsMut({ id: sessionId, text: widgetText })
+    if (res.error) {
+      const message = res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+      setWidgetError(presentWidgetError(message, widgetText))
+      return
+    }
+    const applied = res.data?.setWidgets
+    const settled = settleWidgetApply(widgetText, {
+      ok: applied?.ok ?? false,
+      error: applied?.error,
+      widgetText: applied?.session?.widgetText,
+    })
+    setWidgetText(settled.widgetText)
+    setWidgetError(settled.error ? presentWidgetError(settled.error, settled.widgetText) : null)
+  }
+
   async function applyCode() {
     if (!sessionId) return
     const res = await setCodeMut({ id: sessionId, code })
@@ -417,6 +445,8 @@ export function App() {
     const info = res.data.loadModelSource
     setModelName(info.modelName)
     setCode(info.code)
+    setWidgetText(info.widgetText ?? '')
+    setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
@@ -501,6 +531,8 @@ export function App() {
   function applyOpenedModel(info: SessionInfo) {
     setModelName(info.modelName)
     setCode(info.code)
+    setWidgetText(info.widgetText ?? '')
+    setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
     setNotes(info.notes ?? [])
@@ -871,6 +903,28 @@ export function App() {
                 Apply code
               </button>
             </div>
+          </section>
+        ) : shownTab === 'widgets' ? (
+          <section className="code-panel" aria-label="Widget text">
+            <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+            <textarea
+              aria-label="Widget text"
+              spellCheck={false}
+              value={widgetText}
+              onChange={(e) => setWidgetText(e.target.value)}
+            />
+            <div className="code-actions">
+              <button
+                className="act"
+                type="button"
+                disabled={!widgetsApplyEnabled(!!sessionId, frame?.running ?? false)}
+                onClick={() => void applyWidgets()}
+              >
+                Apply
+              </button>
+              {(frame?.running ?? false) && <span className="err">{widgetsLockedMessage}</span>}
+            </div>
+            {widgetError && <pre className="err">{widgetError}</pre>}
           </section>
         ) : shownTab === 'info' ? (
           <section className="info-panel" aria-label="Model info">

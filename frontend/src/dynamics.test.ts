@@ -25,8 +25,8 @@ test('the Dynamics tab is shown only while a system dynamics model is loaded', (
   assert.equal(hasSystemDynamics(undefined), false)
   assert.equal(hasSystemDynamics({ definition: 'dt 1\n' }), true)
 
-  assert.deepEqual(visibleMainTabs(false).map(mainTabLabel), ['Interface', 'World', 'Info', 'Code'])
-  assert.deepEqual(visibleMainTabs(true).map(mainTabLabel), ['Interface', 'World', 'Info', 'Code', 'Dynamics'])
+  assert.deepEqual(visibleMainTabs(false).map(mainTabLabel), ['Interface', 'World', 'Info', 'Code', 'Widgets'])
+  assert.deepEqual(visibleMainTabs(true).map(mainTabLabel), ['Interface', 'World', 'Info', 'Code', 'Widgets', 'Dynamics'])
 
   // A non-SDM model loaded from the Dynamics tab goes back to Interface.
   assert.equal(tabAfterModelLoad('dynamics', false), 'interface')

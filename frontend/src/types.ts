@@ -262,6 +262,7 @@ export type SessionInfo = {
   id: string
   modelName: string
   code: string
+  widgetText: string
   info: string
   modelDir: string | null
   notes: string[]

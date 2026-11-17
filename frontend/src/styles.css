@@ -1048,6 +1048,12 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
 
 .code-actions { display: flex; gap: 8px; align-items: center; }
 .code-actions .err { color: var(--danger); font-size: 0.85rem; }
+.code-panel pre.err {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
 
 .dynamics-note {
   margin: 0;

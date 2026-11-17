@@ -238,6 +238,7 @@ func parseNLogo(name, content string) (*FileModel, error) {
 func parseWidgetSection(m *FileModel, section string) error {
 	lines := strings.Split(strings.ReplaceAll(section, "\r\n", "\n"), "\n")
 	var block []string
+	blockLine := 1
 	flush := func() error {
 		if len(block) == 0 {
 			return nil
@@ -250,15 +251,22 @@ func parseWidgetSection(m *FileModel, section string) error {
 			return nil
 		}
 		err := parseWidgetBlock(m, block)
+		start := blockLine
 		block = nil
-		return err
+		if err != nil {
+			return fmt.Errorf("line %d: %w", start, err)
+		}
+		return nil
 	}
-	for _, line := range lines {
+	for i, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			if err := flush(); err != nil {
 				return err
 			}
 			continue
+		}
+		if len(block) == 0 {
+			blockLine = i + 1
 		}
 		block = append(block, line)
 	}
@@ -1111,7 +1119,8 @@ func firstAttr(se xml.StartElement, names ...string) string {
 	return ""
 }
 
-func plotSpecs(widgets []Widget) []PlotSpec {
+// PlotSpecs is the runtime plot list for these widgets.
+func PlotSpecs(widgets []Widget) []PlotSpec {
 	var out []PlotSpec
 	for _, w := range widgets {
 		if w.Kind != "plot" {
@@ -1311,7 +1320,7 @@ func (m *FileModel) NewVM(seed int64) (*VM, error) {
 // and installs plot widgets on the VM.
 func (m *FileModel) Apply(vm *VM) {
 	vm.SetHasOutput(m.HasOutput())
-	vm.InstallPlots(plotSpecs(m.Widgets))
+	vm.InstallPlots(PlotSpecs(m.Widgets))
 	for i := range m.Widgets {
 		w := &m.Widgets[i]
 		if w.Variable == "" {

@@ -1,7 +1,7 @@
 // Rules for the Dynamics tab. The tab is the text of a System Dynamics
 // diagram: dt, stocks, flows, and converters. It is not a diagram canvas.
 
-export type MainTab = 'interface' | 'world' | 'info' | 'code' | 'dynamics'
+export type MainTab = 'interface' | 'world' | 'info' | 'code' | 'widgets' | 'dynamics'
 
 export function hasSystemDynamics(dynamics: { definition: string } | null | undefined): boolean {
   return dynamics != null
@@ -10,7 +10,7 @@ export function hasSystemDynamics(dynamics: { definition: string } | null | unde
 // visibleMainTabs hides Dynamics unless the loaded model has a System
 // Dynamics section. Every other model keeps the original four tabs.
 export function visibleMainTabs(hasDynamics: boolean): MainTab[] {
-  const tabs: MainTab[] = ['interface', 'world', 'info', 'code']
+  const tabs: MainTab[] = ['interface', 'world', 'info', 'code', 'widgets']
   if (hasDynamics) tabs.push('dynamics')
   return tabs
 }
@@ -25,6 +25,8 @@ export function mainTabLabel(tab: MainTab): string {
       return 'Info'
     case 'code':
       return 'Code'
+    case 'widgets':
+      return 'Widgets'
     case 'dynamics':
       return 'Dynamics'
   }

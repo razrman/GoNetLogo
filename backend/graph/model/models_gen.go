@@ -235,6 +235,10 @@ type Session struct {
 	ID        string `json:"id"`
 	ModelName string `json:"modelName"`
 	Code      string `json:"code"`
+	// Interface section shown on the Widgets tab. Classic models send the
+	// widget section between the first two @#$#@#$#@ separators. .nlogox
+	// models send the widgets element.
+	WidgetText string `json:"widgetText"`
 	// Procedure names defined by the compiled model.
 	// NetLogo compares these case-insensitively, and the names here are
 	// the compiled spelling, which is lowercase.

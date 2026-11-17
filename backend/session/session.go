@@ -2013,6 +2013,7 @@ func (s *Session) sessionLocked() *model.Session {
 	}
 	if s.model != nil {
 		out.Code = s.model.Code
+		out.WidgetText = nl.ExtractWidgetSection(s.modelSource).Text
 		out.Info = s.model.Info
 		out.Dynamics = dynamicsView(s.model.Dynamics)
 		out.Notes = append([]string(nil), s.model.Notes...)

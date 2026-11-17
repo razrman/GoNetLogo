@@ -63,6 +63,17 @@ func (p *Program) Proc(name string) *Procedure {
 	return p.procs[name]
 }
 
+// Recompile turns procedure bodies into closures again. Call it after
+// InterfaceVars changes so a new slider is visible to procedures that
+// already mention it.
+func (p *Program) Recompile() {
+	if p == nil {
+		return
+	}
+	p.compiled = false
+	compileProgram(p)
+}
+
 func (p *Program) indexProcs() {
 	p.procs = map[string]*Procedure{}
 	for _, pr := range p.Procedures {
