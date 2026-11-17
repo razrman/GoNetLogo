@@ -399,6 +399,10 @@ type World struct {
 	// When true, rngSeed is applied before every setup and after a model load.
 	// A random-seed command in the model still runs afterward.
 	SeedOverride bool `json:"seedOverride"`
+	// How the view refreshes. "ticks" is NetLogo's on ticks: the picture
+	// changes at tick, reset-ticks, tick-advance, display, and when a button
+	// or command finishes. "continuous" redraws while a button runs.
+	ViewUpdates string `json:"viewUpdates"`
 	// Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
 	// pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
 	// Patch order (highest layer first). Black patches and alpha 0 are omitted.
@@ -467,4 +471,8 @@ type WorldSettings struct {
 	// When true, rngSeed is applied before every setup and after a model load.
 	// A random-seed command in the model still runs afterward.
 	SeedOverride bool `json:"seedOverride"`
+	// How the view refreshes. "ticks" is NetLogo's on ticks: the picture
+	// changes at tick, reset-ticks, tick-advance, display, and when a button
+	// or command finishes. "continuous" redraws while a button runs.
+	ViewUpdates string `json:"viewUpdates"`
 }

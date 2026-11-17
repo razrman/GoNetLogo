@@ -21,6 +21,7 @@ import {
   SetSlider,
   SetFrameRate,
   SetSpeed,
+  SetViewUpdates,
   SetSwitch,
   SetWorld,
   SetSeedOverride,
@@ -38,6 +39,7 @@ import {
   type LibraryListing,
 } from './api'
 import type { Frame, PlotView, SessionInfo, SystemDynamics, Widget, WorldView } from './types'
+import { viewUpdateChoices, viewUpdatesFromModel, type ViewUpdates } from './viewUpdates'
 import {
   dynamicsApplyEnabled,
   dynamicsDefinitionReadOnly,
@@ -111,6 +113,7 @@ export function App() {
   const [, pressMut] = useMutation(PressButton)
   const [, speedMut] = useMutation(SetSpeed)
   const [, frameRateMut] = useMutation(SetFrameRate)
+  const [, viewUpdatesMut] = useMutation(SetViewUpdates)
   const [, sliderMut] = useMutation(SetSlider)
   const [, switchMut] = useMutation(SetSwitch)
   const [, chooserMut] = useMutation(SetChooser)
@@ -889,6 +892,13 @@ export function App() {
                 if (sessionId) void frameRateMut({ id: sessionId, fps })
               }}
             />
+            <ViewUpdatesControl
+              mode={viewUpdatesFromModel(frame?.world.viewUpdates ?? settingsQ.data?.worldSettings.viewUpdates)}
+              disabled={!sessionId}
+              onChange={(mode) => {
+                if (sessionId) void viewUpdatesMut({ id: sessionId, mode })
+              }}
+            />
             <WorldSettingsForm
               world={frame?.world ?? settingsQ.data?.worldSettings ?? null}
               disabled={!sessionId || !(frame?.world || settingsQ.data?.worldSettings)}
@@ -1131,6 +1141,34 @@ function FrameCapControl({
           if (next !== '' && Number.isInteger(n) && n >= 1 && n <= 120) onChange(n)
         }}
       />
+    </label>
+  )
+}
+
+function ViewUpdatesControl({
+  mode,
+  disabled,
+  onChange,
+}: {
+  mode: ViewUpdates
+  disabled: boolean
+  onChange: (mode: ViewUpdates) => void
+}) {
+  return (
+    <label className="frame-cap">
+      view updates
+      <select
+        aria-label="view updates"
+        value={mode}
+        disabled={disabled}
+        onChange={(e) => onChange(viewUpdatesFromModel(e.target.value))}
+      >
+        {viewUpdateChoices.map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </select>
     </label>
   )
 }

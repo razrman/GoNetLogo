@@ -106,8 +106,16 @@ type VM struct {
 	outputPartial string
 	outputEpoch   int
 	outputSeq     int
-	// DisplayOn mirrors no-display / display. The GUI may skip frames when false.
+	// DisplayOn mirrors no-display / display. While false, frames keep
+	// the last world recorded for the view.
 	DisplayOn bool
+	// UpdatesOnTicks is the model's "on ticks" view. The world sent to
+	// the UI changes at tick, reset-ticks, tick-advance, display, and
+	// when a button or command finishes.
+	UpdatesOnTicks bool
+	// viewHook copies the world for the UI. It runs with World.mu held
+	// and must not lock the world again.
+	viewHook  func()
 	timer     time.Time
 	scopePool []*scope
 	tasks     int
@@ -177,6 +185,40 @@ func (vm *VM) SetHasOutput(on bool) { vm.hasOutput = on }
 
 // HasOutput reports whether output-* writes to the output area.
 func (vm *VM) HasOutput() bool { return vm.hasOutput }
+
+// SetViewHook installs the callback that records the world the view
+// should show. Nil clears it. The hook runs with World.mu held.
+func (vm *VM) SetViewHook(fn func()) {
+	if vm != nil {
+		vm.viewHook = fn
+	}
+}
+
+// FreezeView reports whether a frame should repeat the last displayed
+// world. On-ticks models do this between ticks. no-display does it
+// until display.
+func (vm *VM) FreezeView() bool {
+	return vm != nil && (vm.UpdatesOnTicks || !vm.DisplayOn)
+}
+
+// showViewLocked records the current world for the view. Caller holds
+// World.mu. no-display skips the record until display turns it back on.
+func (vm *VM) showViewLocked() {
+	if vm == nil || !vm.DisplayOn || vm.viewHook == nil {
+		return
+	}
+	vm.viewHook()
+}
+
+// ShowView records the current world for callers that do not hold World.mu.
+func (vm *VM) ShowView() {
+	if vm == nil || vm.World == nil {
+		return
+	}
+	vm.World.mu.Lock()
+	vm.showViewLocked()
+	vm.World.mu.Unlock()
+}
 
 // OutputArea returns completed output-area lines and the unfinished tail
 // from output-type / output-write. The line slice is a copy capped at

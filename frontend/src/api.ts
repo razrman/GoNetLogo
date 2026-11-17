@@ -283,6 +283,12 @@ export const SetFrameRate = `
   }
 `
 
+export const SetViewUpdates = `
+  mutation SetViewUpdates($id: ID!, $mode: String!) {
+    setViewUpdates(sessionId: $id, mode: $mode) { id }
+  }
+`
+
 export const SetSlider = `
   mutation SetSlider($id: ID!, $index: Int!, $value: Float!) {
     setSlider(sessionId: $id, index: $index, value: $value) { id }
@@ -323,6 +329,7 @@ export const WorldSettingsQuery = `
       threeD
       rngSeed
       seedOverride
+      viewUpdates
     }
   }
 `
@@ -434,6 +441,7 @@ export const Frames = `
         threeD
         rngSeed
         seedOverride
+        viewUpdates
         voxels
         observer { x y z targetX targetY targetZ revision }
         perspective

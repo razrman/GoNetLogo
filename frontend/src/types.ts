@@ -103,6 +103,8 @@ export type WorldView = {
   rngSeed?: string
   // Session seed override. When true, the server applies rngSeed before every setup.
   seedOverride?: boolean
+  // "ticks" or "continuous". Omitted until the server sends it.
+  viewUpdates?: string
 }
 
 export type ShapeElement = {
