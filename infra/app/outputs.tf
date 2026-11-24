@@ -1,3 +1,8 @@
+output "alb_access_log_bucket" {
+  description = "S3 bucket that stores ALB access logs. scripts/top-ips.sh reads it."
+  value       = aws_s3_bucket.alb_logs.id
+}
+
 output "alb_dns_name" {
   description = "Current load balancer hostname. The Route 53 alias follows this; it changes on every recreate."
   value       = aws_lb.app.dns_name

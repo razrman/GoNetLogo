@@ -159,7 +159,7 @@ cd infra/app
 tofu destroy
 ```
 
-One destroy removes the VPC, subnets, security groups, load balancer, target group, listeners, ECS cluster and service, log group, and the alias record. Destroy waits up to 20 minutes for Fargate network interfaces to release. There is no bucket to empty and no deletion protection to turn off. CloudWatch logs for the service are deleted with the log group.
+One destroy removes the VPC, subnets, security groups, load balancer, target group, listeners, ECS cluster and service, log group, the ALB access-log bucket, and the alias record. The log bucket has `force_destroy` set, so a non-empty bucket does not stop the destroy. Destroy waits up to 20 minutes for Fargate network interfaces to release. There is no deletion protection to turn off. CloudWatch logs for the service are deleted with the log group.
 
 Left in place: the state bucket and the app state file, the OIDC provider, the deploy role, the hosted zone and its NS and certificate-validation records, the certificate, the ECR images, the budget, and the image tag. The hostname stops resolving until the next Infra up, which writes a new alias at the new load balancer. GoDaddy is not edited.
 
@@ -200,7 +200,9 @@ Bootstrap is not planned in GitHub. An empty local state on the runner would ask
 
 ## What the role can do
 
-The deploy role's trust policy is `sts:AssumeRoleWithWebIdentity` for the one subject above and audience `sts.amazonaws.com`. Its policies cover the state bucket, pushing to the `gonetlogo` ECR repository and reading that repository's tags, the `gonetlogo` ECS cluster and service, registering task definitions and listing their tags, passing `gonetlogo-ecs-execution` to ECS, the image-tag parameter, the VPC and load balancer APIs in us-west-2 (including describe), the log group, reading the certificate, and changing records in this hosted zone. It cannot delete the hosted zone, the certificate, or the ECR repository, and it cannot edit its own trust policy. The task has no task role. The server does not call AWS.
+The deploy role's trust policy is `sts:AssumeRoleWithWebIdentity` for the one subject above and audience `sts.amazonaws.com`. Its policies cover the state bucket, pushing to the `gonetlogo` ECR repository and reading that repository's tags, the `gonetlogo` ECS cluster and service, registering task definitions and listing their tags, passing `gonetlogo-ecs-execution` to ECS, the image-tag parameter, the VPC and load balancer APIs in us-west-2 (including describe and `elasticloadbalancing:ModifyLoadBalancerAttributes`, which turns access logs on), the `gonetlogo-alb-logs-<account>` bucket (create, policy, lifecycle, encryption, public-access block, and the object deletes `force_destroy` uses), the log group, reading the certificate, and changing records in this hosted zone. It cannot delete the hosted zone, the certificate, or the ECR repository, and it cannot edit its own trust policy. The task has no task role. The server does not call AWS.
+
+The load balancer writes access logs to `s3://gonetlogo-alb-logs-<account>/alb/`. S3 expires them after `access_log_retention_days` (default 90). `./scripts/top-ips.sh` reads that bucket.
 
 Registering a task definition is granted on `*`. ECS does not accept a task-definition ARN for that action. Only `ecs:UpdateService` on `gonetlogo` can point a service at a revision.
 

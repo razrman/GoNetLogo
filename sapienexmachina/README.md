@@ -2,6 +2,8 @@
 
 Live at https://app.sapienexmachina.si. It's a static page in a private S3 bucket, served by CloudFront through Origin Access Control. Suggestions posted on the page go to a small Lambda at `/api/*` via an HTTP API, which writes CloudWatch logs and emails John via SES.
 
+CloudFront standard logging (v2) writes JSON access logs to `sapienexmachina-cf-logs-<account>` in us-west-2. S3 expires them after `access_log_retention_days` (default 90). The delivery source is in us-east-1, which is where CloudFront logging has to be created. `./scripts/top-ips.sh` in the repo root reads this bucket when it exists. This stack is applied by hand from a machine that has the local state file; it is not part of the GoNetLogo Infra up workflow.
+
 ```
 site/     index.html, grokbot-to-fierce-man.mp4 (a ping-pong loop: forward then reversed), poster.jpg
 lambda/   contact.py (suggestions form handler)

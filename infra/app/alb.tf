@@ -5,6 +5,9 @@ data "aws_acm_certificate" "app" {
 }
 
 resource "aws_lb" "app" {
+  # The bucket policy has to exist before the load balancer writes its test object.
+  depends_on = [aws_s3_bucket_policy.alb_logs]
+
   name                       = "gonetlogo"
   load_balancer_type         = "application"
   internal                   = false
@@ -14,6 +17,12 @@ resource "aws_lb" "app" {
   idle_timeout               = local.alb_idle_timeout
   drop_invalid_header_fields = true
   enable_deletion_protection = false
+
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.id
+    prefix  = "alb"
+    enabled = true
+  }
 
   tags = {
     Name = "gonetlogo"
