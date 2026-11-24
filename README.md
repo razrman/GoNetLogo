@@ -97,8 +97,8 @@ SIGINT and SIGTERM drain the web server. `http.Server.Shutdown` stops new connec
 
 What each level records:
 
-- **info** — startup. The server logs the model directory, web UI, playground, GraphQL URL, `/healthz`, the session cap, the shutdown timeout, and the pprof URL when `-pprof` is set. It also logs a model load (name, widget count, plot count, world size), a button press, start, and stop, and a world resize.
-- **debug** — HTTP requests other than `/graphql` (method, path, status, duration); GraphQL queries and mutations (method, path, operation name, type, duration); websocket connect and disconnect; the frames subscription connect and disconnect; session create and close; model compile (byte length, not source); the forever-button run loop (start, and stop with the reason: halt, stop, error, or finished); command-center lines, truncated. About every five seconds while a button runs, one progress line: tick, turtles, patches, drawing marks, plot points, output length, `rng_calls`, and `rng_per_sec`. The stop line repeats `rng_calls` and `rng_per_sec` for that run. A frame publish or UI refresh slower than a quarter second is included here when it is not already a warning. Nothing is logged per tick or per agent.
+- **info** — startup. The server logs the model directory, web UI, playground, GraphQL URL, `/healthz`, the session cap, the shutdown timeout, and the pprof URL when `-pprof` is set. It also logs a model load (name, widget count, plot count, world size), a button press, start, and stop, and a world resize. Each HTTP request other than `/graphql` and `/healthz` is one info line with method, path, status, duration, and `client` (the last `X-Forwarded-For` hop, which is the address the load balancer saw, or the connection address when that header is absent).
+- **debug** — GraphQL queries and mutations (method, path, operation name, type, duration, and `client` when the request is still on the context); websocket connect and disconnect; the frames subscription connect and disconnect; session create and close; model compile (byte length, not source); the forever-button run loop (start, and stop with the reason: halt, stop, error, or finished); command-center lines, truncated. About every five seconds while a button runs, one progress line: tick, turtles, patches, drawing marks, plot points, output length, `rng_calls`, and `rng_per_sec`. The stop line repeats `rng_calls` and `rng_per_sec` for that run. A frame publish or UI refresh slower than a quarter second is included here when it is not already a warning. Nothing is logged per tick or per agent.
 - **warn** — model load or compile failure, a session create rejected because the server is at its session cap, a button that did not compile, a NetLogo runtime error (procedure and source line when the interpreter recorded them), a websocket error, a request ignored because a run is already active (at most about one line per second per session), dropped frames summarized about once a second, the drawing layer or a plot hitting its 8192 cap, and a lock wait or UI refresh longer than 250ms.
 - **error** — the process cannot serve the UI, bind the pprof port, or listen on `-addr`. The process then exits 1. A drain that hits `-shutdown-timeout` is also logged here; the store is still closed and the process then exits.
 
@@ -132,7 +132,16 @@ docker buildx build --platform linux/amd64,linux/arm64 -t gonetlogo .
 
 ## AWS
 
-The web server's AWS layout is OpenTofu under `infra/`: a persistent stack (state bucket, deploy role, ECR, the `app.sapienexmachina.si` zone, the certificate for `gonetlogo.app.sapienexmachina.si`) and a destroyable app stack (VPC, load balancer, Fargate). The runbook is [infra/README.md](infra/README.md). It covers the one-time GoDaddy name-server delegation, bringing the app up and down, and what a month costs in each state.
+The web server's AWS layout is OpenTofu under `infra/`: a persistent stack (state bucket, deploy role, ECR, the `app.sapienexmachina.si` zone, the certificate for `gonetlogo.app.sapienexmachina.si`) and a destroyable app stack (VPC, load balancer, Fargate). The load balancer writes access logs to `gonetlogo-alb-logs-457504029722` and S3 expires them after 90 days. The runbook is [infra/README.md](infra/README.md). It covers the one-time GoDaddy name-server delegation, bringing the app up and down, and what a month costs in each state.
+
+Who connected, from those logs (and the landing-page CloudFront logs when that bucket exists):
+
+```bash
+./scripts/top-ips.sh
+HOURS=6 ./scripts/top-ips.sh
+```
+
+The script uses the AWS CLI. `AWS_PROFILE` defaults to `gonetlogo`. `HOURS` defaults to 24. It prints each client IP with its request count and the first and last time it was seen. `ALB_LOG_BUCKET` and `CF_LOG_BUCKET` override the bucket names.
 
 ## macOS (Apple Silicon)
 

@@ -102,3 +102,14 @@ variable "log_retention_days" {
   description = "CloudWatch log retention for /ecs/gonetlogo."
   default     = 14
 }
+
+variable "access_log_retention_days" {
+  type        = number
+  description = "Days to keep ALB access logs in S3 before they expire."
+  default     = 90
+
+  validation {
+    condition     = var.access_log_retention_days >= 1 && var.access_log_retention_days <= 3650
+    error_message = "access_log_retention_days must be from 1 to 3650."
+  }
+}

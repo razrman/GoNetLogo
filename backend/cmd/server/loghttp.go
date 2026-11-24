@@ -33,27 +33,47 @@ func requestFields(ctx context.Context) (method, path string) {
 	return "", ""
 }
 
-// logHTTP records non-GraphQL requests at debug. /graphql is logged once
-// per operation by the GraphQL handler, including the operation name.
+// logHTTP records non-GraphQL requests at info, including the client IP.
+// /graphql is logged once per operation by the GraphQL handler.
 // The request is always stored on the context so websocket hooks can see it.
 func logHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(withHTTPRequest(r.Context(), r))
-		logger := slog.Default()
-		if !logger.Enabled(r.Context(), slog.LevelDebug) || r.URL.Path == "/graphql" {
+		if r.URL.Path == "/graphql" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		logger.Debug("http request",
+		slog.Info("http request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", sw.status,
 			"duration", time.Since(start),
+			"client", clientIP(r),
 		)
 	})
+}
+
+// clientIP is the address the load balancer observed. When
+// X-Forwarded-For is present, that is the last hop: an Application Load
+// Balancer appends the connecting client after any address the caller sent.
+func clientIP(r *http.Request) string {
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			ip := strings.TrimSpace(parts[i])
+			if ip != "" {
+				return ip
+			}
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 type statusWriter struct {
@@ -115,14 +135,20 @@ func logGraphQL(srv *handler.Server) {
 		inner := next(ctx)
 		return func(ctx context.Context) *graphql.Response {
 			resp := inner(ctx)
+			line := fields(method, path, name, kind, sessionID, 0, "")
+			if r := httpRequest(ctx); r != nil {
+				line = append(line, "client", clientIP(r))
+			}
 			if resp != nil && len(resp.Errors) > 0 {
-				slog.Warn("graphql request", fields(method, path, name, kind, sessionID, 0, joinGraphQLErrors(resp.Errors))...)
+				line = append(line, "err", joinGraphQLErrors(resp.Errors))
+				slog.Warn("graphql request", line...)
 				return resp
 			}
 			if sub || !logger.Enabled(ctx, slog.LevelDebug) {
 				return resp
 			}
-			logger.Debug("graphql request", fields(method, path, name, kind, sessionID, time.Since(start), "")...)
+			line = append(line, "duration", time.Since(start))
+			logger.Debug("graphql request", line...)
 			return resp
 		}
 	})

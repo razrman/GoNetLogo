@@ -421,6 +421,7 @@ data "aws_iam_policy_document" "infra" {
       "elasticloadbalancing:DeleteTargetGroup",
       "elasticloadbalancing:Describe*",
       "elasticloadbalancing:ModifyListener",
+      # Turns ALB access logs on and off (access_logs.s3.* attributes).
       "elasticloadbalancing:ModifyLoadBalancerAttributes",
       "elasticloadbalancing:ModifyTargetGroup",
       "elasticloadbalancing:ModifyTargetGroupAttributes",
@@ -436,6 +437,50 @@ data "aws_iam_policy_document" "infra" {
       variable = "aws:RequestedRegion"
       values   = [var.aws_region]
     }
+  }
+
+  # The app stack creates gonetlogo-alb-logs-<account>. These actions are
+  # what that apply and a force_destroy teardown call. They are not on the
+  # live role until this bootstrap policy is applied.
+  statement {
+    sid    = "AlbAccessLogBucket"
+    effect = "Allow"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetBucketAcl",
+      "s3:GetBucketCORS",
+      "s3:GetBucketLocation",
+      "s3:GetBucketLogging",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetBucketOwnershipControls",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketRequestPayment",
+      "s3:GetBucketTagging",
+      "s3:GetBucketVersioning",
+      "s3:GetBucketWebsite",
+      "s3:GetEncryptionConfiguration",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:ListBucket",
+      "s3:ListBucketMultipartUploads",
+      "s3:ListBucketVersions",
+      "s3:PutBucketOwnershipControls",
+      "s3:PutBucketPolicy",
+      "s3:DeleteBucketPolicy",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketTagging",
+      "s3:PutEncryptionConfiguration",
+      "s3:PutLifecycleConfiguration",
+    ]
+    resources = [
+      "arn:aws:s3:::gonetlogo-alb-logs-${var.account_id}",
+      "arn:aws:s3:::gonetlogo-alb-logs-${var.account_id}/*",
+    ]
   }
 
   statement {
