@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { AuthMenu, AuthScreens, claimWorkspace } from './AuthChrome'
-import { authControls, modelLocked, nextAuthView, type AuthStatus, type AuthView } from './auth'
+import { authControls, freshSessionNavigation, modelLocked, nextAuthView, type AuthStatus, type AuthView } from './auth'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -584,6 +584,30 @@ export function App() {
     setLibraryError(null)
   }
 
+  async function openWorkspace(id: string): Promise<string | null> {
+    if (sessionIdRef.current === id) {
+      setAuthView('app')
+      return null
+    }
+    const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id }).toPromise()
+    if (looked.error) {
+      const message = looked.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+      return message || 'Could not open that session.'
+    }
+    const info = looked.data?.session
+    if (!info) return 'That session has ended.'
+    setFrame(null)
+    setOutputText('')
+    outputState.current = { epoch: -1, seq: 0, lines: [], partial: '' }
+    setSessionId(info.id)
+    applyOpenedModel(info)
+    writeStoredSession(info.id)
+    setBanner(null)
+    setCommandError(null)
+    setAuthView('app')
+    return null
+  }
+
   async function openLibraryFile(entry: LibraryEntry) {
     if (!sessionId) return
     setLibraryError(null)
@@ -691,6 +715,36 @@ export function App() {
       setBanner(setup.error.message)
       return setup.error.message
     }
+    return null
+  }
+
+  async function startFreshSession(): Promise<string | null> {
+    const created = await createSession({ model: 'fire.nlogo' })
+    if (created.error || !created.data) {
+      return presentCreateSessionError(created.error?.message)
+    }
+    const info = created.data.createSession
+    const opened = freshSessionNavigation(info.id)
+    if (opened.action === 'error') return opened.reason
+    setFrame(null)
+    setOutputText('')
+    outputState.current = { epoch: -1, seq: 0, lines: [], partial: '' }
+    setSessionId(info.id)
+    applyOpenedModel(info)
+    writeStoredSession(info.id)
+    setBanner(null)
+    setCommandError(null)
+    await speedMut({ id: info.id, speed: 30 })
+    const setupProblem = await autoSetup(info.id, info.procedures)
+    if (setupProblem && !reportDisconnect(setupProblem)) setBanner(setupProblem)
+    const go = await goMut({ id: info.id })
+    if (go.error) {
+      const message = go.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+      if (!reportDisconnect(message)) setBanner(message || 'Could not start go.')
+    } else {
+      setActive(foreverIndex(info.widgets))
+    }
+    setAuthView('app')
     return null
   }
 
@@ -881,6 +935,8 @@ export function App() {
           view={view}
           onView={setAuthView}
           onSignedIn={(user) => setAuthStatus({ ...authStatus, user })}
+          onOpenWorkspace={openWorkspace}
+          onNewSession={startFreshSession}
         />
       ) : (
       <VSplit

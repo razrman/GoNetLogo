@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { passwordProblem, type AuthStatus, type AuthUser, type AuthView } from './auth'
+import { addUserControl, passwordProblem, workspaceLabel, workspaceOpen, type AuthStatus, type AuthUser, type AuthView } from './auth'
 
 type SessionRow = {
   id: string
@@ -14,7 +14,7 @@ type WorkspaceRow = {
   id: string
   modelName: string
   created: string
-  running: boolean
+  status: string
 }
 
 type AdminUser = {
@@ -106,16 +106,20 @@ export function AuthScreens({
   view,
   onView,
   onSignedIn,
+  onOpenWorkspace,
+  onNewSession,
 }: {
   view: 'login' | 'signup' | 'account' | 'admin'
   onView: (view: AuthView) => void
   onSignedIn: (user: AuthUser) => void
+  onOpenWorkspace: (id: string) => Promise<string | null>
+  onNewSession: () => Promise<string | null>
 }) {
   return (
     <section className="auth-page" aria-label={view === 'admin' ? 'Admin' : view === 'account' ? 'Account' : 'Sign in'}>
       {view === 'login' && <LoginForm onView={onView} onSignedIn={onSignedIn} />}
       {view === 'signup' && <SignupForm onView={onView} onSignedIn={onSignedIn} />}
-      {view === 'account' && <AccountPage onView={onView} />}
+      {view === 'account' && <AccountPage onOpen={onOpenWorkspace} onNew={onNewSession} />}
       {view === 'admin' && <AdminPage />}
     </section>
   )
@@ -188,10 +192,19 @@ function SignupForm({ onView, onSignedIn }: { onView: (view: AuthView) => void; 
   )
 }
 
-function AccountPage({ onView }: { onView: (view: AuthView) => void }) {
+function AccountPage({
+  onOpen,
+  onNew,
+}: {
+  onOpen: (id: string) => Promise<string | null>
+  onNew: () => Promise<string | null>
+}) {
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [rowNote, setRowNote] = useState<Record<string, string>>({})
+  const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   const load = () => {
     void Promise.all([
       fetch('/auth/sessions').then((res) => res.json()) as Promise<{ sessions?: SessionRow[]; error?: string }>,
@@ -216,19 +229,59 @@ function AccountPage({ onView }: { onView: (view: AuthView) => void }) {
       <h2>Signed-in browsers</h2>
       <SessionTable rows={sessions} onRevoke={(id) => revoke({ id })} />
       <button className="auth-text" type="button" onClick={() => revoke({ allOthers: true })}>Sign out other browsers</button>
-      <h2>Model workspaces</h2>
+      <div className="auth-section-head">
+        <h2>Model workspaces</h2>
+        <button
+          type="button"
+          disabled={starting}
+          onClick={() => {
+            setStarting(true)
+            setStartError(null)
+            void onNew().then((problem) => {
+              setStarting(false)
+              if (problem) setStartError(problem)
+            })
+          }}
+        >New session</button>
+      </div>
+      {startError && <p className="auth-error">{startError}</p>}
       {workspaces.length === 0 && <p className="auth-quiet">No model is open under this account.</p>}
-      <ul className="auth-list">
-        {workspaces.map((row) => (
-          <li key={row.id}>
-            <span>{row.modelName || 'Untitled'}{row.running ? ' · running' : ''}</span>
-            <button type="button" onClick={() => {
-              void send('/auth/workspaces/end', 'POST', { id: row.id }).then(load).catch((err: Error) => setError(err.message))
-            }}>End</button>
-          </li>
-        ))}
-      </ul>
-      <button className="auth-text" type="button" onClick={() => onView('app')}>Back to the model</button>
+      {workspaces.length > 0 && (
+        <table className="auth-table">
+          <thead>
+            <tr><th>Model</th><th>Session</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {workspaces.map((row) => {
+              const choice = workspaceOpen(row.status)
+              const note = rowNote[row.id] || (!choice.enabled ? choice.reason : null)
+              return (
+                <tr key={row.id}>
+                  <td>{row.modelName || 'Untitled'}</td>
+                  <td><code className="auth-id">{row.id}</code></td>
+                  <td>{workspaceLabel(row.status)}</td>
+                  <td className="auth-actions">
+                    <button
+                      type="button"
+                      disabled={!choice.enabled}
+                      title={choice.reason ?? 'Open this model'}
+                      onClick={() => {
+                        void onOpen(row.id).then((problem) => {
+                          if (problem) setRowNote((prev) => ({ ...prev, [row.id]: problem }))
+                        })
+                      }}
+                    >Open</button>
+                    <button type="button" onClick={() => {
+                      void send('/auth/workspaces/end', 'POST', { id: row.id }).then(load).catch((err: Error) => setError(err.message))
+                    }}>End</button>
+                    {note && <span className="auth-quiet">{note}</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }
@@ -259,16 +312,50 @@ function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [sessions, setSessions] = useState<Record<string, SessionRow[]>>({})
   const [error, setError] = useState<string | null>(null)
+  const [canCreate, setCanCreate] = useState(false)
+  const [minPass, setMinPass] = useState(8)
+  const [adding, setAdding] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [draft, setDraft] = useState({ email: '', displayName: '', password: '', role: 'user' })
   const load = (q = query) => {
     const path = q.trim() ? `/admin/users?q=${encodeURIComponent(q.trim())}` : '/admin/users'
     void fetch(path).then(async (res) => {
-      const body = (await res.json()) as { users?: AdminUser[]; error?: string }
+      const body = (await res.json()) as {
+        users?: AdminUser[]
+        error?: string
+        canCreateUsers?: boolean
+        minPasswordLength?: number
+      }
       if (!res.ok) throw new Error(body.error || 'Admin only')
       setUsers(body.users ?? [])
+      setCanCreate(!!body.canCreateUsers)
+      if (body.minPasswordLength && body.minPasswordLength >= 8) setMinPass(body.minPasswordLength)
       setError(null)
     }).catch((err: Error) => setError(err.message))
   }
   useEffect(() => { load('') }, [])
+  const createControl = addUserControl(canCreate)
+  const createUser = (e: FormEvent) => {
+    e.preventDefault()
+    const problem = passwordProblem(draft.password, minPass)
+    if (!draft.email.trim()) {
+      setFormError('Enter an email address.')
+      return
+    }
+    if (problem) {
+      setFormError(problem)
+      return
+    }
+    setBusy(true)
+    setFormError(null)
+    void send('/admin/users', 'POST', draft).then(() => {
+      setAdding(false)
+      setDraft({ email: '', displayName: '', password: '', role: 'user' })
+      load()
+    }).catch((err: Error) => setFormError(err.message))
+      .finally(() => setBusy(false))
+  }
   const act = (method: string, path: string, body: unknown = {}) => {
     void send(path, method, body).then(() => load()).catch((err: Error) => setError(err.message))
   }
@@ -276,6 +363,27 @@ function AdminPage() {
     <div className="auth-card wide">
       <h1>Admin</h1>
       {error && <p className="auth-error">{error}</p>}
+      <div className="auth-actions">
+        <button type="button" disabled={!createControl.enabled} title={createControl.reason ?? undefined} onClick={() => { setAdding((open) => !open); setFormError(null) }}>
+          Add user
+        </button>
+        {!createControl.enabled && <span className="auth-quiet">{createControl.reason}</span>}
+      </div>
+      {adding && createControl.enabled && (
+        <form className="auth-create" onSubmit={createUser}>
+          <label>Email<input type="email" required value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></label>
+          <label>Display name<input type="text" value={draft.displayName} onChange={(e) => setDraft({ ...draft, displayName: e.target.value })} /></label>
+          <label>Password<input type="password" required value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></label>
+          <label>Role
+            <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })}>
+              <option value="user">user</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          {formError && <p className="auth-error">{formError}</p>}
+          <button className="act" type="submit" disabled={busy}>Create user</button>
+        </form>
+      )}
       <form className="auth-search" onSubmit={(e) => { e.preventDefault(); load() }}>
         <input aria-label="Search users" placeholder="Search email or name" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button type="submit">Search</button>

@@ -40,7 +40,17 @@ func (p *localProvider) Name() string { return "local" }
 
 func (p *localProvider) Users() UserStore { return p.users }
 
-func (p *localProvider) Signup(_ context.Context, req SignupRequest) (Identity, error) {
+func (p *localProvider) Signup(ctx context.Context, req SignupRequest) (Identity, error) {
+	return p.create(ctx, req, RoleUser, true)
+}
+
+// CreateUser is the admin form. The role comes from the form, not from
+// the initial-admin email list.
+func (p *localProvider) CreateUser(ctx context.Context, req SignupRequest, role string) (Identity, error) {
+	return p.create(ctx, req, role, false)
+}
+
+func (p *localProvider) create(_ context.Context, req SignupRequest, role string, promoteListed bool) (Identity, error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	if !validEmail(email) {
 		return Identity{}, fmt.Errorf("enter an email address")
@@ -58,6 +68,13 @@ func (p *localProvider) Signup(_ context.Context, req SignupRequest) (Identity, 
 	if len(name) > 80 {
 		return Identity{}, fmt.Errorf("display name is too long")
 	}
+	role = strings.ToLower(strings.TrimSpace(role))
+	if promoteListed && p.admins[email] {
+		role = RoleAdmin
+	}
+	if role != RoleUser && role != RoleAdmin {
+		return Identity{}, fmt.Errorf("role must be user or admin")
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return Identity{}, err
@@ -65,10 +82,6 @@ func (p *localProvider) Signup(_ context.Context, req SignupRequest) (Identity, 
 	id, err := randomID()
 	if err != nil {
 		return Identity{}, err
-	}
-	role := RoleUser
-	if p.admins[email] {
-		role = RoleAdmin
 	}
 	user := User{
 		ID:           id,

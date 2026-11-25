@@ -20,7 +20,7 @@ func (b modelBridge) List(userID string) []auth.ModelWorkspace {
 			ID:        item.ID,
 			ModelName: item.ModelName,
 			Created:   item.Created.UTC().Format(time.RFC3339),
-			Running:   item.Running,
+			Status:    item.Status,
 		})
 	}
 	return out

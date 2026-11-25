@@ -45,6 +45,48 @@ export function nextAuthView(status: AuthStatus | null, asked: AuthView): AuthVi
   return asked
 }
 
+export type WorkspaceStatus = 'running' | 'stopped' | 'ending'
+
+export function workspaceLabel(status: string): string {
+  if (status === 'running') return 'Running'
+  if (status === 'ending') return 'Ending'
+  return 'Stopped'
+}
+
+// A running or stopped session can be shown again. An ending session is
+// in its grace period, and anything else is already gone.
+export function workspaceOpen(status: string): { enabled: boolean; reason: string | null } {
+  if (status === 'running' || status === 'stopped') return { enabled: true, reason: null }
+  if (status === 'ending') return { enabled: false, reason: 'This session is ending.' }
+  return { enabled: false, reason: 'That session has ended.' }
+}
+
+// workspaceTarget is what Open does for one row. The current workspace
+// only switches the page back. Another openable session is loaded.
+export function workspaceTarget(currentId: string | null, workspaceId: string, status: string):
+  | { action: 'open' }
+  | { action: 'stay' }
+  | { action: 'blocked'; reason: string } {
+  const choice = workspaceOpen(status)
+  if (!choice.enabled) return { action: 'blocked', reason: choice.reason ?? 'That session has ended.' }
+  if (currentId && currentId === workspaceId) return { action: 'stay' }
+  return { action: 'open' }
+}
+
+// freshSessionNavigation opens the session id returned by createSession.
+export function freshSessionNavigation(id: string | null | undefined):
+  | { action: 'open'; id: string }
+  | { action: 'error'; reason: string } {
+  const trimmed = (id ?? '').trim()
+  if (!trimmed) return { action: 'error', reason: 'Could not start a session.' }
+  return { action: 'open', id: trimmed }
+}
+
+export function addUserControl(canCreate: boolean): { enabled: boolean; reason: string | null } {
+  if (canCreate) return { enabled: true, reason: null }
+  return { enabled: false, reason: 'This sign-in provider cannot create users.' }
+}
+
 export function passwordProblem(password: string, min = 8): string | null {
   if (password.length < min) return `Use at least ${min} characters.`
   if (password.length > 200) return 'That password is too long.'

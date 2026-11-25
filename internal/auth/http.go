@@ -9,12 +9,13 @@ import (
 const csrfCookie = "gonetlogo_csrf"
 const csrfHeader = "X-CSRF-Token"
 
-// ModelWorkspace is one running GoNetLogo model owned by a user.
+// ModelWorkspace is one GoNetLogo model session owned by a user.
+// Status is running, stopped, or ending.
 type ModelWorkspace struct {
 	ID        string `json:"id"`
 	ModelName string `json:"modelName"`
 	Created   string `json:"created"`
-	Running   bool   `json:"running"`
+	Status    string `json:"status"`
 }
 
 // Workspaces lists and ends model sessions for a user. The session
@@ -48,6 +49,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/workspaces/claim", h.claimWorkspace)
 	mux.HandleFunc("POST /auth/workspaces/end", h.endWorkspace)
 	mux.Handle("GET /admin/users", RequireAdmin(http.HandlerFunc(h.adminUsers)))
+	mux.Handle("POST /admin/users", RequireAdmin(http.HandlerFunc(h.adminCreate)))
 	mux.Handle("POST /admin/users/{id}/role", RequireAdmin(http.HandlerFunc(h.adminRole)))
 	mux.Handle("POST /admin/users/{id}/disabled", RequireAdmin(http.HandlerFunc(h.adminDisabled)))
 	mux.Handle("DELETE /admin/users/{id}", RequireAdmin(http.HandlerFunc(h.adminDelete)))
@@ -249,8 +251,13 @@ func (h *Handler) endWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) adminUsers(w http.ResponseWriter, r *http.Request) {
+	body := map[string]any{
+		"users":             []User{},
+		"canCreateUsers":    h.creator() != nil,
+		"minPasswordLength": h.Config.MinPasswordLength,
+	}
 	if h.Users == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"users": []User{}})
+		writeJSON(w, http.StatusOK, body)
 		return
 	}
 	users, err := h.Users.List()
@@ -266,7 +273,53 @@ func (h *Handler) adminUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, user.Public())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": out})
+	body["users"] = out
+	writeJSON(w, http.StatusOK, body)
+}
+
+func (h *Handler) adminCreate(w http.ResponseWriter, r *http.Request) {
+	if !h.allowChange(w, r) {
+		return
+	}
+	creator := h.creator()
+	if creator == nil {
+		writeError(w, http.StatusNotFound, "this provider cannot create users")
+		return
+	}
+	var body struct {
+		Email       string `json:"email"`
+		DisplayName string `json:"displayName"`
+		Password    string `json:"password"`
+		Role        string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "could not read that request")
+		return
+	}
+	ident, err := creator.CreateUser(r.Context(), SignupRequest{
+		Email:       body.Email,
+		DisplayName: body.DisplayName,
+		Password:    body.Password,
+	}, body.Role)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.Users == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"user": ident})
+		return
+	}
+	user, ok, err := h.Users.ByID(ident.UserID)
+	if err != nil || !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"user": ident})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user.Public()})
+}
+
+func (h *Handler) creator() UserCreator {
+	creator, _ := h.Provider.(UserCreator)
+	return creator
 }
 
 func (h *Handler) adminRole(w http.ResponseWriter, r *http.Request) {

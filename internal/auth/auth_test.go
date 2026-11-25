@@ -304,6 +304,129 @@ func TestLogoutInvalidatesTheSession(t *testing.T) {
 	}
 }
 
+func TestAdminCreatesUser(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Provider = "local"
+	cfg.UsersFile = filepath.Join(dir, "users.json")
+	cfg.MinPasswordLength = 8
+	cfg.InitialAdminEmails = []string{"admin@example.com"}
+	sessions := NewSessionManager(cfg)
+	provider, err := NewProvider(cfg, sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := provider.(UserCreator); !ok {
+		t.Fatal("local provider should create users")
+	}
+	h := &Handler{Config: cfg, Provider: provider, Sessions: sessions, Users: provider.(*localProvider).Users()}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(Middleware(provider, sessions)(mux))
+	defer srv.Close()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Client().Jar = jar
+
+	token := csrfToken(t, srv)
+	admin := postJSON(t, srv, "/auth/signup", token, `{"email":"admin@example.com","password":"correct-horse","displayName":"Ada"}`, nil)
+	if admin["role"] != RoleAdmin && admin["role"] != RoleUser {
+		t.Fatalf("admin %#v", admin)
+	}
+	adminCookie := cookieHeader(t, srv)
+
+	listed := getJSON(t, srv, "/admin/users", adminCookie)
+	if listed["canCreateUsers"] != true {
+		t.Fatalf("canCreateUsers %#v", listed["canCreateUsers"])
+	}
+
+	token = csrfToken(t, srv)
+	created := postJSON(t, srv, "/admin/users", token, `{"email":"new@example.com","password":"correct-horse","displayName":"New","role":"user"}`, map[string]string{"Cookie": adminCookie})
+	if created["email"] != "new@example.com" || created["role"] != RoleUser || created["passwordHash"] != nil {
+		t.Fatalf("created %#v", created)
+	}
+
+	token = csrfToken(t, srv)
+	dup := do(t, srv, http.MethodPost, "/admin/users", adminCookie, token, `{"email":"new@example.com","password":"correct-horse","role":"admin"}`)
+	if dup.StatusCode != http.StatusBadRequest {
+		t.Fatalf("duplicate %d", dup.StatusCode)
+	}
+	dup.Body.Close()
+
+	token = csrfToken(t, srv)
+	short := do(t, srv, http.MethodPost, "/admin/users", adminCookie, token, `{"email":"short@example.com","password":"tiny","role":"user"}`)
+	if short.StatusCode != http.StatusBadRequest {
+		t.Fatalf("short password %d", short.StatusCode)
+	}
+	short.Body.Close()
+
+	token = csrfToken(t, srv)
+	badRole := do(t, srv, http.MethodPost, "/admin/users", adminCookie, token, `{"email":"role@example.com","password":"correct-horse","role":"owner"}`)
+	if badRole.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad role %d", badRole.StatusCode)
+	}
+	badRole.Body.Close()
+
+	found := getJSON(t, srv, "/admin/users?q=new@", adminCookie)
+	users := found["users"].([]any)
+	if len(users) != 1 || users[0].(map[string]any)["displayName"] != "New" {
+		t.Fatalf("list %#v", found)
+	}
+}
+
+func TestProviderWithoutCreateHidesAddUser(t *testing.T) {
+	if _, ok := AuthProvider(noneProvider{}).(UserCreator); ok {
+		t.Fatal("provider none should not create users")
+	}
+	cfg := DefaultConfig()
+	sessions := NewSessionManager(cfg)
+	item, err := sessions.Start("admin", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := stubAdminProvider{sessionID: item.ID}
+	h := &Handler{Config: cfg, Provider: provider, Sessions: sessions}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(Middleware(provider, sessions)(mux))
+	defer srv.Close()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Client().Jar = jar
+	srv.Client().Jar.SetCookies(mustURL(t, srv.URL), []*http.Cookie{{
+		Name: cfg.Cookie.Name, Value: item.ID, Path: "/",
+	}})
+	token := csrfToken(t, srv)
+	cookie := cookieHeader(t, srv)
+	listed := getJSON(t, srv, "/admin/users", cookie)
+	if listed["canCreateUsers"] != false {
+		t.Fatalf("canCreateUsers %#v", listed["canCreateUsers"])
+	}
+	res := do(t, srv, http.MethodPost, "/admin/users", cookie, token, `{"email":"a@b.co","password":"correct-horse","role":"user"}`)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("create status %d", res.StatusCode)
+	}
+}
+
+type stubAdminProvider struct {
+	noneProvider
+	sessionID string
+}
+
+func (p stubAdminProvider) Name() string { return "stub" }
+
+func (p stubAdminProvider) Verify(_ context.Context, sessionID string) (Identity, error) {
+	if sessionID != p.sessionID {
+		return Identity{}, ErrAnonymous
+	}
+	return Identity{UserID: "admin", Provider: "stub", Subject: "admin", Email: "admin@example.com", DisplayName: "Ada", Role: RoleAdmin}, nil
+}
+
 type fakeModels struct{}
 
 func (fakeModels) List(string) []ModelWorkspace { return nil }

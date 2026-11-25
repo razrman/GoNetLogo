@@ -159,25 +159,39 @@ func (st *Store) Create(modelName string) (*Session, error) {
 	return s, nil
 }
 
-// Get returns a session by id. It does not count as client activity, so a
-// test poll or a log line cannot postpone the idle sweep.
 // ForOwner lists model workspaces opened by a signed-in user.
+// closing is read under the store lock. The rest of the snapshot is
+// taken afterwards, because Session.mu must not be held with Store.mu.
 func (st *Store) ForOwner(userID string) []Workspace {
 	if userID == "" {
 		return nil
 	}
 	st.mu.Lock()
-	defer st.mu.Unlock()
-	var out []Workspace
+	type snap struct {
+		s       *Session
+		closing bool
+	}
+	snaps := make([]snap, 0, len(st.sessions))
 	for _, s := range st.sessions {
-		item := s.workspace()
-		if item.OwnerID == userID {
-			out = append(out, item)
+		snaps = append(snaps, snap{s: s, closing: s.closing})
+	}
+	st.mu.Unlock()
+	var out []Workspace
+	for _, item := range snaps {
+		ws := item.s.workspace()
+		if item.closing {
+			ws.Status = StatusEnding
+			ws.Running = false
+		}
+		if ws.OwnerID == userID {
+			out = append(out, ws)
 		}
 	}
 	return out
 }
 
+// Get returns a session by id. It does not count as client activity, so a
+// test poll or a log line cannot postpone the idle sweep.
 func (st *Store) Get(id string) (*Session, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -331,24 +345,42 @@ func (s *Session) OwnerID() string {
 	return s.ownerID
 }
 
+// Workspace status values. Running means a forever button is stepping.
+// Stopped means the session is still open and can be shown again.
+// Ending means an end request is in its grace period, so the session
+// cannot be opened.
+const (
+	StatusRunning = "running"
+	StatusStopped = "stopped"
+	StatusEnding  = "ending"
+)
+
 // Workspace is the public description of a model session.
 type Workspace struct {
 	ID        string
 	OwnerID   string
 	ModelName string
 	Created   time.Time
+	Status    string
 	Running   bool
 }
 
 func (s *Session) workspace() Workspace {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	status := StatusStopped
+	if s.closed {
+		status = StatusEnding
+	} else if s.running >= 0 {
+		status = StatusRunning
+	}
 	return Workspace{
 		ID:        s.id,
 		OwnerID:   s.ownerID,
 		ModelName: s.modelName,
 		Created:   s.created,
-		Running:   !s.closed && s.running >= 0,
+		Status:    status,
+		Running:   status == StatusRunning,
 	}
 }
 

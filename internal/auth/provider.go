@@ -13,6 +13,13 @@ var ErrDisabled = fmt.Errorf("authentication is not enabled")
 // ErrAnonymous means the request has no signed-in user.
 var ErrAnonymous = fmt.Errorf("not signed in")
 
+// UserCreator is an optional provider capability. The local provider
+// implements it. A redirect provider such as GitHub does not, and the
+// admin page hides Add user in that case.
+type UserCreator interface {
+	CreateUser(ctx context.Context, req SignupRequest, role string) (Identity, error)
+}
+
 // AuthProvider is one way to prove who a person is. Logout and session
 // verification sit here so HTTP middleware never mentions a concrete
 // provider. A redirect-based provider can return ErrDisabled from

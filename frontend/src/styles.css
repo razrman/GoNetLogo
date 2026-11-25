@@ -1186,6 +1186,40 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
   color: var(--ink);
 }
 
+.auth-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-section-head h2 { margin: 0; }
+
+.auth-id {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.auth-create {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.auth-create label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.auth-create select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: white;
+  color: var(--ink);
+}
+
+.auth-table button:disabled { opacity: 0.45; cursor: not-allowed; }
+.auth-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .auth-error { color: var(--danger); margin: 0; }
 .auth-quiet { color: var(--muted); margin: 0; }
 .auth-text { align-self: flex-start; background: transparent; border: 0; padding: 0; color: var(--steel); }

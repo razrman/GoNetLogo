@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { authControls, modelLocked, nextAuthView, passwordProblem, type AuthStatus } from './auth.ts'
+import { addUserControl, authControls, freshSessionNavigation, modelLocked, nextAuthView, passwordProblem, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
 
 const anon: AuthStatus = { provider: 'none', requireLogin: false, user: null }
 const localOpen: AuthStatus = { provider: 'local', requireLogin: false, user: null }
@@ -33,6 +33,34 @@ test('only an admin opens the admin page', () => {
   assert.equal(nextAuthView(user, 'admin'), 'app')
   assert.equal(nextAuthView(admin, 'admin'), 'admin')
   assert.equal(nextAuthView(localOpen, 'account'), 'login')
+})
+
+test('a workspace row shows the server status and only opens a live session', () => {
+  assert.equal(workspaceLabel('running'), 'Running')
+  assert.equal(workspaceLabel('stopped'), 'Stopped')
+  assert.equal(workspaceLabel('ending'), 'Ending')
+  assert.deepEqual(workspaceOpen('running'), { enabled: true, reason: null })
+  assert.deepEqual(workspaceOpen('stopped'), { enabled: true, reason: null })
+  assert.equal(workspaceOpen('ending').enabled, false)
+  assert.match(workspaceOpen('ending').reason ?? '', /ending/)
+  assert.match(workspaceOpen('gone').reason ?? '', /ended/)
+  assert.deepEqual(workspaceTarget('aaa', 'bbb', 'stopped'), { action: 'open' })
+  assert.deepEqual(workspaceTarget('aaa', 'aaa', 'running'), { action: 'stay' })
+  assert.equal(workspaceTarget('aaa', 'bbb', 'ending').action, 'blocked')
+})
+
+test('a new session opens that session id and a running row shows its id', () => {
+  assert.deepEqual(freshSessionNavigation('0123456789abcdef'), { action: 'open', id: '0123456789abcdef' })
+  assert.equal(freshSessionNavigation('  ').action, 'error')
+  assert.equal(freshSessionNavigation(null).action, 'error')
+  assert.equal(workspaceLabel('running'), 'Running')
+  assert.equal(workspaceTarget(null, '0123456789abcdef', 'running').action, 'open')
+})
+
+test('add user is available only when the provider can create accounts', () => {
+  assert.deepEqual(addUserControl(true), { enabled: true, reason: null })
+  assert.equal(addUserControl(false).enabled, false)
+  assert.match(addUserControl(false).reason ?? '', /cannot create users/)
 })
 
 test('short passwords are rejected before they are sent', () => {
