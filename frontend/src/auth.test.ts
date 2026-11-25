@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addUserControl, anonymousUseAllowed, atSessionLimit, authControls, clampMaxSessions, freshSessionNavigation, modelLocked, nextAuthView, ownSessionSummary, passwordProblem, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
+import { addUserControl, anonymousUseAllowed, atSessionLimit, authControls, clampMaxSessions, closePanel, freshSessionNavigation, modelLocked, nextAuthView, ownSessionSummary, passwordProblem, pushPanel, toggleSessions, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
 
 const anon: AuthStatus = { provider: 'none', requireLogin: false, user: null }
 const localOpen: AuthStatus = { provider: 'local', requireLogin: false, user: null }
@@ -29,6 +29,24 @@ test('accounts on show sign-in until allow_anonymous is set', () => {
   assert.equal(nextAuthView({ ...localOpen, allowAnonymous: true }, 'app'), 'app')
   assert.equal(modelLocked({ ...localOpen, requireLogin: true, allowAnonymous: true }), true)
   assert.equal(nextAuthView(user, 'app'), 'app')
+})
+
+test('closing a panel returns to the screen it was opened from', () => {
+  const fromModel = pushPanel(['app'], 'account')
+  assert.deepEqual(fromModel, ['app', 'account'])
+  const fromAccount = pushPanel(fromModel, 'admin')
+  assert.deepEqual(fromAccount, ['app', 'account', 'admin'])
+  assert.deepEqual(closePanel(fromAccount), ['app', 'account'])
+  assert.deepEqual(closePanel(['app', 'account']), ['app'])
+  assert.deepEqual(pushPanel(['app', 'login'], 'signup'), ['app', 'signup'])
+  assert.deepEqual(pushPanel(['app', 'account', 'admin'], 'account'), ['app', 'account'])
+  assert.deepEqual(pushPanel(['app', 'account'], 'app'), ['app'])
+})
+
+test('sessions toggles open under one user and closes on a second click', () => {
+  assert.equal(toggleSessions(null, 'pat'), 'pat')
+  assert.equal(toggleSessions('pat', 'pat'), null)
+  assert.equal(toggleSessions('pat', 'ada'), 'ada')
 })
 
 test('only an admin opens the admin page', () => {

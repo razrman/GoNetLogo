@@ -46,6 +46,36 @@ export function modelLocked(status: AuthStatus | null): boolean {
   return !anonymousUseAllowed(status)
 }
 
+// pushPanel records where a screen was opened from. Login and sign-up
+// replace each other instead of stacking. closePanel pops back.
+export function pushPanel(stack: AuthView[], next: AuthView): AuthView[] {
+  if (next === 'app') return ['app']
+  const top = stack[stack.length - 1] ?? 'app'
+  if (top === next) return stack
+  if (next === 'login' || next === 'signup') {
+    const base: AuthView[] = []
+    for (const view of stack) {
+      if (view !== 'login' && view !== 'signup') base.push(view)
+    }
+    if (base.length === 0) base.push('app')
+    base.push(next)
+    return base
+  }
+  const existing = stack.lastIndexOf(next)
+  if (existing >= 0) return stack.slice(0, existing + 1)
+  return [...stack, next]
+}
+
+export function closePanel(stack: AuthView[]): AuthView[] {
+  if (stack.length <= 1) return ['app']
+  return stack.slice(0, -1)
+}
+
+// toggleSessions opens one user's sessions under that row, or closes it.
+export function toggleSessions(openId: string | null, userId: string): string | null {
+  return openId === userId ? null : userId
+}
+
 export function nextAuthView(status: AuthStatus | null, asked: AuthView): AuthView {
   if (modelLocked(status) && (asked === 'app' || asked === 'admin' && status?.user?.role !== 'admin')) {
     return 'login'

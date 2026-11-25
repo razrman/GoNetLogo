@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
-import { addUserControl, atSessionLimit, clampMaxSessions, ownSessionSummary, passwordProblem, workspaceLabel, workspaceOpen, type AuthStatus, type AuthUser, type AuthView } from './auth'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import type { FormEvent, ReactNode } from 'react'
+import { addUserControl, atSessionLimit, clampMaxSessions, ownSessionSummary, passwordProblem, toggleSessions, workspaceLabel, workspaceOpen, type AuthStatus, type AuthUser, type AuthView } from './auth'
 
 type SessionRow = {
   id: string
@@ -126,6 +126,7 @@ export function AuthMenu({
 export function AuthScreens({
   view,
   onView,
+  onClose,
   onSignedIn,
   onOpenWorkspace,
   onNewSession,
@@ -133,25 +134,54 @@ export function AuthScreens({
 }: {
   view: 'login' | 'signup' | 'account' | 'admin'
   onView: (view: AuthView) => void
+  onClose: () => void
   onSignedIn: (user: AuthUser) => void
   onOpenWorkspace: (id: string) => Promise<string | null>
   onNewSession: () => Promise<string | null>
   claimCurrent: () => Promise<void>
 }) {
+  const panel = view === 'account' || view === 'admin'
   return (
-    <section className="auth-page" aria-label={view === 'admin' ? 'Admin' : view === 'account' ? 'Account' : 'Sign in'}>
+    <section className={panel ? 'auth-page auth-page-panel' : 'auth-page'} aria-label={view === 'admin' ? 'Admin' : view === 'account' ? 'Account' : 'Sign in'}>
       {view === 'login' && <LoginForm onView={onView} onSignedIn={onSignedIn} />}
       {view === 'signup' && <SignupForm onView={onView} onSignedIn={onSignedIn} />}
       {view === 'account' && (
-        <AccountPage
-          onOpen={onOpenWorkspace}
-          onNew={onNewSession}
-          claimCurrent={claimCurrent}
-          onLoggedOut={() => { window.location.href = '/' }}
-        />
+        <PanelShell title="Account" onClose={onClose}>
+          <AccountPage
+            onOpen={onOpenWorkspace}
+            onNew={onNewSession}
+            claimCurrent={claimCurrent}
+            onLoggedOut={() => { window.location.href = '/' }}
+          />
+        </PanelShell>
       )}
-      {view === 'admin' && <AdminPage />}
+      {view === 'admin' && (
+        <PanelShell title="Admin" onClose={onClose}>
+          <AdminPage />
+        </PanelShell>
+      )}
     </section>
+  )
+}
+
+function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="auth-panel">
+      <header className="auth-panel-bar">
+        <h1>{title}</h1>
+        <button type="button" className="auth-close" aria-label="Close" onClick={onClose}>×</button>
+      </header>
+      <div className="auth-panel-body">{children}</div>
+    </div>
   )
 }
 
@@ -270,7 +300,6 @@ function AccountPage({
   }
   return (
     <div className="auth-card wide">
-      <h1>Account</h1>
       {error && <p className="auth-error">{error}</p>}
       <h2>Signed-in browsers</h2>
       <SessionTable rows={sessions} onRevoke={(id) => revoke({ id })} />
@@ -363,6 +392,8 @@ function AdminPage() {
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState<AdminUser[]>([])
   const [details, setDetails] = useState<Record<string, UserDetail>>({})
+  const [openUser, setOpenUser] = useState<string | null>(null)
+  const detailRef = useRef<HTMLTableRowElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [canCreate, setCanCreate] = useState(false)
   const [minPass, setMinPass] = useState(8)
@@ -387,6 +418,10 @@ function AdminPage() {
     }).catch((err: Error) => setError(err.message))
   }
   useEffect(() => { load('') }, [])
+  useEffect(() => {
+    if (!openUser || !details[openUser]) return
+    detailRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [openUser, details])
   const createControl = addUserControl(canCreate)
   const createUser = (e: FormEvent) => {
     e.preventDefault()
@@ -428,7 +463,6 @@ function AdminPage() {
   }
   return (
     <div className="auth-card wide">
-      <h1>Admin</h1>
       {error && <p className="auth-error">{error}</p>}
       <div className="auth-actions">
         <button type="button" disabled={!createControl.enabled} title={createControl.reason ?? undefined} onClick={() => { setAdding((open) => !open); setFormError(null) }}>
@@ -461,7 +495,8 @@ function AdminPage() {
         </thead>
         <tbody>
           {users.map((user) => (
-            <tr key={user.id}>
+            <Fragment key={user.id}>
+            <tr>
               <td>{user.displayName}</td>
               <td>{user.email}</td>
               <td>{user.role}</td>
@@ -485,44 +520,57 @@ function AdminPage() {
                 <button type="button" onClick={() => {
                   if (window.confirm(`Delete ${user.email}?`)) act('DELETE', `/admin/users/${user.id}`)
                 }}>Delete</button>
-                <button type="button" onClick={() => loadDetail(user.id)}>Sessions</button>
+                <button
+                  type="button"
+                  aria-expanded={openUser === user.id}
+                  onClick={() => {
+                    const next = toggleSessions(openUser, user.id)
+                    setOpenUser(next)
+                    if (next) loadDetail(next)
+                  }}
+                >Sessions</button>
               </td>
             </tr>
+            {openUser === user.id && details[user.id] && (
+              <tr ref={detailRef}>
+                <td colSpan={6}>
+                  <div className="auth-user-detail">
+                    <h2>Login sessions</h2>
+                    <SessionTable rows={details[user.id].sessions} onRevoke={(sessionId) => {
+                      void send('/admin/sessions/revoke', 'POST', { id: sessionId }).then(() => loadDetail(user.id)).catch((err: Error) => setError(err.message))
+                    }} />
+                    <h2>Model workspaces</h2>
+                    <OwnSessionCounts open={details[user.id].openCount ?? details[user.id].workspaces.filter((row) => row.status !== 'ending').length} limit={details[user.id].maxSessions || 4} />
+                    {details[user.id].workspaces.length === 0 && <p className="auth-quiet">No model is open for this account.</p>}
+                    {details[user.id].workspaces.length > 0 && (
+                      <table className="auth-table">
+                        <thead>
+                          <tr><th>Model</th><th>Session</th><th>Status</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                          {details[user.id].workspaces.map((row) => (
+                            <tr key={row.id}>
+                              <td>{row.modelName || 'Untitled'}</td>
+                              <td><code className="auth-id">{row.id}</code></td>
+                              <td>{workspaceLabel(row.status)}</td>
+                              <td>
+                                <button type="button" onClick={() => {
+                                  void send('/admin/workspaces/end', 'POST', { userId: user.id, id: row.id }).then(() => loadDetail(user.id)).catch((err: Error) => setError(err.message))
+                                }}>End</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            )}
+            </Fragment>
           ))}
         </tbody>
       </table>
-      {Object.entries(details).map(([id, detail]) => (
-        <div key={id}>
-          <h2>Login sessions</h2>
-          <SessionTable rows={detail.sessions} onRevoke={(sessionId) => {
-            void send('/admin/sessions/revoke', 'POST', { id: sessionId }).then(() => loadDetail(id)).catch((err: Error) => setError(err.message))
-          }} />
-          <h2>Model workspaces</h2>
-          <OwnSessionCounts open={detail.openCount ?? detail.workspaces.filter((row) => row.status !== 'ending').length} limit={detail.maxSessions || 4} />
-          {detail.workspaces.length === 0 && <p className="auth-quiet">No model is open for this account.</p>}
-          {detail.workspaces.length > 0 && (
-            <table className="auth-table">
-              <thead>
-                <tr><th>Model</th><th>Session</th><th>Status</th><th></th></tr>
-              </thead>
-              <tbody>
-                {detail.workspaces.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.modelName || 'Untitled'}</td>
-                    <td><code className="auth-id">{row.id}</code></td>
-                    <td>{workspaceLabel(row.status)}</td>
-                    <td>
-                      <button type="button" onClick={() => {
-                        void send('/admin/workspaces/end', 'POST', { userId: id, id: row.id }).then(() => loadDetail(id)).catch((err: Error) => setError(err.message))
-                      }}>End</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      ))}
     </div>
   )
 }

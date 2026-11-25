@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { AuthMenu, AuthScreens, claimWorkspace, ensureWorkspaces } from './AuthChrome'
-import { authControls, freshSessionNavigation, modelLocked, nextAuthView, type AuthStatus, type AuthView } from './auth'
+import { authControls, closePanel, freshSessionNavigation, modelLocked, nextAuthView, pushPanel, type AuthStatus, type AuthView } from './auth'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -166,7 +166,8 @@ export function App() {
   const [active, setActive] = useState<number | null>(null)
   const [booting, setBooting] = useState(true)
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
-  const [authView, setAuthView] = useState<AuthView>('app')
+  const [history, setHistory] = useState<AuthView[]>(['app'])
+  const authView = history[history.length - 1] ?? 'app'
   const [outputText, setOutputText] = useState('')
   const [dropping, setDropping] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
@@ -656,7 +657,7 @@ export function App() {
 
   async function openWorkspace(id: string): Promise<string | null> {
     if (sessionIdRef.current === id) {
-      setAuthView('app')
+      setHistory(['app'])
       return null
     }
     const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id }).toPromise()
@@ -674,7 +675,7 @@ export function App() {
     writeStoredSession(info.id)
     setBanner(null)
     setCommandError(null)
-    setAuthView('app')
+    setHistory(['app'])
     return null
   }
 
@@ -814,7 +815,7 @@ export function App() {
     } else {
       setActive(foreverIndex(info.widgets))
     }
-    setAuthView('app')
+    setHistory(['app'])
     return null
   }
 
@@ -866,6 +867,8 @@ export function App() {
   const dropLabel = frame ? String(frame.droppedFrames) : '—'
   const auth = authControls(authStatus)
   const view = nextAuthView(authStatus, authView)
+  const showPanel = (next: AuthView) => setHistory((stack) => pushPanel(stack, next))
+  const hidePanel = () => setHistory((stack) => closePanel(stack))
   return (
     <div className="app">
       <header className="topbar">
@@ -959,7 +962,7 @@ export function App() {
         </div>
         <div className="topbar-right">
           {auth.showAuth && authStatus && (
-            <AuthMenu status={authStatus} view={view} onView={setAuthView} />
+            <AuthMenu status={authStatus} view={view} onView={showPanel} />
           )}
           <div className="run-timer" data-timer={timerLabel}><b>{timerLabel}</b></div>
           <div
@@ -1000,20 +1003,7 @@ export function App() {
         </div>
       )}
 
-      {view !== 'app' && authStatus ? (
-        <AuthScreens
-          view={view}
-          onView={setAuthView}
-          onSignedIn={(user) => {
-            setAuthStatus({ ...authStatus, user })
-            const id = sessionIdRef.current
-            if (id) void claimWorkspace(id).catch(() => {})
-          }}
-          claimCurrent={claimCurrentSession}
-          onOpenWorkspace={openWorkspace}
-          onNewSession={startFreshSession}
-        />
-      ) : (
+      <div className={view === 'app' ? 'model-slot' : 'model-slot is-hidden'} aria-hidden={view !== 'app'}>
       <VSplit
         trailingSize={commandH}
         onTrailingSize={setCommandH}
@@ -1256,6 +1246,21 @@ export function App() {
       </section>
         }
       />
+      </div>
+      {view !== 'app' && authStatus && (
+        <AuthScreens
+          view={view}
+          onView={showPanel}
+          onClose={hidePanel}
+          onSignedIn={(user) => {
+            setAuthStatus({ ...authStatus, user })
+            const id = sessionIdRef.current
+            if (id) void claimWorkspace(id).catch(() => {})
+          }}
+          claimCurrent={claimCurrentSession}
+          onOpenWorkspace={openWorkspace}
+          onNewSession={startFreshSession}
+        />
       )}
 
       {library && (
