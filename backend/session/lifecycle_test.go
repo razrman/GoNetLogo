@@ -598,6 +598,112 @@ func TestSessionPostSameOrigin(t *testing.T) {
 	st.mu.Unlock()
 }
 
+func TestOwnedBeaconDoesNotEndAndAnonymousStillDoes(t *testing.T) {
+	grace := 40 * time.Millisecond
+	st := NewStoreWith(shortLife(grace))
+	t.Cleanup(st.Close)
+	st.SetOwnedIdle(time.Hour)
+	owned, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned.SetOwner("pat")
+	other, err := st.Create("life.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.SetOwner("ada")
+	anon, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.Attach(owned.ID()); !ok {
+		t.Fatal("attach")
+	}
+	st.Detach(owned.ID())
+	handler := EndHandler(st)
+	for _, id := range []string{owned.ID(), other.ID(), anon.ID()} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, sameOriginPost("/session/end", id, "text/plain"))
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("beacon %s status %d", id, rec.Code)
+		}
+	}
+	waitGone(t, st, anon.ID())
+	if _, ok := st.Get(owned.ID()); !ok {
+		t.Fatal("pat's owned session ended when the tab closed")
+	}
+	if st.IsClosing(owned.ID()) {
+		t.Fatal("beacon marked pat's session ending")
+	}
+	if _, ok := st.Get(other.ID()); !ok || st.IsClosing(other.ID()) {
+		t.Fatal("ada's session was affected by the other beacon")
+	}
+	if !st.Release(owned.ID()) || !st.IsClosing(owned.ID()) {
+		t.Fatal("explicit end did not mark the owned session")
+	}
+	waitGone(t, st, owned.ID())
+	if _, ok := st.Get(other.ID()); !ok {
+		t.Fatal("ending pat's session removed ada's")
+	}
+}
+
+func TestOwnedDetachSurvivesHeartbeatAndIdleSweepRemovesIt(t *testing.T) {
+	st := NewStoreWith(Lifecycle{
+		Grace:     20 * time.Millisecond,
+		Idle:      time.Hour,
+		Sweep:     10 * time.Millisecond,
+		Heartbeat: 30 * time.Millisecond,
+	})
+	t.Cleanup(st.Close)
+	st.SetOwnedIdle(time.Hour)
+	s, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetOwner("pat")
+	if _, ok := st.Attach(s.ID()); !ok {
+		t.Fatal("attach")
+	}
+	st.Detach(s.ID())
+	time.Sleep(120 * time.Millisecond)
+	if _, ok := st.Get(s.ID()); !ok {
+		t.Fatal("closed tab reaped an owned session inside the idle timeout")
+	}
+	if st.IsClosing(s.ID()) {
+		t.Fatal("detach marked the owned session ending")
+	}
+	st.SetOwnedIdle(20 * time.Millisecond)
+	st.mu.Lock()
+	s.lastSocket = time.Now().Add(-time.Hour)
+	s.lastHeartbeat = time.Time{}
+	st.mu.Unlock()
+	waitGone(t, st, s.ID())
+}
+
+func TestForOwnerListsTheMostRecentSessionFirst(t *testing.T) {
+	st := NewStore()
+	t.Cleanup(st.Close)
+	older, err := st.Create("fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := st.Create("life.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	older.SetOwner("pat")
+	newer.SetOwner("pat")
+	st.mu.Lock()
+	older.lastSocket = time.Now().Add(-time.Hour)
+	newer.lastSocket = time.Now()
+	st.mu.Unlock()
+	list := st.ForOwner("pat")
+	if len(list) != 2 || list[0].ID != newer.ID() || list[1].ID != older.ID() {
+		t.Fatalf("order %+v", list)
+	}
+}
+
 func openFDs(path string) int {
 	want, err := filepath.EvalSymlinks(path)
 	if err != nil {

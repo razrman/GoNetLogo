@@ -31,6 +31,7 @@ func TestParseRejectsBadConfig(t *testing.T) {
 		{"short password", "provider: local\nproviders:\n  local:\n    min_password_length: 3\n", "min_password_length"},
 		{"session cap too high", "provider: none\ndefault_max_sessions: 51\n", "default_max_sessions"},
 		{"session cap zero", "provider: none\ndefault_max_sessions: 0\n", "default_max_sessions"},
+		{"bad owned idle", "provider: local\nowned_session_idle_timeout: later\n", "owned_session_idle_timeout"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -56,6 +57,9 @@ func TestLoadMissingEnvFailsAndCommittedFileStaysAnonymous(t *testing.T) {
 	if !cfg.AllowAnonymous {
 		t.Fatal("provider none should keep anonymous use")
 	}
+	if cfg.OwnedSessionIdle != DefaultOwnedSessionIdle {
+		t.Fatalf("owned idle %s", cfg.OwnedSessionIdle)
+	}
 	_, err = Load(func(string) string { return filepath.Join(t.TempDir(), "missing.yaml") })
 	if err == nil {
 		t.Fatal("a missing explicit config should fail")
@@ -70,6 +74,10 @@ func TestAllowAnonymousDefaultsOffForAccounts(t *testing.T) {
 	local, err := Parse([]byte("provider: local\n"))
 	if err != nil || local.AllowAnonymous {
 		t.Fatalf("local default: %+v %v", local, err)
+	}
+	idle, err := Parse([]byte("provider: local\nowned_session_idle_timeout: 2h\n"))
+	if err != nil || idle.OwnedSessionIdle != 2*time.Hour {
+		t.Fatalf("owned idle %+v %v", idle.OwnedSessionIdle, err)
 	}
 	opened, err := Parse([]byte("provider: local\nallow_anonymous: true\n"))
 	if err != nil || !opened.AllowAnonymous {

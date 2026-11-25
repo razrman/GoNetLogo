@@ -17,6 +17,10 @@ const EnvConfig = "GONETLOGO_AUTH_CONFIG"
 // DefaultPath is the file a checkout loads when EnvConfig is unset.
 const DefaultPath = "config/auth.yaml"
 
+// DefaultOwnedSessionIdle is how long a signed-in user's model session
+// stays after the last tab closes. Logout does not end it.
+const DefaultOwnedSessionIdle = 24 * time.Hour
+
 // Config is the validated auth file.
 type Config struct {
 	Provider           string
@@ -28,6 +32,7 @@ type Config struct {
 	InitialAdminEmails []string
 	MinPasswordLength  int
 	DefaultMaxSessions int
+	OwnedSessionIdle   time.Duration
 	// RawProviders keeps every providers: block, including ones that are
 	// only documented. A future plugin reads its own block by name.
 	RawProviders map[string]map[string]any
@@ -50,6 +55,7 @@ type fileConfig struct {
 	UsersFile          string                    `yaml:"users_file"`
 	InitialAdminEmails []string                  `yaml:"initial_admin_emails"`
 	DefaultMaxSessions *int                      `yaml:"default_max_sessions"`
+	OwnedSessionIdle   string                    `yaml:"owned_session_idle_timeout"`
 	Providers          map[string]map[string]any `yaml:"providers"`
 }
 
@@ -70,6 +76,7 @@ func DefaultConfig() Config {
 		UsersFile:          "data/users.json",
 		MinPasswordLength:  8,
 		DefaultMaxSessions: DefaultMaxSessions,
+		OwnedSessionIdle:   DefaultOwnedSessionIdle,
 		RawProviders:       map[string]map[string]any{},
 	}
 }
@@ -168,6 +175,13 @@ func Parse(b []byte) (Config, error) {
 		if cfg.UsersFile == "" {
 			return Config{}, fmt.Errorf("users_file is required for the local provider")
 		}
+	}
+	if strings.TrimSpace(raw.OwnedSessionIdle) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(raw.OwnedSessionIdle))
+		if err != nil || d <= 0 {
+			return Config{}, fmt.Errorf("owned_session_idle_timeout must be a positive duration such as 24h, got %q", raw.OwnedSessionIdle)
+		}
+		cfg.OwnedSessionIdle = d
 	}
 	if raw.DefaultMaxSessions != nil {
 		n := *raw.DefaultMaxSessions

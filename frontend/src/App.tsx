@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { AuthMenu, AuthScreens, claimWorkspace, ensureWorkspaces } from './AuthChrome'
-import { authControls, closePanel, freshSessionNavigation, modelLocked, nextAuthView, pushPanel, type AuthStatus, type AuthView } from './auth'
+import { authControls, closePanel, freshSessionNavigation, leaveEndsSession, modelLocked, nextAuthView, preferredWorkspace, pushPanel, type AuthStatus, type AuthView } from './auth'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -69,7 +69,7 @@ import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
 import { readSeedOverride, rngSeedError, rngSeedForApply, seedControlState, writeSeedOverride } from './rngSeed'
-import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, presentCreateSessionError, readStoredSession, writeStoredSession } from './sessionLife'
+import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, presentCreateSessionError, readStoredSession, sessionMark, writeStoredSession } from './sessionLife'
 import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
@@ -131,6 +131,7 @@ export function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   sessionIdRef.current = sessionId
+  const signedInRef = useRef(false)
   const [modelName, setModelName] = useState('fire.nlogo')
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
@@ -166,6 +167,7 @@ export function App() {
   const [active, setActive] = useState<number | null>(null)
   const [booting, setBooting] = useState(true)
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
+  signedInRef.current = Boolean(authStatus?.user)
   const [history, setHistory] = useState<AuthView[]>(['app'])
   const authView = history[history.length - 1] ?? 'app'
   const [outputText, setOutputText] = useState('')
@@ -184,6 +186,7 @@ export function App() {
   const [libraryLoading, setLibraryLoading] = useState(false)
 
   const modelTitle = interfaceModelTitle(modelName)
+  const sessionChip = sessionMark(sessionId)
   useEffect(() => {
     document.title = `${modelTitle} - GoNetLogo`
   }, [modelTitle])
@@ -214,7 +217,10 @@ export function App() {
     if (sessionId) writeStoredSession(sessionId)
   }, [sessionId])
 
-  useEffect(() => bindSessionEnd(window, () => sessionIdRef.current, (id) => {
+  useEffect(() => bindSessionEnd(window, () => {
+    if (!leaveEndsSession(signedInRef.current)) return null
+    return sessionIdRef.current
+  }, (id) => {
     postSessionEnd(id)
   }), [])
 
@@ -292,8 +298,7 @@ export function App() {
           return
         }
         if (cancel) return
-        const open = (ensured.workspaces ?? []).filter((item) => item.status !== 'ending')
-        const pick = open.find((item) => item.id === stored) || open[0]
+        const pick = preferredWorkspace(stored, ensured.workspaces)
         if (!pick) {
           setBanner('Could not open your model session.')
           setBooting(false)
@@ -1174,9 +1179,16 @@ export function App() {
             >
               <div className="view-bar">
                 <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
-                <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
-                  {modelTitle}
-                </h1>
+                <div className="model-heading">
+                  <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                    {modelTitle}
+                  </h1>
+                  {sessionChip && (
+                    <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
+                      {sessionChip.label}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="canvas-wrap">
                 {booting && !frame ? (

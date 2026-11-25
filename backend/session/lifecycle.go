@@ -41,9 +41,15 @@ const (
 	EnvHeartbeat = "GONETLOGO_SESSION_HEARTBEAT"
 )
 
+// DefaultOwnedIdle is how long a signed-in user's model session stays
+// after the last tab closes. Closing the tab does not end it. An
+// explicit End, or this idle time with no client, does.
+const DefaultOwnedIdle = 24 * time.Hour
+
 // DefaultLifecycle keeps a disconnected client for 15 seconds, allows 45
 // seconds without a heartbeat (three 15s beats), and sweeps every 30
-// seconds. The 5 minute idle TTL is the longer backstop.
+// seconds. The 5 minute idle TTL is the longer backstop for a session
+// that nobody owns. Owned sessions use DefaultOwnedIdle instead.
 func DefaultLifecycle() Lifecycle {
 	return Lifecycle{
 		Grace:     15 * time.Second,
@@ -127,6 +133,7 @@ func NewStoreWith(lc Lifecycle) *Store {
 		idleTTL:    lc.Idle,
 		sweepEvery: lc.Sweep,
 		heartbeat:  lc.Heartbeat,
+		ownedIdle:  DefaultOwnedIdle,
 		stop:       make(chan struct{}),
 		sweepDone:  make(chan struct{}),
 	}
@@ -171,9 +178,10 @@ func (st *Store) sweepLoop() {
 
 // sweep removes detached sessions whose last heartbeat or websocket
 // activity is older than the heartbeat timeout, or older than the idle
-// TTL. The client count is read under Store.mu. A session with clients
-// greater than zero is left alone, including one whose beacon already
-// fired and whose clocks are stale.
+// TTL. An owned session that the user has not ended uses ownedIdle
+// instead, so a closed tab does not reap it. The client count is read
+// under Store.mu. A session with clients greater than zero is left
+// alone, including one whose beacon already fired and whose clocks are stale.
 func (st *Store) sweep(now time.Time) {
 	st.mu.Lock()
 	var dead []*Session
@@ -183,12 +191,20 @@ func (st *Store) sweep(now time.Time) {
 			continue
 		}
 		quiet := now.Sub(s.lastSeenLocked())
-		if quiet < st.heartbeat && quiet < st.idleTTL {
-			continue
-		}
 		reason := "idle"
-		if quiet < st.idleTTL {
-			reason = "heartbeat"
+		if s.owned() && !s.closing {
+			// A signed-in user's model stays until the owned idle timeout.
+			// A missing heartbeat is normal once the tab is closed.
+			if quiet < st.ownedIdle {
+				continue
+			}
+		} else {
+			if quiet < st.heartbeat && quiet < st.idleTTL {
+				continue
+			}
+			if quiet < st.idleTTL {
+				reason = "heartbeat"
+			}
 		}
 		st.disarmLocked(s)
 		delete(st.sessions, id)
@@ -237,7 +253,14 @@ func (st *Store) Detach(id string) {
 	s.clients--
 	s.lastSocket = time.Now()
 	if s.clients == 0 {
-		st.armLocked(s)
+		// An owned session that the user has not ended stays until the
+		// owned idle timeout. The tab-close beacon does not mark it
+		// closing, so this detach must not start the short grace timer.
+		if s.owned() && !s.closing {
+			st.disarmLocked(s)
+		} else {
+			st.armLocked(s)
+		}
 	}
 }
 
@@ -335,6 +358,14 @@ func (st *Store) expire(id string, gen uint64) {
 		st.mu.Unlock()
 		return
 	}
+	// A timer armed before the session was claimed, or a beacon the
+	// handler ignored, must not remove an owned session. The sweep
+	// applies the owned idle timeout.
+	if s.owned() && !s.closing {
+		s.leaseTimer = nil
+		st.mu.Unlock()
+		return
+	}
 	silence := time.Since(s.lastSeenLocked())
 	if silence < st.heartbeat {
 		st.armAfterLocked(s, st.heartbeat-silence)
@@ -371,12 +402,21 @@ func BrowserSessionPath(path string) bool {
 // EndHandler is POST /session/end. The body is the session id as
 // text/plain (what navigator.sendBeacon sends), a JSON object with id
 // or sessionId, or a form field id. A query parameter id is used when
-// the body is empty. The handler schedules the grace period; it does
-// not stop the session on this request, so a reload can subscribe again
-// and keep it. An unknown id is still 204. A cross-origin request is 403
-// and does not schedule anything.
+// the body is empty. The handler schedules the grace period for an
+// unowned session; it does not stop that session on this request, so a
+// reload can subscribe again and keep it. A session that already has an
+// owner is left alone: the tab-close beacon must not end it. Account
+// and Admin End call Store.Release. An unknown id is still 204. A
+// cross-origin request is 403 and does not schedule anything.
 func EndHandler(st *Store) http.Handler {
-	return sessionPost(func(_ *http.Request, id string) { st.Release(id) })
+	return sessionPost(func(_ *http.Request, id string) {
+		// The tab-close beacon must not end a signed-in user's model.
+		// Account and Admin End call Store.Release directly.
+		if s, ok := st.Get(id); ok && s.owned() {
+			return
+		}
+		st.Release(id)
+	})
 }
 
 // HeartbeatHandler is POST /session/heartbeat. The body is the session

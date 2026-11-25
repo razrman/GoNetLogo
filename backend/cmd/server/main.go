@@ -119,7 +119,8 @@ func main() {
 	if src, ok := authProvider.(interface{ Users() auth.UserStore }); ok {
 		users = src.Users()
 	}
-	slog.Info("auth", "provider", authCfg.Provider, "requireLogin", authCfg.RequireLogin)
+	store.SetOwnedIdle(authCfg.OwnedSessionIdle)
+	slog.Info("auth", "provider", authCfg.Provider, "requireLogin", authCfg.RequireLogin, "ownedIdle", authCfg.OwnedSessionIdle)
 
 	srv := newHandler(store, pol)
 

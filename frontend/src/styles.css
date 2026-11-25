@@ -426,8 +426,16 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   border-radius: 14px 14px 0 0;
 }
 
-.model-title {
+.model-heading {
   margin: 0 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.model-title {
+  margin: 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -438,6 +446,15 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   letter-spacing: -0.03em;
   line-height: 1.2;
   color: var(--ink);
+}
+
+.session-mark {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
 }
 
 .tabs {

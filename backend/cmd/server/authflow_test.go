@@ -108,6 +108,33 @@ func TestAccountCountIsOnlyThatUsersSessions(t *testing.T) {
 	}
 }
 
+func TestLogoutKeepsTheModelForTheNextLogin(t *testing.T) {
+	srv, _ := authFlowServer(t)
+	pat := &http.Client{Jar: mustJar(t)}
+	ada := &http.Client{Jar: mustJar(t)}
+	signupAs(t, srv, pat, "pat@example.com", "Pat")
+	signupAs(t, srv, ada, "ada@example.com", "Ada")
+	patList := ensureAs(t, srv, pat, "")
+	adaList := ensureAs(t, srv, ada, "")
+	patID := patList.Workspaces[0].ID
+	adaID := adaList.Workspaces[0].ID
+	if patID == adaID {
+		t.Fatal("two browser contexts shared one model session")
+	}
+	logoutAs(t, srv, pat)
+	if user := statusAs(t, srv, pat); user != nil {
+		t.Fatalf("pat still signed in %#v", user)
+	}
+	if ensureAs(t, srv, ada, "").Workspaces[0].ID != adaID {
+		t.Fatal("pat logging out changed ada's session")
+	}
+	loginAs(t, srv, pat, "pat@example.com")
+	again := ensureAs(t, srv, pat, "")
+	if again.OpenCount != 1 || again.Workspaces[0].ID != patID || again.Workspaces[0].Status == "ending" {
+		t.Fatalf("logout did not leave pat's model resumable %+v", again)
+	}
+}
+
 func TestProductionStackLoginListsTheRunningModel(t *testing.T) {
 	store := session.NewStore()
 	t.Cleanup(store.Close)
@@ -465,6 +492,46 @@ func countOwn(body workspaceList) int {
 		}
 	}
 	return n
+}
+
+func logoutAs(t *testing.T, srv *httptest.Server, client *http.Client) {
+	t.Helper()
+	token := csrfAs(t, srv, client)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/auth/logout", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", token)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(res.Body)
+		t.Fatalf("logout %s: %s", res.Status, raw)
+	}
+}
+
+func loginAs(t *testing.T, srv *httptest.Server, client *http.Client, email string) {
+	t.Helper()
+	token := csrfAs(t, srv, client)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/auth/login", strings.NewReader(`{"email":"`+email+`","password":"correct-horse"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", token)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(res.Body)
+		t.Fatalf("login %s: %s", res.Status, raw)
+	}
 }
 
 func endAs(t *testing.T, srv *httptest.Server, client *http.Client, id string) bool {

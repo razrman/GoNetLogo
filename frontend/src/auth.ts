@@ -101,6 +101,29 @@ export function workspaceOpen(status: string): { enabled: boolean; reason: strin
   return { enabled: false, reason: 'That session has ended.' }
 }
 
+// leaveEndsSession reports whether closing the tab should ask the server
+// to end the model. A signed-in user's session stays until they end it
+// or it sits idle. An anonymous session still uses the close-tab beacon.
+export function leaveEndsSession(signedIn: boolean): boolean {
+  return !signedIn
+}
+
+// preferredWorkspace is the model a signed-in tab should show. The tab's
+// stored id wins when that session is still open. Otherwise the first
+// open row is used, and the server lists the most recently active first.
+export function preferredWorkspace<T extends { id: string; status: string }>(
+  stored: string | null,
+  rows: T[] | null | undefined,
+): T | null {
+  const open = (rows ?? []).filter((row) => row.status !== 'ending')
+  if (open.length === 0) return null
+  if (stored) {
+    const match = open.find((row) => row.id === stored)
+    if (match) return match
+  }
+  return open[0]
+}
+
 // workspaceTarget is what Open does for one row. The current workspace
 // only switches the page back. Another openable session is loaded.
 export function workspaceTarget(currentId: string | null, workspaceId: string, status: string):

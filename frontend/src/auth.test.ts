@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addUserControl, anonymousUseAllowed, atSessionLimit, authControls, clampMaxSessions, closePanel, freshSessionNavigation, modelLocked, nextAuthView, ownSessionSummary, passwordProblem, pushPanel, toggleSessions, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
+import { addUserControl, anonymousUseAllowed, atSessionLimit, authControls, clampMaxSessions, closePanel, freshSessionNavigation, leaveEndsSession, modelLocked, nextAuthView, ownSessionSummary, passwordProblem, preferredWorkspace, pushPanel, toggleSessions, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
 
 const anon: AuthStatus = { provider: 'none', requireLogin: false, user: null }
 const localOpen: AuthStatus = { provider: 'local', requireLogin: false, user: null }
@@ -41,6 +41,24 @@ test('closing a panel returns to the screen it was opened from', () => {
   assert.deepEqual(pushPanel(['app', 'login'], 'signup'), ['app', 'signup'])
   assert.deepEqual(pushPanel(['app', 'account', 'admin'], 'account'), ['app', 'account'])
   assert.deepEqual(pushPanel(['app', 'account'], 'app'), ['app'])
+})
+
+test('closing a tab ends an anonymous session and keeps a signed-in one', () => {
+  assert.equal(leaveEndsSession(false), true)
+  assert.equal(leaveEndsSession(true), false)
+})
+
+test('a new tab resumes the stored session, or the most recent open one', () => {
+  const rows = [
+    { id: 'recent', status: 'running' },
+    { id: 'older', status: 'stopped' },
+    { id: 'gone', status: 'ending' },
+  ]
+  assert.equal(preferredWorkspace(null, rows)?.id, 'recent')
+  assert.equal(preferredWorkspace('older', rows)?.id, 'older')
+  assert.equal(preferredWorkspace('gone', rows)?.id, 'recent')
+  assert.equal(preferredWorkspace('missing', rows)?.id, 'recent')
+  assert.equal(preferredWorkspace(null, [{ id: 'gone', status: 'ending' }]), null)
 })
 
 test('sessions toggles open under one user and closes on a second click', () => {

@@ -43,6 +43,9 @@ type Store struct {
 	idleTTL    time.Duration
 	sweepEvery time.Duration
 	heartbeat  time.Duration
+	// ownedIdle is how long a signed-in user's model session may sit with
+	// no tab before the sweep removes it. Closing the tab does not end it.
+	ownedIdle time.Duration
 	// maxSessions caps Create. 0 means unlimited. Guarded by mu.
 	maxSessions int
 	stop        chan struct{}
@@ -159,9 +162,21 @@ func (st *Store) Create(modelName string) (*Session, error) {
 	return s, nil
 }
 
-// ForOwner lists model workspaces opened by a signed-in user.
-// closing is read under the store lock. The rest of the snapshot is
-// taken afterwards, because Session.mu must not be held with Store.mu.
+// SetOwnedIdle is how long an owned model session survives with no tab
+// open. Zero keeps the current value. The default is DefaultOwnedIdle.
+func (st *Store) SetOwnedIdle(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	st.mu.Lock()
+	st.ownedIdle = d
+	st.mu.Unlock()
+}
+
+// ForOwner lists model workspaces opened by a signed-in user, most
+// recently active first. closing is read under the store lock. The rest
+// of the snapshot is taken afterwards, because Session.mu must not be
+// held with Store.mu.
 func (st *Store) ForOwner(userID string) []Workspace {
 	if userID == "" {
 		return nil
@@ -170,13 +185,18 @@ func (st *Store) ForOwner(userID string) []Workspace {
 	type snap struct {
 		s       *Session
 		closing bool
+		seen    time.Time
 	}
 	snaps := make([]snap, 0, len(st.sessions))
 	for _, s := range st.sessions {
-		snaps = append(snaps, snap{s: s, closing: s.closing})
+		snaps = append(snaps, snap{s: s, closing: s.closing, seen: s.lastSeenLocked()})
 	}
 	st.mu.Unlock()
-	var out []Workspace
+	type row struct {
+		ws   Workspace
+		seen time.Time
+	}
+	rows := make([]row, 0)
 	for _, item := range snaps {
 		ws := item.s.workspace()
 		if item.closing {
@@ -184,8 +204,21 @@ func (st *Store) ForOwner(userID string) []Workspace {
 			ws.Running = false
 		}
 		if ws.OwnerID == userID {
-			out = append(out, ws)
+			rows = append(rows, row{ws: ws, seen: item.seen})
 		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if !rows[i].seen.Equal(rows[j].seen) {
+			return rows[i].seen.After(rows[j].seen)
+		}
+		if !rows[i].ws.Created.Equal(rows[j].ws.Created) {
+			return rows[i].ws.Created.After(rows[j].ws.Created)
+		}
+		return rows[i].ws.ID > rows[j].ws.ID
+	})
+	out := make([]Workspace, len(rows))
+	for i, item := range rows {
+		out[i] = item.ws
 	}
 	return out
 }
@@ -228,10 +261,13 @@ func (st *Store) Use(id string) (*Session, bool) {
 
 // Session is one interpreter, one world, and the widgets that drive it.
 type Session struct {
-	mu        sync.Mutex
-	logMu     sync.Mutex
-	id        string
-	ownerID   string
+	mu      sync.Mutex
+	logMu   sync.Mutex
+	id      string
+	ownerID string
+	// owner is a race-free copy of ownerID for the store lock, which must
+	// not take Session.mu. Empty until SetOwner.
+	owner     atomic.Value
 	created   time.Time
 	modelName string
 	model     *nl.FileModel
@@ -356,6 +392,14 @@ func (s *Session) SetOwner(userID string) {
 	s.mu.Lock()
 	s.ownerID = userID
 	s.mu.Unlock()
+	s.owner.Store(userID)
+}
+
+// owned reports whether a signed-in user owns this model session.
+// It is safe to call while holding Store.mu.
+func (s *Session) owned() bool {
+	v, _ := s.owner.Load().(string)
+	return v != ""
 }
 
 // OwnerID is the signed-in user, or empty when the model was opened anonymously.

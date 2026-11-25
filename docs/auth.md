@@ -20,6 +20,7 @@ cookie:
   path: /
 users_file: data/users.json
 default_max_sessions: 4  # open model sessions per account; 1 to 50
+# owned_session_idle_timeout: 24h  # closed tab keeps an owned model this long
 initial_admin_emails:
   - you@example.com
 providers:
@@ -32,6 +33,10 @@ providers:
 `provider: none` ignores accounts: the fire model auto-starts and the sign-in links stay hidden. With any other provider, `allow_anonymous` defaults to false. The page shows sign-in and sign-up and does not start a model until someone signs in. Set `allow_anonymous: true` to keep the anonymous auto-start. `require_login: true` is separate: it rejects anonymous calls to the model API even if the UI would otherwise allow them.
 
 A model opened before sign-in is attached to the account at sign-in, when it has no other owner. If that session belongs to someone else, or it is already ending, sign-in starts a new one. A model started after sign-in is owned immediately. While someone is signed in they have at least one open model session. Ending that last session signs them out. Account shows only that person's sessions, as "Open sessions: N" and "Limit: M". Those numbers are not a total of every session on the server. `cookie.secure: true` marks the cookie Secure only on HTTPS, so `http://localhost` still keeps the sign-in cookie.
+
+Closing a tab or window does not end a signed-in user's model session. The `/session/end` beacon is ignored once the session has an owner. The session stays until that person ends it on Account or Admin, or until `owned_session_idle_timeout` with no client (24h when omitted). Logout does not end model sessions, so the next sign-in resumes them, and they still count toward the max. Anonymous sessions, which have no owner, still end after the short grace period when the tab closes.
+
+A normal window, a private window, and a different browser profile each have their own sign-in cookie, so two people can be signed in at the same time. A new tab in a profile that is already signed in resumes that account's most recently active model session. Reloading the same tab keeps the session that tab already had.
 
 `providers` is a block per plugin. The local block is the only one the server reads today. The commented `cognito`, `github`, and `oidc` blocks in `config/auth.yaml` document the issuer, client id, client secret, and redirect URL those plugins will want. Selecting one of those names fails startup with a clear error, because the plugins are not registered yet.
 
