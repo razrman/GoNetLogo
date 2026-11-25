@@ -1186,6 +1186,29 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
   color: var(--ink);
 }
 
+.session-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-stepper input {
+  width: 3.2rem;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px;
+  background: white;
+  color: var(--ink);
+}
+
+.session-stepper button {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 8px;
+  padding: 0;
+}
+
 .auth-section-head {
   display: flex;
   align-items: center;

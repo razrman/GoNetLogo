@@ -163,6 +163,10 @@ test('a full server is explained without the GraphQL prefix', () => {
   )
   assert.equal(presentCreateSessionError('too many sessions'), friendly)
   assert.equal(presentCreateSessionError('[GraphQL] no such model'), 'no such model')
+  assert.match(
+    presentCreateSessionError('[GraphQL] you have 4 open model sessions, which is your limit of 4. End one on the Account page before starting another'),
+    /End one on the Account page/,
+  )
   assert.equal(presentCreateSessionError(''), 'Could not open a session')
   assert.equal(presentCreateSessionError(null), 'Could not open a session')
   assert.match(presentCreateSessionError('[Network] failed to fetch'), /failed to fetch/)

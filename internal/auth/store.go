@@ -5,16 +5,20 @@ import "time"
 // User is one account in our store. The password hash is only present
 // for the local provider. Roles live here, not in the identity provider.
 type User struct {
-	ID           string    `json:"id"`
-	Provider     string    `json:"provider"`
-	Subject      string    `json:"subject"`
-	Email        string    `json:"email"`
-	DisplayName  string    `json:"displayName"`
-	PasswordHash string    `json:"passwordHash,omitempty"`
-	Role         string    `json:"role"`
-	Disabled     bool      `json:"disabled"`
-	Created      time.Time `json:"created"`
-	LastLogin    time.Time `json:"lastLogin,omitempty"`
+	ID           string `json:"id"`
+	Provider     string `json:"provider"`
+	Subject      string `json:"subject"`
+	Email        string `json:"email"`
+	DisplayName  string `json:"displayName"`
+	PasswordHash string `json:"passwordHash,omitempty"`
+	Role         string `json:"role"`
+	Disabled     bool   `json:"disabled"`
+	// MaxSessions is how many open model sessions this account may have.
+	// Zero means the account was stored before the field existed, and the
+	// server treats it as the configured default.
+	MaxSessions int       `json:"maxSessions,omitempty"`
+	Created     time.Time `json:"created"`
+	LastLogin   time.Time `json:"lastLogin,omitempty"`
 }
 
 // Public drops the password hash.

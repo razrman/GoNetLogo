@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"gonetlogo/backend/session"
@@ -51,5 +52,29 @@ func TestSignedInCreateSessionIsListedWithItsID(t *testing.T) {
 	}
 	if len(st.ForOwner("user-1")) != 1 {
 		t.Fatal("the anonymous session was listed for the signed-in user")
+	}
+}
+
+func TestCreateSessionHonorsTheUserLimit(t *testing.T) {
+	st := session.NewStore()
+	t.Cleanup(st.Close)
+	r := &mutationResolver{&Resolver{Store: st}}
+	ctx := auth.WithIdentity(context.Background(), auth.Identity{UserID: "user-1", MaxSessions: 1})
+
+	first, err := r.CreateSession(ctx, "fire.nlogo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.CreateSession(ctx, "fire.nlogo"); err == nil || !strings.Contains(err.Error(), "limit of 1") || !strings.Contains(err.Error(), "End one") {
+		t.Fatalf("second create: %v", err)
+	}
+	if !st.Release(first.ID) {
+		t.Fatal("release")
+	}
+	if st.CountOpen("user-1") != 0 {
+		t.Fatalf("ending session still counts: %d", st.CountOpen("user-1"))
+	}
+	if _, err := r.CreateSession(ctx, "fire.nlogo"); err != nil {
+		t.Fatal(err)
 	}
 }

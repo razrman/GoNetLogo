@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addUserControl, authControls, freshSessionNavigation, modelLocked, nextAuthView, passwordProblem, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
+import { addUserControl, atSessionLimit, authControls, clampMaxSessions, freshSessionNavigation, modelLocked, nextAuthView, passwordProblem, sessionLimitText, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
 
 const anon: AuthStatus = { provider: 'none', requireLogin: false, user: null }
 const localOpen: AuthStatus = { provider: 'local', requireLogin: false, user: null }
@@ -55,6 +55,16 @@ test('a new session opens that session id and a running row shows its id', () =>
   assert.equal(freshSessionNavigation(null).action, 'error')
   assert.equal(workspaceLabel('running'), 'Running')
   assert.equal(workspaceTarget(null, '0123456789abcdef', 'running').action, 'open')
+})
+
+test('the session cap stays between 1 and 50 and the account shows the count', () => {
+  assert.equal(clampMaxSessions(0), 1)
+  assert.equal(clampMaxSessions(4.2), 4)
+  assert.equal(clampMaxSessions(80), 50)
+  assert.equal(clampMaxSessions(Number.NaN), 4)
+  assert.equal(sessionLimitText(2, 4), '2 of 4 open sessions')
+  assert.equal(atSessionLimit(4, 4), true)
+  assert.equal(atSessionLimit(3, 4), false)
 })
 
 test('add user is available only when the provider can create accounts', () => {

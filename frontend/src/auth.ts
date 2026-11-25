@@ -82,6 +82,25 @@ export function freshSessionNavigation(id: string | null | undefined):
   return { action: 'open', id: trimmed }
 }
 
+export const minUserSessions = 1
+export const maxUserSessions = 50
+
+export function clampMaxSessions(n: number): number {
+  if (!Number.isFinite(n)) return 4
+  const rounded = Math.round(n)
+  return Math.min(maxUserSessions, Math.max(minUserSessions, rounded))
+}
+
+export function sessionLimitText(open: number, max: number): string {
+  const cap = max > 0 ? max : 4
+  const used = open > 0 ? open : 0
+  return `${used} of ${cap} open sessions`
+}
+
+export function atSessionLimit(open: number, max: number): boolean {
+  return max > 0 && open >= max
+}
+
 export function addUserControl(canCreate: boolean): { enabled: boolean; reason: string | null } {
   if (canCreate) return { enabled: true, reason: null }
   return { enabled: false, reason: 'This sign-in provider cannot create users.' }

@@ -18,6 +18,7 @@ cookie:
   same_site: lax         # lax | strict | none
   path: /
 users_file: data/users.json
+default_max_sessions: 4  # open model sessions per account; 1 to 50
 initial_admin_emails:
   - you@example.com
 providers:
@@ -25,7 +26,7 @@ providers:
     min_password_length: 8
 ```
 
-`provider` must be a registered plugin. `require_login: true` with `provider: none` is rejected. `session_lifetime` is a Go duration and must be positive. `cookie.path` starts with `/`. Admin emails must contain `@` and no spaces. The local password minimum is 8 to 200.
+`provider` must be a registered plugin. `require_login: true` with `provider: none` is rejected. `session_lifetime` is a Go duration and must be positive. `cookie.path` starts with `/`. Admin emails must contain `@` and no spaces. The local password minimum is 8 to 200. `default_max_sessions` is how many open model sessions a new account may have. A missing value is 4. An admin can change it per user. A session that is ending does not count. At the limit, starting another session asks the person to end one first.
 
 `providers` is a block per plugin. The local block is the only one the server reads today. The commented `cognito`, `github`, and `oidc` blocks in `config/auth.yaml` document the issuer, client id, client secret, and redirect URL those plugins will want. Selecting one of those names fails startup with a clear error, because the plugins are not registered yet.
 

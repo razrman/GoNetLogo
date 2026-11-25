@@ -28,6 +28,10 @@ cookie:
 # disappears when the container is replaced.
 users_file: data/users.json
 
+# Open model sessions each account may have. An admin can change it
+# per user. Existing accounts with no value use this number. 1 to 50.
+default_max_sessions: 4
+
 # Addresses that are admins. A person who signs up with one of these
 # emails becomes an admin. On each startup, an existing user with one
 # of these emails is promoted. The address is not given a password here;

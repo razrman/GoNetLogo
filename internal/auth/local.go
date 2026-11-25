@@ -12,10 +12,11 @@ import (
 var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("not-a-real-password"), bcrypt.DefaultCost)
 
 type localProvider struct {
-	users    UserStore
-	sessions *SessionManager
-	admins   map[string]bool
-	minPass  int
+	users      UserStore
+	sessions   *SessionManager
+	admins     map[string]bool
+	minPass    int
+	defaultMax int
 }
 
 func newLocalProvider(cfg Config, sessions *SessionManager) (AuthProvider, error) {
@@ -33,7 +34,11 @@ func newLocalProvider(cfg Config, sessions *SessionManager) (AuthProvider, error
 	for _, email := range cfg.InitialAdminEmails {
 		admins[email] = true
 	}
-	return &localProvider{users: store, sessions: sessions, admins: admins, minPass: cfg.MinPasswordLength}, nil
+	max := cfg.DefaultMaxSessions
+	if max < MinUserSessions {
+		max = DefaultMaxSessions
+	}
+	return &localProvider{users: store, sessions: sessions, admins: admins, minPass: cfg.MinPasswordLength, defaultMax: max}, nil
 }
 
 func (p *localProvider) Name() string { return "local" }
@@ -48,6 +53,16 @@ func (p *localProvider) Signup(ctx context.Context, req SignupRequest) (Identity
 // the initial-admin email list.
 func (p *localProvider) CreateUser(ctx context.Context, req SignupRequest, role string) (Identity, error) {
 	return p.create(ctx, req, role, false)
+}
+
+func (p *localProvider) sessionLimit(user User) int {
+	if user.MaxSessions >= MinUserSessions && user.MaxSessions <= MaxUserSessions {
+		return user.MaxSessions
+	}
+	if p.defaultMax >= MinUserSessions {
+		return p.defaultMax
+	}
+	return DefaultMaxSessions
 }
 
 func (p *localProvider) create(_ context.Context, req SignupRequest, role string, promoteListed bool) (Identity, error) {
@@ -91,12 +106,13 @@ func (p *localProvider) create(_ context.Context, req SignupRequest, role string
 		DisplayName:  name,
 		PasswordHash: string(hash),
 		Role:         role,
+		MaxSessions:  p.sessionLimit(User{}),
 		Created:      time.Now().UTC(),
 	}
 	if err := p.users.Create(user); err != nil {
 		return Identity{}, err
 	}
-	return identityOf(user), nil
+	return p.identityOf(user), nil
 }
 
 func (p *localProvider) Login(_ context.Context, req LoginRequest) (Identity, error) {
@@ -119,7 +135,7 @@ func (p *localProvider) Login(_ context.Context, req LoginRequest) (Identity, er
 	if err := p.users.Update(user); err != nil {
 		return Identity{}, err
 	}
-	return identityOf(user), nil
+	return p.identityOf(user), nil
 }
 
 func (p *localProvider) Logout(_ context.Context, sessionID string) error {
@@ -142,10 +158,10 @@ func (p *localProvider) Verify(_ context.Context, sessionID string) (Identity, e
 		p.sessions.Revoke(sessionID, "")
 		return Identity{}, ErrAnonymous
 	}
-	return identityOf(user), nil
+	return p.identityOf(user), nil
 }
 
-func identityOf(user User) Identity {
+func (p *localProvider) identityOf(user User) Identity {
 	return Identity{
 		UserID:      user.ID,
 		Provider:    user.Provider,
@@ -153,6 +169,7 @@ func identityOf(user User) Identity {
 		Email:       user.Email,
 		DisplayName: user.DisplayName,
 		Role:        user.Role,
+		MaxSessions: p.sessionLimit(user),
 	}
 }
 

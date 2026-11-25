@@ -190,6 +190,18 @@ func (st *Store) ForOwner(userID string) []Workspace {
 	return out
 }
 
+// CountOpen is how many of this user's model sessions are still open.
+// A session that is ending does not count, so ending one frees a slot.
+func (st *Store) CountOpen(userID string) int {
+	n := 0
+	for _, item := range st.ForOwner(userID) {
+		if item.Status != StatusEnding {
+			n++
+		}
+	}
+	return n
+}
+
 // Get returns a session by id. It does not count as client activity, so a
 // test poll or a log line cannot postpone the idle sweep.
 func (st *Store) Get(id string) (*Session, bool) {

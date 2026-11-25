@@ -16,6 +16,13 @@ import (
 
 // CreateSession is the resolver for the createSession field.
 func (r *mutationResolver) CreateSession(ctx context.Context, model string) (*model.Session, error) {
+	r.createMu.Lock()
+	defer r.createMu.Unlock()
+	if ident, ok := auth.FromContext(ctx); ok && ident.MaxSessions > 0 {
+		if n := r.Store.CountOpen(ident.UserID); n >= ident.MaxSessions {
+			return nil, auth.SessionLimitError(n, ident.MaxSessions)
+		}
+	}
 	s, err := r.Store.Create(model)
 	if err != nil {
 		return nil, err

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { addUserControl, passwordProblem, workspaceLabel, workspaceOpen, type AuthStatus, type AuthUser, type AuthView } from './auth'
+import { addUserControl, atSessionLimit, clampMaxSessions, passwordProblem, sessionLimitText, workspaceLabel, workspaceOpen, type AuthStatus, type AuthUser, type AuthView } from './auth'
 
 type SessionRow = {
   id: string
@@ -23,7 +23,13 @@ type AdminUser = {
   displayName: string
   role: string
   disabled: boolean
+  maxSessions?: number
   lastLogin?: string
+}
+
+type UserDetail = {
+  sessions: SessionRow[]
+  workspaces: WorkspaceRow[]
 }
 
 async function csrfToken(): Promise<string> {
@@ -201,6 +207,8 @@ function AccountPage({
 }) {
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([])
+  const [openCount, setOpenCount] = useState(0)
+  const [maxSessions, setMaxSessions] = useState(4)
   const [error, setError] = useState<string | null>(null)
   const [rowNote, setRowNote] = useState<Record<string, string>>({})
   const [starting, setStarting] = useState(false)
@@ -208,11 +216,13 @@ function AccountPage({
   const load = () => {
     void Promise.all([
       fetch('/auth/sessions').then((res) => res.json()) as Promise<{ sessions?: SessionRow[]; error?: string }>,
-      fetch('/auth/workspaces').then((res) => res.json()) as Promise<{ workspaces?: WorkspaceRow[]; error?: string }>,
+      fetch('/auth/workspaces').then((res) => res.json()) as Promise<{ workspaces?: WorkspaceRow[]; openCount?: number; maxSessions?: number; error?: string }>,
     ]).then(([s, w]) => {
       if (s.error || w.error) setError(s.error || w.error || 'Could not load the account.')
       setSessions(s.sessions ?? [])
       setWorkspaces(w.workspaces ?? [])
+      setOpenCount(w.openCount ?? 0)
+      setMaxSessions(w.maxSessions && w.maxSessions > 0 ? w.maxSessions : 4)
     }).catch((err: Error) => setError(err.message))
   }
   useEffect(load, [])
@@ -233,7 +243,8 @@ function AccountPage({
         <h2>Model workspaces</h2>
         <button
           type="button"
-          disabled={starting}
+          disabled={starting || atSessionLimit(openCount, maxSessions)}
+          title={atSessionLimit(openCount, maxSessions) ? 'End one before starting another.' : undefined}
           onClick={() => {
             setStarting(true)
             setStartError(null)
@@ -244,6 +255,7 @@ function AccountPage({
           }}
         >New session</button>
       </div>
+      <p className="auth-quiet">{sessionLimitText(openCount, maxSessions)}</p>
       {startError && <p className="auth-error">{startError}</p>}
       {workspaces.length === 0 && <p className="auth-quiet">No model is open under this account.</p>}
       {workspaces.length > 0 && (
@@ -310,7 +322,7 @@ function SessionTable({ rows, onRevoke }: { rows: SessionRow[]; onRevoke: (id: s
 function AdminPage() {
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState<AdminUser[]>([])
-  const [sessions, setSessions] = useState<Record<string, SessionRow[]>>({})
+  const [details, setDetails] = useState<Record<string, UserDetail>>({})
   const [error, setError] = useState<string | null>(null)
   const [canCreate, setCanCreate] = useState(false)
   const [minPass, setMinPass] = useState(8)
@@ -359,6 +371,16 @@ function AdminPage() {
   const act = (method: string, path: string, body: unknown = {}) => {
     void send(path, method, body).then(() => load()).catch((err: Error) => setError(err.message))
   }
+  const loadDetail = (id: string) => {
+    void fetch(`/admin/users/${id}/sessions`).then(async (res) => {
+      const body = (await res.json()) as { sessions?: SessionRow[]; workspaces?: WorkspaceRow[]; error?: string }
+      if (!res.ok) throw new Error(body.error || 'Could not load sessions')
+      setDetails((prev) => ({
+        ...prev,
+        [id]: { sessions: body.sessions ?? [], workspaces: body.workspaces ?? [] },
+      }))
+    }).catch((err: Error) => setError(err.message))
+  }
   return (
     <div className="auth-card wide">
       <h1>Admin</h1>
@@ -390,7 +412,7 @@ function AdminPage() {
       </form>
       <table className="auth-table">
         <thead>
-          <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
+          <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Max sessions</th><th></th></tr>
         </thead>
         <tbody>
           {users.map((user) => (
@@ -399,6 +421,15 @@ function AdminPage() {
               <td>{user.email}</td>
               <td>{user.role}</td>
               <td>{user.disabled ? 'disabled' : 'active'}</td>
+              <td>
+                <MaxSessionsControl
+                  key={`${user.id}-${user.maxSessions || 4}`}
+                  value={user.maxSessions || 4}
+                  onChange={(n) => {
+                    if (n !== (user.maxSessions || 4)) act('POST', `/admin/users/${user.id}/max-sessions`, { maxSessions: n })
+                  }}
+                />
+              </td>
               <td className="auth-actions">
                 <button type="button" onClick={() => act('POST', `/admin/users/${user.id}/role`, { role: user.role === 'admin' ? 'user' : 'admin' })}>
                   {user.role === 'admin' ? 'Demote' : 'Promote'}
@@ -409,27 +440,69 @@ function AdminPage() {
                 <button type="button" onClick={() => {
                   if (window.confirm(`Delete ${user.email}?`)) act('DELETE', `/admin/users/${user.id}`)
                 }}>Delete</button>
-                <button type="button" onClick={() => {
-                  void fetch(`/admin/users/${user.id}/sessions`).then((res) => res.json()).then((body: { sessions?: SessionRow[] }) => {
-                    setSessions((prev) => ({ ...prev, [user.id]: body.sessions ?? [] }))
-                  }).catch((err: Error) => setError(err.message))
-                }}>Sessions</button>
+                <button type="button" onClick={() => loadDetail(user.id)}>Sessions</button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {Object.entries(sessions).map(([id, rows]) => (
+      {Object.entries(details).map(([id, detail]) => (
         <div key={id}>
-          <h2>Sessions</h2>
-          <SessionTable rows={rows} onRevoke={(sessionId) => {
-            void send('/admin/sessions/revoke', 'POST', { id: sessionId }).then(() => {
-              setSessions((prev) => ({ ...prev, [id]: prev[id].filter((row) => row.id !== sessionId) }))
-            }).catch((err: Error) => setError(err.message))
+          <h2>Login sessions</h2>
+          <SessionTable rows={detail.sessions} onRevoke={(sessionId) => {
+            void send('/admin/sessions/revoke', 'POST', { id: sessionId }).then(() => loadDetail(id)).catch((err: Error) => setError(err.message))
           }} />
+          <h2>Model workspaces</h2>
+          {detail.workspaces.length === 0 && <p className="auth-quiet">No model is open for this account.</p>}
+          {detail.workspaces.length > 0 && (
+            <table className="auth-table">
+              <thead>
+                <tr><th>Model</th><th>Session</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                {detail.workspaces.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.modelName || 'Untitled'}</td>
+                    <td><code className="auth-id">{row.id}</code></td>
+                    <td>{workspaceLabel(row.status)}</td>
+                    <td>
+                      <button type="button" onClick={() => {
+                        void send('/admin/workspaces/end', 'POST', { userId: id, id: row.id }).then(() => loadDetail(id)).catch((err: Error) => setError(err.message))
+                      }}>End</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       ))}
     </div>
+  )
+}
+
+function MaxSessionsControl({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const shown = clampMaxSessions(value)
+  const [text, setText] = useState(String(shown))
+  const commit = (n: number) => {
+    const next = clampMaxSessions(n)
+    setText(String(next))
+    if (next !== shown) onChange(next)
+  }
+  return (
+    <span className="session-stepper">
+      <button type="button" aria-label="Decrease max sessions" disabled={shown <= 1} onClick={() => commit(shown - 1)}>▼</button>
+      <input
+        aria-label="Max sessions"
+        type="number"
+        min={1}
+        max={50}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => commit(Number(text))}
+      />
+      <button type="button" aria-label="Increase max sessions" disabled={shown >= 50} onClick={() => commit(shown + 1)}>▲</button>
+    </span>
   )
 }
 

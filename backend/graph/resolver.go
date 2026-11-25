@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"sync"
 
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
@@ -11,6 +12,8 @@ import (
 // This file is not regenerated.
 type Resolver struct {
 	Store *session.Store
+	// createMu keeps a user's session count and Create in one step.
+	createMu sync.Mutex
 }
 
 func (r *Resolver) session(id string) (*session.Session, error) {

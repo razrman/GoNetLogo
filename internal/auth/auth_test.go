@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -28,6 +29,8 @@ func TestParseRejectsBadConfig(t *testing.T) {
 		{"same site none", "provider: local\ncookie:\n  same_site: none\n  secure: false\n", "requires cookie.secure"},
 		{"bad email", "provider: local\ninitial_admin_emails: [not-an-email]\n", "not an email"},
 		{"short password", "provider: local\nproviders:\n  local:\n    min_password_length: 3\n", "min_password_length"},
+		{"session cap too high", "provider: none\ndefault_max_sessions: 51\n", "default_max_sessions"},
+		{"session cap zero", "provider: none\ndefault_max_sessions: 0\n", "default_max_sessions"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -46,6 +49,9 @@ func TestLoadMissingEnvFailsAndCommittedFileStaysAnonymous(t *testing.T) {
 	}
 	if cfg.Provider != "none" || cfg.RequireLogin {
 		t.Fatalf("committed config %#v", cfg)
+	}
+	if cfg.DefaultMaxSessions != DefaultMaxSessions {
+		t.Fatalf("default max sessions %d", cfg.DefaultMaxSessions)
 	}
 	_, err = Load(func(string) string { return filepath.Join(t.TempDir(), "missing.yaml") })
 	if err == nil {
@@ -426,6 +432,115 @@ func (p stubAdminProvider) Verify(_ context.Context, sessionID string) (Identity
 	}
 	return Identity{UserID: "admin", Provider: "stub", Subject: "admin", Email: "admin@example.com", DisplayName: "Ada", Role: RoleAdmin}, nil
 }
+
+func TestAdminSetsMaxSessionsAndSeesWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Provider = "local"
+	cfg.UsersFile = filepath.Join(dir, "users.json")
+	cfg.DefaultMaxSessions = 4
+	cfg.InitialAdminEmails = []string{"admin@example.com"}
+	sessions := NewSessionManager(cfg)
+	provider, err := NewProvider(cfg, sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := &memModels{}
+	h := &Handler{Config: cfg, Provider: provider, Sessions: sessions, Users: provider.(*localProvider).Users(), Models: models}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(Middleware(provider, sessions)(mux))
+	defer srv.Close()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Client().Jar = jar
+
+	token := csrfToken(t, srv)
+	admin := postJSON(t, srv, "/auth/signup", token, `{"email":"admin@example.com","password":"correct-horse","displayName":"Ada"}`, nil)
+	if admin["maxSessions"] != float64(4) {
+		t.Fatalf("default max %#v", admin["maxSessions"])
+	}
+	adminCookie := cookieHeader(t, srv)
+	adminID := admin["userId"].(string)
+
+	token = csrfToken(t, srv)
+	bad := do(t, srv, http.MethodPost, "/admin/users/"+adminID+"/max-sessions", adminCookie, token, `{"maxSessions":51}`)
+	if bad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("too high %d", bad.StatusCode)
+	}
+	bad.Body.Close()
+
+	token = csrfToken(t, srv)
+	updated := postJSON(t, srv, "/admin/users/"+adminID+"/max-sessions", token, `{"maxSessions":2}`, map[string]string{"Cookie": adminCookie})
+	if updated["maxSessions"] != float64(2) {
+		t.Fatalf("updated %#v", updated)
+	}
+
+	models.add(adminID, ModelWorkspace{ID: "model-1", ModelName: "fire.nlogo", Status: "running"})
+	detail := getJSON(t, srv, "/admin/users/"+adminID+"/sessions", adminCookie)
+	spaces := detail["workspaces"].([]any)
+	if len(spaces) != 1 || spaces[0].(map[string]any)["id"] != "model-1" || spaces[0].(map[string]any)["status"] != "running" {
+		t.Fatalf("workspaces %#v", detail)
+	}
+	token = csrfToken(t, srv)
+	ended := postJSON(t, srv, "/admin/workspaces/end", token, `{"userId":"`+adminID+`","id":"model-1"}`, map[string]string{"Cookie": adminCookie})
+	if ended["ok"] != true || models.left(adminID) != 0 {
+		t.Fatalf("end %#v left %d", ended, models.left(adminID))
+	}
+}
+
+func TestMissingMaxSessionsUsesTheConfiguredDefault(t *testing.T) {
+	h := &Handler{Config: Config{DefaultMaxSessions: 6}}
+	if got := h.present(User{ID: "u", Email: "a@b.co"}).MaxSessions; got != 6 {
+		t.Fatalf("missing value became %d", got)
+	}
+	if got := h.present(User{ID: "u", MaxSessions: 2}).MaxSessions; got != 2 {
+		t.Fatalf("stored value became %d", got)
+	}
+}
+
+type memModels struct {
+	mu    sync.Mutex
+	items map[string][]ModelWorkspace
+}
+
+func (m *memModels) add(userID string, item ModelWorkspace) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.items == nil {
+		m.items = map[string][]ModelWorkspace{}
+	}
+	m.items[userID] = append(m.items[userID], item)
+}
+
+func (m *memModels) left(userID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.items[userID])
+}
+
+func (m *memModels) List(userID string) []ModelWorkspace {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]ModelWorkspace(nil), m.items[userID]...)
+}
+
+func (m *memModels) End(userID, id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	items := m.items[userID]
+	for i, item := range items {
+		if item.ID == id {
+			m.items[userID] = append(items[:i], items[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+func (m *memModels) Claim(string, string) bool { return false }
 
 type fakeModels struct{}
 

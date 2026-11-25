@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -51,10 +52,12 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.Handle("GET /admin/users", RequireAdmin(http.HandlerFunc(h.adminUsers)))
 	mux.Handle("POST /admin/users", RequireAdmin(http.HandlerFunc(h.adminCreate)))
 	mux.Handle("POST /admin/users/{id}/role", RequireAdmin(http.HandlerFunc(h.adminRole)))
+	mux.Handle("POST /admin/users/{id}/max-sessions", RequireAdmin(http.HandlerFunc(h.adminMaxSessions)))
 	mux.Handle("POST /admin/users/{id}/disabled", RequireAdmin(http.HandlerFunc(h.adminDisabled)))
 	mux.Handle("DELETE /admin/users/{id}", RequireAdmin(http.HandlerFunc(h.adminDelete)))
 	mux.Handle("GET /admin/users/{id}/sessions", RequireAdmin(http.HandlerFunc(h.adminSessions)))
 	mux.Handle("POST /admin/sessions/revoke", RequireAdmin(http.HandlerFunc(h.adminRevoke)))
+	mux.Handle("POST /admin/workspaces/end", RequireAdmin(http.HandlerFunc(h.adminEndWorkspace)))
 }
 
 func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +204,11 @@ func (h *Handler) workspaces(w http.ResponseWriter, r *http.Request) {
 	if items == nil {
 		items = []ModelWorkspace{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"workspaces": items})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"workspaces":  items,
+		"openCount":   countOpen(items),
+		"maxSessions": h.sessionLimit(ident.MaxSessions),
+	})
 }
 
 func (h *Handler) claimWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +278,7 @@ func (h *Handler) adminUsers(w http.ResponseWriter, r *http.Request) {
 		if q != "" && !strings.Contains(strings.ToLower(user.Email), q) && !strings.Contains(strings.ToLower(user.DisplayName), q) {
 			continue
 		}
-		out = append(out, user.Public())
+		out = append(out, h.present(user))
 	}
 	body["users"] = out
 	writeJSON(w, http.StatusOK, body)
@@ -314,7 +321,7 @@ func (h *Handler) adminCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"user": ident})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": user.Public()})
+	writeJSON(w, http.StatusOK, map[string]any{"user": h.present(user)})
 }
 
 func (h *Handler) creator() UserCreator {
@@ -351,7 +358,7 @@ func (h *Handler) adminRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": user.Public()})
+	writeJSON(w, http.StatusOK, map[string]any{"user": h.present(user)})
 }
 
 func (h *Handler) adminDisabled(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +389,7 @@ func (h *Handler) adminDisabled(w http.ResponseWriter, r *http.Request) {
 	if body.Disabled {
 		h.Sessions.RevokeUser(user.ID, "", false)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": user.Public()})
+	writeJSON(w, http.StatusOK, map[string]any{"user": h.present(user)})
 }
 
 func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {
@@ -407,14 +414,68 @@ func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (h *Handler) adminMaxSessions(w http.ResponseWriter, r *http.Request) {
+	if !h.allowChange(w, r) {
+		return
+	}
+	user, ok := h.userParam(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		MaxSessions int `json:"maxSessions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "could not read that request")
+		return
+	}
+	if body.MaxSessions < MinUserSessions || body.MaxSessions > MaxUserSessions {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("max sessions must be from %d to %d", MinUserSessions, MaxUserSessions))
+		return
+	}
+	user.MaxSessions = body.MaxSessions
+	if err := h.Users.Update(user); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": h.present(user)})
+}
+
 func (h *Handler) adminSessions(w http.ResponseWriter, r *http.Request) {
 	user, ok := h.userParam(w, r)
 	if !ok {
 		return
 	}
+	var items []ModelWorkspace
+	if h.Models != nil {
+		items = h.Models.List(user.ID)
+	}
+	if items == nil {
+		items = []ModelWorkspace{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sessions": h.Sessions.ForUser(user.ID, ""),
+		"sessions":   h.Sessions.ForUser(user.ID, ""),
+		"workspaces": items,
 	})
+}
+
+func (h *Handler) adminEndWorkspace(w http.ResponseWriter, r *http.Request) {
+	if !h.allowChange(w, r) {
+		return
+	}
+	var body struct {
+		UserID string `json:"userId"`
+		ID     string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UserID == "" || body.ID == "" {
+		writeError(w, http.StatusBadRequest, "name the user and the model session to end")
+		return
+	}
+	if h.Models == nil || !h.Models.End(body.UserID, body.ID) {
+		writeError(w, http.StatusNotFound, "that model session is not open")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (h *Handler) adminRevoke(w http.ResponseWriter, r *http.Request) {
@@ -433,6 +494,32 @@ func (h *Handler) adminRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *Handler) present(user User) User {
+	user = user.Public()
+	user.MaxSessions = h.sessionLimit(user.MaxSessions)
+	return user
+}
+
+func (h *Handler) sessionLimit(n int) int {
+	if n >= MinUserSessions && n <= MaxUserSessions {
+		return n
+	}
+	if h.Config.DefaultMaxSessions >= MinUserSessions && h.Config.DefaultMaxSessions <= MaxUserSessions {
+		return h.Config.DefaultMaxSessions
+	}
+	return DefaultMaxSessions
+}
+
+func countOpen(items []ModelWorkspace) int {
+	n := 0
+	for _, item := range items {
+		if item.Status != "ending" {
+			n++
+		}
+	}
+	return n
 }
 
 func (h *Handler) userParam(w http.ResponseWriter, r *http.Request) (User, bool) {

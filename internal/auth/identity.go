@@ -2,13 +2,28 @@
 // from config. Provider "none" leaves the site anonymous.
 package auth
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Role is stored by GoNetLogo, not by the identity provider.
 const (
 	RoleUser  = "user"
 	RoleAdmin = "admin"
 )
+
+// Session limits an admin can set, and the default when auth.yaml omits one.
+const (
+	MinUserSessions    = 1
+	MaxUserSessions    = 50
+	DefaultMaxSessions = 4
+)
+
+// SessionLimitError is the GraphQL error when a signed-in user is at their cap.
+func SessionLimitError(open, max int) error {
+	return fmt.Errorf("you have %d open model sessions, which is your limit of %d. End one on the Account page before starting another", open, max)
+}
 
 // Identity is the signed-in person, independent of which provider
 // authenticated them.
@@ -19,6 +34,7 @@ type Identity struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"displayName"`
 	Role        string `json:"role"`
+	MaxSessions int    `json:"maxSessions,omitempty"`
 }
 
 // SignupRequest is the local sign-up form. Other providers may ignore

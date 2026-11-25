@@ -26,6 +26,7 @@ type Config struct {
 	UsersFile          string
 	InitialAdminEmails []string
 	MinPasswordLength  int
+	DefaultMaxSessions int
 	// RawProviders keeps every providers: block, including ones that are
 	// only documented. A future plugin reads its own block by name.
 	RawProviders map[string]map[string]any
@@ -46,6 +47,7 @@ type fileConfig struct {
 	Cookie             fileCookie                `yaml:"cookie"`
 	UsersFile          string                    `yaml:"users_file"`
 	InitialAdminEmails []string                  `yaml:"initial_admin_emails"`
+	DefaultMaxSessions *int                      `yaml:"default_max_sessions"`
 	Providers          map[string]map[string]any `yaml:"providers"`
 }
 
@@ -59,12 +61,13 @@ type fileCookie struct {
 // DefaultConfig is anonymous access, used when no config file is present.
 func DefaultConfig() Config {
 	return Config{
-		Provider:          "none",
-		SessionLifetime:   168 * time.Hour,
-		Cookie:            CookieConfig{Name: "gonetlogo_auth", SameSite: "lax", Path: "/"},
-		UsersFile:         "data/users.json",
-		MinPasswordLength: 8,
-		RawProviders:      map[string]map[string]any{},
+		Provider:           "none",
+		SessionLifetime:    168 * time.Hour,
+		Cookie:             CookieConfig{Name: "gonetlogo_auth", SameSite: "lax", Path: "/"},
+		UsersFile:          "data/users.json",
+		MinPasswordLength:  8,
+		DefaultMaxSessions: DefaultMaxSessions,
+		RawProviders:       map[string]map[string]any{},
 	}
 }
 
@@ -154,6 +157,13 @@ func Parse(b []byte) (Config, error) {
 		if cfg.UsersFile == "" {
 			return Config{}, fmt.Errorf("users_file is required for the local provider")
 		}
+	}
+	if raw.DefaultMaxSessions != nil {
+		n := *raw.DefaultMaxSessions
+		if n < MinUserSessions || n > MaxUserSessions {
+			return Config{}, fmt.Errorf("default_max_sessions must be from %d to %d", MinUserSessions, MaxUserSessions)
+		}
+		cfg.DefaultMaxSessions = n
 	}
 	if cfg.RequireLogin && cfg.Provider == "none" {
 		return Config{}, fmt.Errorf("require_login cannot be true when provider is none")
