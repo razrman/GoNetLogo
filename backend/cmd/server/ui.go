@@ -40,6 +40,7 @@ func spaHandler(content fs.FS) http.Handler {
 		}
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 		if name == "" || name == "." {
+			w.Header().Set("Cache-Control", "no-store")
 			files.ServeHTTP(w, r)
 			return
 		}
@@ -71,6 +72,7 @@ func spaHandler(content fs.FS) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		http.ServeContent(w, r, "index.html", stat.ModTime(), rs)
 	})
 }

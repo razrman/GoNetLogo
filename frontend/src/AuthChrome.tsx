@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { addUserControl, atSessionLimit, clampMaxSessions, passwordProblem, sessionLimitText, workspaceLabel, workspaceOpen, type AuthStatus, type AuthUser, type AuthView } from './auth'
+import { addUserControl, atSessionLimit, clampMaxSessions, ownSessionSummary, passwordProblem, workspaceLabel, workspaceOpen, type AuthStatus, type AuthUser, type AuthView } from './auth'
 
 type SessionRow = {
   id: string
@@ -30,6 +30,8 @@ type AdminUser = {
 type UserDetail = {
   sessions: SessionRow[]
   workspaces: WorkspaceRow[]
+  openCount?: number
+  maxSessions?: number
 }
 
 async function csrfToken(): Promise<string> {
@@ -56,6 +58,19 @@ async function send(path: string, method: string, body?: unknown): Promise<unkno
 
 export function claimWorkspace(id: string): Promise<unknown> {
   return send('/auth/workspaces/claim', 'POST', { id })
+}
+
+export type OwnedWorkspaces = {
+  workspaces: WorkspaceRow[]
+  openCount: number
+  maxSessions: number
+  createdId?: string
+}
+
+// ensureWorkspaces claims id when it is set, then returns this account's
+// model sessions. If they have none, the server starts one.
+export function ensureWorkspaces(id?: string): Promise<OwnedWorkspaces> {
+  return send('/auth/workspaces/ensure', 'POST', { id: id || '' }) as Promise<OwnedWorkspaces>
 }
 
 export function AuthMenu({
@@ -127,7 +142,14 @@ export function AuthScreens({
     <section className="auth-page" aria-label={view === 'admin' ? 'Admin' : view === 'account' ? 'Account' : 'Sign in'}>
       {view === 'login' && <LoginForm onView={onView} onSignedIn={onSignedIn} />}
       {view === 'signup' && <SignupForm onView={onView} onSignedIn={onSignedIn} />}
-      {view === 'account' && <AccountPage onOpen={onOpenWorkspace} onNew={onNewSession} claimCurrent={claimCurrent} />}
+      {view === 'account' && (
+        <AccountPage
+          onOpen={onOpenWorkspace}
+          onNew={onNewSession}
+          claimCurrent={claimCurrent}
+          onLoggedOut={() => { window.location.href = '/' }}
+        />
+      )}
       {view === 'admin' && <AdminPage />}
     </section>
   )
@@ -204,10 +226,12 @@ function AccountPage({
   onOpen,
   onNew,
   claimCurrent,
+  onLoggedOut,
 }: {
   onOpen: (id: string) => Promise<string | null>
   onNew: () => Promise<string | null>
   claimCurrent: () => Promise<void>
+  onLoggedOut: () => void
 }) {
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([])
@@ -220,7 +244,7 @@ function AccountPage({
   const load = () => {
     void Promise.all([
       fetch('/auth/sessions').then((res) => res.json()) as Promise<{ sessions?: SessionRow[]; error?: string }>,
-      fetch('/auth/workspaces').then((res) => res.json()) as Promise<{ workspaces?: WorkspaceRow[]; openCount?: number; maxSessions?: number; error?: string }>,
+      ensureWorkspaces().then((body) => ({ workspaces: body.workspaces, openCount: body.openCount, maxSessions: body.maxSessions })) as Promise<{ workspaces?: WorkspaceRow[]; openCount?: number; maxSessions?: number; error?: string }>,
     ]).then(([s, w]) => {
       if (s.error || w.error) setError(s.error || w.error || 'Could not load the account.')
       setSessions(s.sessions ?? [])
@@ -267,7 +291,7 @@ function AccountPage({
           }}
         >New session</button>
       </div>
-      <p className="auth-quiet">{sessionLimitText(openCount, maxSessions)}</p>
+      <OwnSessionCounts open={openCount} limit={maxSessions} />
       {startError && <p className="auth-error">{startError}</p>}
       {workspaces.length === 0 && <p className="auth-quiet">No model is open under this account.</p>}
       {workspaces.length > 0 && (
@@ -296,7 +320,11 @@ function AccountPage({
                       }}
                     >Open</button>
                     <button type="button" onClick={() => {
-                      void send('/auth/workspaces/end', 'POST', { id: row.id }).then(load).catch((err: Error) => setError(err.message))
+                      void send('/auth/workspaces/end', 'POST', { id: row.id }).then((body) => {
+                        const result = body as { loggedOut?: boolean }
+                        if (result.loggedOut) onLoggedOut()
+                        else load()
+                      }).catch((err: Error) => setError(err.message))
                     }}>End</button>
                     {note && <span className="auth-quiet">{note}</span>}
                   </td>
@@ -385,11 +413,16 @@ function AdminPage() {
   }
   const loadDetail = (id: string) => {
     void fetch(`/admin/users/${id}/sessions`).then(async (res) => {
-      const body = (await res.json()) as { sessions?: SessionRow[]; workspaces?: WorkspaceRow[]; error?: string }
+      const body = (await res.json()) as { sessions?: SessionRow[]; workspaces?: WorkspaceRow[]; openCount?: number; maxSessions?: number; error?: string }
       if (!res.ok) throw new Error(body.error || 'Could not load sessions')
       setDetails((prev) => ({
         ...prev,
-        [id]: { sessions: body.sessions ?? [], workspaces: body.workspaces ?? [] },
+        [id]: {
+          sessions: body.sessions ?? [],
+          workspaces: body.workspaces ?? [],
+          openCount: body.openCount,
+          maxSessions: body.maxSessions,
+        },
       }))
     }).catch((err: Error) => setError(err.message))
   }
@@ -465,6 +498,7 @@ function AdminPage() {
             void send('/admin/sessions/revoke', 'POST', { id: sessionId }).then(() => loadDetail(id)).catch((err: Error) => setError(err.message))
           }} />
           <h2>Model workspaces</h2>
+          <OwnSessionCounts open={detail.openCount ?? detail.workspaces.filter((row) => row.status !== 'ending').length} limit={detail.maxSessions || 4} />
           {detail.workspaces.length === 0 && <p className="auth-quiet">No model is open for this account.</p>}
           {detail.workspaces.length > 0 && (
             <table className="auth-table">
@@ -515,6 +549,16 @@ function MaxSessionsControl({ value, onChange }: { value: number; onChange: (n: 
       />
       <button type="button" aria-label="Increase max sessions" disabled={shown >= 50} onClick={() => commit(shown + 1)}>▲</button>
     </span>
+  )
+}
+
+function OwnSessionCounts({ open, limit }: { open: number; limit: number }) {
+  const summary = ownSessionSummary(open, limit)
+  return (
+    <>
+      <p className="auth-quiet">{summary.openSessions}</p>
+      <p className="auth-quiet">{summary.limit}</p>
+    </>
   )
 }
 

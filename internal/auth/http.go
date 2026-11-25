@@ -47,6 +47,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/sessions", h.sessions)
 	mux.HandleFunc("POST /auth/sessions/revoke", h.revoke)
 	mux.HandleFunc("GET /auth/workspaces", h.workspaces)
+	mux.HandleFunc("POST /auth/workspaces/ensure", h.ensureWorkspace)
 	mux.HandleFunc("POST /auth/workspaces/claim", h.claimWorkspace)
 	mux.HandleFunc("POST /auth/workspaces/end", h.endWorkspace)
 	mux.Handle("GET /admin/users", RequireAdmin(http.HandlerFunc(h.adminUsers)))
@@ -83,12 +84,17 @@ func (h *Handler) csrf(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	secure := h.Config.Cookie.Secure && RequestHTTPS(r)
+	site := h.Config.Cookie.SameSite
+	if site == "none" && !secure {
+		site = "lax"
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     csrfCookie,
 		Value:    token,
 		Path:     h.Config.Cookie.Path,
-		Secure:   h.Config.Cookie.Secure,
-		SameSite: sameSite(h.Config.Cookie.SameSite),
+		Secure:   secure,
+		SameSite: sameSite(site),
 		MaxAge:   int(h.Config.SessionLifetime.Seconds()),
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
@@ -138,7 +144,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, ident Identity) 
 		writeError(w, http.StatusInternalServerError, "could not start a session")
 		return
 	}
-	h.Sessions.SetCookie(w, item.ID)
+	h.Sessions.SetCookie(w, r, item.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"user": ident})
 }
 
@@ -148,7 +154,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	id := h.Sessions.IDFromRequest(r)
 	_ = h.Provider.Logout(r.Context(), id)
-	h.Sessions.ClearCookie(w)
+	h.Sessions.ClearCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -187,7 +193,7 @@ func (h *Handler) revoke(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "that session is not yours")
 		return
 	} else if body.ID == current {
-		h.Sessions.ClearCookie(w)
+		h.Sessions.ClearCookie(w, r)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -205,11 +211,75 @@ func (h *Handler) workspaces(w http.ResponseWriter, r *http.Request) {
 	if items == nil {
 		items = []ModelWorkspace{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	h.writeWorkspaces(w, ident.MaxSessions, items, "")
+}
+
+// ensureWorkspace claims an optional current model session, then makes
+// sure this user owns at least one open model session. The count is only
+// this user's sessions.
+func (h *Handler) ensureWorkspace(w http.ResponseWriter, r *http.Request) {
+	if !h.allowChange(w, r) {
+		return
+	}
+	ident, ok := FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "sign in to continue")
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.ID != "" && h.Models != nil {
+		h.Models.Claim(ident.UserID, body.ID)
+	}
+	items := h.modelList(ident.UserID)
+	created := ""
+	if countOpen(items) == 0 {
+		opener, ok := h.Models.(interface {
+			Open(userID string) (ModelWorkspace, bool, error)
+		})
+		if !ok {
+			writeError(w, http.StatusNotFound, "this server cannot start a model session")
+			return
+		}
+		opened, wasCreated, err := opener.Open(ident.UserID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if wasCreated {
+			created = opened.ID
+		}
+		items = h.modelList(ident.UserID)
+	}
+	h.writeWorkspaces(w, ident.MaxSessions, items, created)
+}
+
+func (h *Handler) modelList(userID string) []ModelWorkspace {
+	if h.Models == nil || userID == "" {
+		return []ModelWorkspace{}
+	}
+	items := h.Models.List(userID)
+	if items == nil {
+		return []ModelWorkspace{}
+	}
+	return items
+}
+
+func (h *Handler) writeWorkspaces(w http.ResponseWriter, max int, items []ModelWorkspace, createdID string) {
+	if items == nil {
+		items = []ModelWorkspace{}
+	}
+	body := map[string]any{
 		"workspaces":  items,
 		"openCount":   countOpen(items),
-		"maxSessions": h.sessionLimit(ident.MaxSessions),
-	})
+		"maxSessions": h.sessionLimit(max),
+	}
+	if createdID != "" {
+		body["createdId"] = createdID
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (h *Handler) claimWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +325,13 @@ func (h *Handler) endWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "that workspace is not yours")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	if countOpen(h.modelList(ident.UserID)) == 0 {
+		h.Sessions.Revoke(h.Sessions.IDFromRequest(r), ident.UserID)
+		h.Sessions.ClearCookie(w, r)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "loggedOut": true})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "loggedOut": false})
 }
 
 func (h *Handler) adminUsers(w http.ResponseWriter, r *http.Request) {
@@ -455,8 +531,10 @@ func (h *Handler) adminSessions(w http.ResponseWriter, r *http.Request) {
 		items = []ModelWorkspace{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sessions":   h.Sessions.ForUser(user.ID, ""),
-		"workspaces": items,
+		"sessions":    h.Sessions.ForUser(user.ID, ""),
+		"workspaces":  items,
+		"openCount":   countOpen(items),
+		"maxSessions": h.sessionLimit(user.MaxSessions),
 	})
 }
 
@@ -475,6 +553,9 @@ func (h *Handler) adminEndWorkspace(w http.ResponseWriter, r *http.Request) {
 	if h.Models == nil || !h.Models.End(body.UserID, body.ID) {
 		writeError(w, http.StatusNotFound, "that model session is not open")
 		return
+	}
+	if countOpen(h.modelList(body.UserID)) == 0 {
+		h.Sessions.RevokeUser(body.UserID, "", false)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -513,6 +594,8 @@ func (h *Handler) sessionLimit(n int) int {
 	return DefaultMaxSessions
 }
 
+// countOpen counts one user's open model sessions. items must already be
+// that user's list; anonymous sessions and other accounts are not included.
 func countOpen(items []ModelWorkspace) int {
 	n := 0
 	for _, item := range items {

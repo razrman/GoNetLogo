@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addUserControl, anonymousUseAllowed, atSessionLimit, authControls, clampMaxSessions, freshSessionNavigation, modelLocked, nextAuthView, passwordProblem, sessionLimitText, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
+import { addUserControl, anonymousUseAllowed, atSessionLimit, authControls, clampMaxSessions, freshSessionNavigation, modelLocked, nextAuthView, ownSessionSummary, passwordProblem, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
 
 const anon: AuthStatus = { provider: 'none', requireLogin: false, user: null }
 const localOpen: AuthStatus = { provider: 'local', requireLogin: false, user: null }
@@ -66,7 +66,9 @@ test('the session cap stays between 1 and 50 and the account shows the count', (
   assert.equal(clampMaxSessions(4.2), 4)
   assert.equal(clampMaxSessions(80), 50)
   assert.equal(clampMaxSessions(Number.NaN), 4)
-  assert.equal(sessionLimitText(2, 4), '2 of 4 open sessions')
+  assert.deepEqual(ownSessionSummary(1, 4), { openSessions: 'Open sessions: 1', limit: 'Limit: 4' })
+  assert.deepEqual(ownSessionSummary(1, 1), { openSessions: 'Open sessions: 1', limit: 'Limit: 1' })
+  assert.equal(ownSessionSummary(1, 4).limit.includes('4'), true)
   assert.equal(atSessionLimit(4, 4), true)
   assert.equal(atSessionLimit(3, 4), false)
 })

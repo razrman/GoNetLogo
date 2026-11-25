@@ -144,7 +144,7 @@ func TestSessionsExpireAndRevokeOthers(t *testing.T) {
 		t.Fatal("the current session should stay")
 	}
 	rec := httptest.NewRecorder()
-	mgr.SetCookie(rec, one.ID)
+	mgr.SetCookie(rec, httptest.NewRequest(http.MethodGet, "http://localhost/", nil), one.ID)
 	res := rec.Result()
 	defer res.Body.Close()
 	cookie := res.Cookies()[0]

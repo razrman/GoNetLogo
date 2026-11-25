@@ -101,10 +101,15 @@ export function clampMaxSessions(n: number): number {
   return Math.min(maxUserSessions, Math.max(minUserSessions, rounded))
 }
 
-export function sessionLimitText(open: number, max: number): string {
-  const cap = max > 0 ? max : 4
-  const used = open > 0 ? open : 0
-  return `${used} of ${cap} open sessions`
+// ownSessionSummary is this account's open model sessions and this
+// account's limit. The limit is not a count of sessions on the server.
+export function ownSessionSummary(open: number, limit: number): { openSessions: string; limit: string } {
+  const used = Number.isFinite(open) && open > 0 ? Math.floor(open) : 0
+  const cap = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 4
+  return {
+    openSessions: `Open sessions: ${used}`,
+    limit: `Limit: ${cap}`,
+  }
 }
 
 export function atSessionLimit(open: number, max: number): boolean {

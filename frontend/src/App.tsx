@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
-import { AuthMenu, AuthScreens, claimWorkspace } from './AuthChrome'
+import { AuthMenu, AuthScreens, claimWorkspace, ensureWorkspaces } from './AuthChrome'
 import { authControls, freshSessionNavigation, modelLocked, nextAuthView, type AuthStatus, type AuthView } from './auth'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
@@ -253,10 +253,15 @@ export function App() {
   }, [sessionId, authStatus])
 
   const bootGate = authStatus === null ? 'wait' : modelLocked(authStatus) ? 'locked' : 'go'
-  const booted = useRef(false)
+  const signedInID = authStatus?.user?.userId ?? ''
+  // anon and each signed-in user boot separately. Logging in must not keep
+  // using a model session that was opened with no account.
+  const bootedFor = useRef('')
   useEffect(() => {
-    if (bootGate !== 'go' || booted.current) return
-    booted.current = true
+    if (bootGate !== 'go') return
+    const who = signedInID || 'anon'
+    if (bootedFor.current === who) return
+    bootedFor.current = who
     let cancel = false
     const adopt = (info: SessionInfo) => {
       setSessionId(info.id)
@@ -271,26 +276,81 @@ export function App() {
       rememberDynamics(info.dynamics ?? null)
     }
     ;(async () => {
+      // A signed-in account always owns at least one model session. Ensure
+      // asks the server, which counts only this user, then we show that session.
+      if (signedInID) {
+        const stored = readStoredSession()
+        let ensured
+        try {
+          ensured = await ensureWorkspaces(stored || sessionIdRef.current || '')
+        } catch (err) {
+          if (!cancel) {
+            setBanner(err instanceof Error ? err.message : 'Could not open your model session.')
+            setBooting(false)
+          }
+          return
+        }
+        if (cancel) return
+        const open = (ensured.workspaces ?? []).filter((item) => item.status !== 'ending')
+        const pick = open.find((item) => item.id === stored) || open[0]
+        if (!pick) {
+          setBanner('Could not open your model session.')
+          setBooting(false)
+          return
+        }
+        const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id: pick.id }).toPromise()
+        if (cancel) return
+        if (!looked.data?.session) {
+          setBanner('Could not open your model session.')
+          setBooting(false)
+          return
+        }
+        adopt(looked.data.session)
+        if (ensured.createdId === pick.id) {
+          await speedMut({ id: pick.id, speed: 30 })
+          await autoSetup(pick.id, looked.data.session.procedures)
+          const go = await goMut({ id: pick.id })
+          if (go.error && !reportDisconnect(go.error.message)) setBanner(go.error.message)
+          else setActive(foreverIndex(looked.data.session.widgets))
+        }
+        if (!cancel) setBooting(false)
+        return
+      }
       // A reload of this tab keeps the id in sessionStorage. Reattach
       // instead of creating another interpreter, so the grace timer the
       // previous page's beacon started is cancelled by the frames subscription.
       const stored = readStoredSession()
       if (stored) {
-        const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id: stored }).toPromise()
-        if (cancel) return
-        if (looked.data?.session) {
-          adopt(looked.data.session)
-          setBooting(false)
-          return
+        let keep = !signedInID
+        if (signedInID) {
+          try {
+            await claimWorkspace(stored)
+            const listed = await fetch('/auth/workspaces', { credentials: 'same-origin' })
+            const body = await listed.json() as { workspaces?: { id: string; status: string }[] }
+            const row = (body.workspaces ?? []).find((item) => item.id === stored)
+            keep = !!row && row.status !== 'ending'
+          } catch {
+            keep = false
+          }
         }
-        if (looked.error) {
-          const message = looked.error.message
-          if (!reportDisconnect(message)) setBanner(message)
-          setBooting(false)
-          return
+        if (keep) {
+          const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id: stored }).toPromise()
+          if (cancel) return
+          if (looked.data?.session) {
+            adopt(looked.data.session)
+            setBooting(false)
+            return
+          }
+          if (looked.error && !signedInID) {
+            const message = looked.error.message
+            if (!reportDisconnect(message)) setBanner(message)
+            setBooting(false)
+            return
+          }
         }
         clearStoredSession()
       }
+      if (cancel) return
       const created = await createSession({ model: 'fire.nlogo' })
       if (cancel) return
       if (created.error || !created.data) {
@@ -311,9 +371,9 @@ export function App() {
     return () => {
       cancel = true
     }
-    // Boot once sign-in is satisfied. Later account updates must not open a second model.
+    // Boot again when a different person signs in, so the model is theirs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bootGate])
+  }, [bootGate, signedInID])
 
   useEffect(() => {
     const el = logRef.current

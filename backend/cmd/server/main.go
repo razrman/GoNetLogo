@@ -150,7 +150,7 @@ func main() {
 		Provider: authProvider,
 		Sessions: authSessions,
 		Users:    users,
-		Models:   modelBridge{store},
+		Models:   &modelBridge{store: store},
 	}
 	authHandler.Mount(mux)
 	mountUI(mux, ui, pol.production)

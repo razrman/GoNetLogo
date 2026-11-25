@@ -27,7 +27,8 @@ session_lifetime: 168h
 
 cookie:
   name: gonetlogo_auth
-  # Set true when the site is served on HTTPS. Local http must stay false.
+  # true marks the cookie Secure on HTTPS. http://localhost still receives
+  # a cookie the browser will store, so local sign-in keeps working.
   secure: false
   # lax, strict, or none. none requires secure: true.
   same_site: lax

@@ -15,7 +15,7 @@ allow_anonymous: false   # local default; true auto-starts a model with no accou
 session_lifetime: 168h
 cookie:
   name: gonetlogo_auth
-  secure: false          # true on HTTPS; required when same_site is none
+  secure: false          # true on HTTPS. http://localhost still stores the cookie
   same_site: lax         # lax | strict | none
   path: /
 users_file: data/users.json
@@ -31,7 +31,7 @@ providers:
 
 `provider: none` ignores accounts: the fire model auto-starts and the sign-in links stay hidden. With any other provider, `allow_anonymous` defaults to false. The page shows sign-in and sign-up and does not start a model until someone signs in. Set `allow_anonymous: true` to keep the anonymous auto-start. `require_login: true` is separate: it rejects anonymous calls to the model API even if the UI would otherwise allow them.
 
-A model opened before sign-in is attached to the account at sign-in or on the next heartbeat or model operation, when it has no other owner. A model started after sign-in is owned immediately and shows under Account.
+A model opened before sign-in is attached to the account at sign-in, when it has no other owner. If that session belongs to someone else, or it is already ending, sign-in starts a new one. A model started after sign-in is owned immediately. While someone is signed in they have at least one open model session. Ending that last session signs them out. Account shows only that person's sessions, as "Open sessions: N" and "Limit: M". Those numbers are not a total of every session on the server. `cookie.secure: true` marks the cookie Secure only on HTTPS, so `http://localhost` still keeps the sign-in cookie.
 
 `providers` is a block per plugin. The local block is the only one the server reads today. The commented `cognito`, `github`, and `oidc` blocks in `config/auth.yaml` document the issuer, client id, client secret, and redirect URL those plugins will want. Selecting one of those names fails startup with a clear error, because the plugins are not registered yet.
 

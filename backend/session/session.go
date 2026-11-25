@@ -202,6 +202,14 @@ func (st *Store) CountOpen(userID string) int {
 	return n
 }
 
+// IsClosing reports whether an end request is already in its grace period.
+func (st *Store) IsClosing(id string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	s, ok := st.sessions[id]
+	return ok && s.closing
+}
+
 // Get returns a session by id. It does not count as client activity, so a
 // test poll or a log line cannot postpone the idle sweep.
 func (st *Store) Get(id string) (*Session, bool) {

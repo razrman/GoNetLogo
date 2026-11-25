@@ -263,6 +263,18 @@ func (r *queryResolver) Session(ctx context.Context, id string) (*model.Session,
 	if !ok {
 		return nil, nil
 	}
+	// A signed-in user does not resume a model that belongs to someone else.
+	// An unowned session was just attached by the operation hook when this
+	// request carried their cookie. An ending session is not resumed; the
+	// UI starts a new one instead of showing a model that is about to go.
+	if ident, ok := auth.FromContext(ctx); ok {
+		if owner := s.OwnerID(); owner != "" && owner != ident.UserID {
+			return nil, nil
+		}
+		if r.Store.IsClosing(id) {
+			return nil, nil
+		}
+	}
 	return s.Session(), nil
 }
 
