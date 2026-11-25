@@ -96,3 +96,7 @@ func init() {
 Import that package from `backend/cmd/server` so the registration runs. Put a `example:` block under `providers` in the YAML. HTTP middleware, the cookie, CSRF, and the admin page stay on the `AuthProvider` and `UserStore` interfaces. A redirect provider can return `ErrDisabled` from `Signup` and `Login` until its callback exists.
 
 Roles are not claims from the provider. After the provider identifies the person, this server looks up the user row and uses the role stored there.
+
+## Production image
+
+The Docker image copies `config/auth.production.yaml` to `/config/auth.yaml`. It turns on the local provider with secure cookies and seeds `jphelps@iaip.com` as the first admin. Accounts and login sessions live only in the running container, so a redeploy, restart, or infra down drops them. `config/auth.yaml` stays the local-development default (`provider: none`).
