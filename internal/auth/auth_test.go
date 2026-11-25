@@ -53,9 +53,27 @@ func TestLoadMissingEnvFailsAndCommittedFileStaysAnonymous(t *testing.T) {
 	if cfg.DefaultMaxSessions != DefaultMaxSessions {
 		t.Fatalf("default max sessions %d", cfg.DefaultMaxSessions)
 	}
+	if !cfg.AllowAnonymous {
+		t.Fatal("provider none should keep anonymous use")
+	}
 	_, err = Load(func(string) string { return filepath.Join(t.TempDir(), "missing.yaml") })
 	if err == nil {
 		t.Fatal("a missing explicit config should fail")
+	}
+}
+
+func TestAllowAnonymousDefaultsOffForAccounts(t *testing.T) {
+	none, err := Parse([]byte("provider: none\n"))
+	if err != nil || !none.AllowAnonymous {
+		t.Fatalf("none: %+v %v", none, err)
+	}
+	local, err := Parse([]byte("provider: local\n"))
+	if err != nil || local.AllowAnonymous {
+		t.Fatalf("local default: %+v %v", local, err)
+	}
+	opened, err := Parse([]byte("provider: local\nallow_anonymous: true\n"))
+	if err != nil || !opened.AllowAnonymous {
+		t.Fatalf("local explicit: %+v %v", opened, err)
 	}
 }
 

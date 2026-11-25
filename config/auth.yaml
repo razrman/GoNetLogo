@@ -12,6 +12,16 @@
 provider: none
 require_login: false
 
+# require_login true rejects anonymous API calls. It cannot be combined
+# with provider: none.
+#
+# allow_anonymous matters when a provider other than none is selected.
+# It defaults to false: the UI shows sign-in / sign-up and does not
+# auto-start a model. Set true to let anonymous visitors open and run
+# models the way provider: none does. require_login true still blocks
+# those API calls.
+# allow_anonymous: false
+
 # How long a signed-in browser stays signed in. A Go duration.
 session_lifetime: 168h
 

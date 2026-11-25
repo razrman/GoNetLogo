@@ -10,7 +10,8 @@ The server reads `config/auth.yaml`, or the file named by `GONETLOGO_AUTH_CONFIG
 
 ```yaml
 provider: local          # none | local
-require_login: false     # true hides models until someone signs in
+require_login: false     # true rejects anonymous API calls
+allow_anonymous: false   # local default; true auto-starts a model with no account
 session_lifetime: 168h
 cookie:
   name: gonetlogo_auth
@@ -27,6 +28,10 @@ providers:
 ```
 
 `provider` must be a registered plugin. `require_login: true` with `provider: none` is rejected. `session_lifetime` is a Go duration and must be positive. `cookie.path` starts with `/`. Admin emails must contain `@` and no spaces. The local password minimum is 8 to 200. `default_max_sessions` is how many open model sessions a new account may have. A missing value is 4. An admin can change it per user. A session that is ending does not count. At the limit, starting another session asks the person to end one first.
+
+`provider: none` ignores accounts: the fire model auto-starts and the sign-in links stay hidden. With any other provider, `allow_anonymous` defaults to false. The page shows sign-in and sign-up and does not start a model until someone signs in. Set `allow_anonymous: true` to keep the anonymous auto-start. `require_login: true` is separate: it rejects anonymous calls to the model API even if the UI would otherwise allow them.
+
+A model opened before sign-in is attached to the account at sign-in or on the next heartbeat or model operation, when it has no other owner. A model started after sign-in is owned immediately and shows under Account.
 
 `providers` is a block per plugin. The local block is the only one the server reads today. The commented `cognito`, `github`, and `oidc` blocks in `config/auth.yaml` document the issuer, client id, client secret, and redirect URL those plugins will want. Selecting one of those names fails startup with a clear error, because the plugins are not registered yet.
 

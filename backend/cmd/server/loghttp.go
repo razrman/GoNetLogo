@@ -13,6 +13,8 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
+	"gonetlogo/backend/session"
+	"gonetlogo/internal/auth"
 )
 
 type httpRequestKey struct{}
@@ -113,6 +115,33 @@ func (s *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// adoptSignedInModel gives the signed-in user any model session this
+// operation names, when that session does not already have an owner.
+// Creating a session still sets the owner itself. Touching one that was
+// opened anonymously, including go, setup, and loading a model, attaches it.
+func adoptSignedInModel(srv *handler.Server, st *session.Store) {
+	srv.AroundOperations(func(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
+		if ident, ok := auth.FromContext(ctx); ok && graphql.HasOperationContext(ctx) {
+			if id := modelSessionID(graphql.GetOperationContext(ctx).Variables); id != "" {
+				st.ClaimUnowned(id, ident.UserID)
+			}
+		}
+		return next(ctx)
+	})
+}
+
+func modelSessionID(vars map[string]any) string {
+	if vars == nil {
+		return ""
+	}
+	for _, key := range []string{"sessionId", "id"} {
+		if id, ok := vars[key].(string); ok && id != "" {
+			return id
+		}
+	}
+	return ""
+}
 
 // logGraphQL records one debug line per query or mutation. Subscription
 // payloads are not logged; connect and disconnect are logged elsewhere.

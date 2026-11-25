@@ -357,6 +357,24 @@ func (s *Session) OwnerID() string {
 	return s.ownerID
 }
 
+// ClaimUnowned gives an anonymous model session to userID. A session that
+// already belongs to someone is left as it is. Missing ids are ignored.
+func (st *Store) ClaimUnowned(id, userID string) bool {
+	if id == "" || userID == "" {
+		return false
+	}
+	s, ok := st.Get(id)
+	if !ok {
+		return false
+	}
+	owner := s.OwnerID()
+	if owner != "" {
+		return owner == userID
+	}
+	s.SetOwner(userID)
+	return true
+}
+
 // Workspace status values. Running means a forever button is stepping.
 // Stopped means the session is still open and can be shown again.
 // Ending means an end request is in its grace period, so the session

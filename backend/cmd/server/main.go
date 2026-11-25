@@ -130,7 +130,11 @@ func main() {
 
 	gql := http.Handler(srv)
 	end := session.EndHandler(store)
-	beat := session.HeartbeatHandler(store)
+	beat := session.HeartbeatHandlerClaim(store, func(r *http.Request, id string) {
+		if ident, ok := auth.FromContext(r.Context()); ok {
+			store.ClaimUnowned(id, ident.UserID)
+		}
+	})
 	if authCfg.RequireLogin {
 		gql = auth.RequireUser(gql)
 		end = auth.RequireUser(end)
@@ -217,6 +221,7 @@ func newHandler(store *session.Store, pol originPolicy) http.Handler {
 		srv.Use(extension.Introspection{})
 	}
 	logGraphQL(srv)
+	adoptSignedInModel(srv, store)
 	return srv
 }
 

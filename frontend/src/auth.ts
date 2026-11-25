@@ -12,6 +12,7 @@ export type AuthUser = {
 export type AuthStatus = {
   provider: string
   requireLogin: boolean
+  allowAnonymous?: boolean
   user: AuthUser | null
 }
 
@@ -31,9 +32,18 @@ export function authControls(status: AuthStatus | null): {
   }
 }
 
+// anonymousUseAllowed is true for provider none, and for other providers
+// only when allow_anonymous is explicitly on and login is not required.
+export function anonymousUseAllowed(status: AuthStatus | null): boolean {
+  if (!status || status.provider === 'none') return true
+  if (status.requireLogin) return false
+  return status.allowAnonymous === true
+}
+
 // modelLocked is true when the model UI must wait for a signed-in user.
 export function modelLocked(status: AuthStatus | null): boolean {
-  return !!status?.requireLogin && !status.user
+  if (!status || status.user) return false
+  return !anonymousUseAllowed(status)
 }
 
 export function nextAuthView(status: AuthStatus | null, asked: AuthView): AuthView {

@@ -376,17 +376,29 @@ func BrowserSessionPath(path string) bool {
 // and keep it. An unknown id is still 204. A cross-origin request is 403
 // and does not schedule anything.
 func EndHandler(st *Store) http.Handler {
-	return sessionPost(func(id string) { st.Release(id) })
+	return sessionPost(func(_ *http.Request, id string) { st.Release(id) })
 }
 
 // HeartbeatHandler is POST /session/heartbeat. The body is the session
 // id, in the same shapes as /session/end. A same-origin ping records
 // last-seen. A cross-origin request is 403 and does not.
 func HeartbeatHandler(st *Store) http.Handler {
-	return sessionPost(func(id string) { st.Heartbeat(id) })
+	return HeartbeatHandlerClaim(st, nil)
 }
 
-func sessionPost(fn func(string)) http.Handler {
+// HeartbeatHandlerClaim is HeartbeatHandler plus a hook that sees the
+// session id after a same-origin ping is accepted. The server uses it to
+// attach a model the browser opened before sign-in.
+func HeartbeatHandlerClaim(st *Store, claim func(*http.Request, string)) http.Handler {
+	return sessionPost(func(r *http.Request, id string) {
+		st.Heartbeat(id)
+		if claim != nil {
+			claim(r, id)
+		}
+	})
+}
+
+func sessionPost(fn func(*http.Request, string)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
@@ -402,7 +414,7 @@ func sessionPost(fn func(string)) http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		fn(id)
+		fn(r, id)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

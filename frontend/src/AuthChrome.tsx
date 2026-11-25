@@ -33,7 +33,7 @@ type UserDetail = {
 }
 
 async function csrfToken(): Promise<string> {
-  const res = await fetch('/auth/csrf')
+  const res = await fetch('/auth/csrf', { credentials: 'same-origin' })
   if (!res.ok) throw new Error('Could not start the form.')
   const body = (await res.json()) as { token?: string }
   if (!body.token) throw new Error('Could not start the form.')
@@ -48,7 +48,7 @@ async function send(path: string, method: string, body?: unknown): Promise<unkno
     headers['X-CSRF-Token'] = await csrfToken()
     payload = JSON.stringify(body)
   }
-  const res = await fetch(path, { method, headers, body: payload })
+  const res = await fetch(path, { method, headers, body: payload, credentials: 'same-origin' })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
   return data
@@ -114,18 +114,20 @@ export function AuthScreens({
   onSignedIn,
   onOpenWorkspace,
   onNewSession,
+  claimCurrent,
 }: {
   view: 'login' | 'signup' | 'account' | 'admin'
   onView: (view: AuthView) => void
   onSignedIn: (user: AuthUser) => void
   onOpenWorkspace: (id: string) => Promise<string | null>
   onNewSession: () => Promise<string | null>
+  claimCurrent: () => Promise<void>
 }) {
   return (
     <section className="auth-page" aria-label={view === 'admin' ? 'Admin' : view === 'account' ? 'Account' : 'Sign in'}>
       {view === 'login' && <LoginForm onView={onView} onSignedIn={onSignedIn} />}
       {view === 'signup' && <SignupForm onView={onView} onSignedIn={onSignedIn} />}
-      {view === 'account' && <AccountPage onOpen={onOpenWorkspace} onNew={onNewSession} />}
+      {view === 'account' && <AccountPage onOpen={onOpenWorkspace} onNew={onNewSession} claimCurrent={claimCurrent} />}
       {view === 'admin' && <AdminPage />}
     </section>
   )
@@ -201,9 +203,11 @@ function SignupForm({ onView, onSignedIn }: { onView: (view: AuthView) => void; 
 function AccountPage({
   onOpen,
   onNew,
+  claimCurrent,
 }: {
   onOpen: (id: string) => Promise<string | null>
   onNew: () => Promise<string | null>
+  claimCurrent: () => Promise<void>
 }) {
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([])
@@ -225,7 +229,15 @@ function AccountPage({
       setMaxSessions(w.maxSessions && w.maxSessions > 0 ? w.maxSessions : 4)
     }).catch((err: Error) => setError(err.message))
   }
-  useEffect(load, [])
+  useEffect(() => {
+    let cancel = false
+    void claimCurrent().finally(() => {
+      if (!cancel) load()
+    })
+    return () => {
+      cancel = true
+    }
+  }, [])
   const revoke = (body: { id?: string; allOthers?: boolean }) => {
     void send('/auth/sessions/revoke', 'POST', body).then(() => {
       if (body.id && sessions.some((row) => row.id === body.id && row.current)) window.location.reload()

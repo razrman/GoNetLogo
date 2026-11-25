@@ -21,6 +21,7 @@ const DefaultPath = "config/auth.yaml"
 type Config struct {
 	Provider           string
 	RequireLogin       bool
+	AllowAnonymous     bool
 	SessionLifetime    time.Duration
 	Cookie             CookieConfig
 	UsersFile          string
@@ -43,6 +44,7 @@ type CookieConfig struct {
 type fileConfig struct {
 	Provider           string                    `yaml:"provider"`
 	RequireLogin       bool                      `yaml:"require_login"`
+	AllowAnonymous     *bool                     `yaml:"allow_anonymous"`
 	SessionLifetime    string                    `yaml:"session_lifetime"`
 	Cookie             fileCookie                `yaml:"cookie"`
 	UsersFile          string                    `yaml:"users_file"`
@@ -62,6 +64,7 @@ type fileCookie struct {
 func DefaultConfig() Config {
 	return Config{
 		Provider:           "none",
+		AllowAnonymous:     true,
 		SessionLifetime:    168 * time.Hour,
 		Cookie:             CookieConfig{Name: "gonetlogo_auth", SameSite: "lax", Path: "/"},
 		UsersFile:          "data/users.json",
@@ -113,6 +116,14 @@ func Parse(b []byte) (Config, error) {
 		return Config{}, fmt.Errorf("provider is required")
 	}
 	cfg.RequireLogin = raw.RequireLogin
+	if raw.AllowAnonymous != nil {
+		cfg.AllowAnonymous = *raw.AllowAnonymous
+	} else if cfg.Provider == "none" {
+		cfg.AllowAnonymous = true
+	} else {
+		// Accounts are on. The UI waits for sign-in unless this is set.
+		cfg.AllowAnonymous = false
+	}
 	if strings.TrimSpace(raw.SessionLifetime) != "" {
 		d, err := time.ParseDuration(strings.TrimSpace(raw.SessionLifetime))
 		if err != nil || d <= 0 {

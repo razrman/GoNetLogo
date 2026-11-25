@@ -232,7 +232,7 @@ export function App() {
         if (!cancel) setAuthStatus(status)
       })
       .catch(() => {
-        if (!cancel) setAuthStatus({ provider: 'none', requireLogin: false, user: null })
+        if (!cancel) setAuthStatus({ provider: 'none', requireLogin: false, allowAnonymous: true, user: null })
       })
     return () => {
       cancel = true
@@ -582,6 +582,16 @@ export function App() {
     resetPlots()
     setLibrary(null)
     setLibraryError(null)
+  }
+
+  async function claimCurrentSession(): Promise<void> {
+    const id = sessionIdRef.current
+    if (!id) return
+    try {
+      await claimWorkspace(id)
+    } catch {
+      // The account list still loads. A later heartbeat attaches the model.
+    }
   }
 
   async function openWorkspace(id: string): Promise<string | null> {
@@ -934,7 +944,12 @@ export function App() {
         <AuthScreens
           view={view}
           onView={setAuthView}
-          onSignedIn={(user) => setAuthStatus({ ...authStatus, user })}
+          onSignedIn={(user) => {
+            setAuthStatus({ ...authStatus, user })
+            const id = sessionIdRef.current
+            if (id) void claimWorkspace(id).catch(() => {})
+          }}
+          claimCurrent={claimCurrentSession}
           onOpenWorkspace={openWorkspace}
           onNewSession={startFreshSession}
         />

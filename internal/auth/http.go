@@ -62,9 +62,10 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 
 func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	body := map[string]any{
-		"provider":     h.Config.Provider,
-		"requireLogin": h.Config.RequireLogin,
-		"user":         nil,
+		"provider":       h.Config.Provider,
+		"requireLogin":   h.Config.RequireLogin,
+		"allowAnonymous": h.Config.AllowAnonymous,
+		"user":           nil,
 	}
 	if ident, ok := FromContext(r.Context()); ok {
 		body["user"] = ident

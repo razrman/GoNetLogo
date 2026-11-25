@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addUserControl, atSessionLimit, authControls, clampMaxSessions, freshSessionNavigation, modelLocked, nextAuthView, passwordProblem, sessionLimitText, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
+import { addUserControl, anonymousUseAllowed, atSessionLimit, authControls, clampMaxSessions, freshSessionNavigation, modelLocked, nextAuthView, passwordProblem, sessionLimitText, workspaceLabel, workspaceOpen, workspaceTarget, type AuthStatus } from './auth.ts'
 
 const anon: AuthStatus = { provider: 'none', requireLogin: false, user: null }
 const localOpen: AuthStatus = { provider: 'local', requireLogin: false, user: null }
@@ -20,10 +20,14 @@ test('provider none hides sign-in and leaves the model open', () => {
   assert.equal(nextAuthView(anon, 'app'), 'app')
 })
 
-test('require_login sends an anonymous visitor to the sign-in page', () => {
-  assert.equal(modelLocked(localOpen), false)
-  assert.equal(modelLocked({ ...localOpen, requireLogin: true }), true)
-  assert.equal(nextAuthView({ ...localOpen, requireLogin: true }, 'app'), 'login')
+test('accounts on show sign-in until allow_anonymous is set', () => {
+  assert.equal(anonymousUseAllowed(anon), true)
+  assert.equal(anonymousUseAllowed(localOpen), false)
+  assert.equal(modelLocked(localOpen), true)
+  assert.equal(nextAuthView(localOpen, 'app'), 'login')
+  assert.equal(modelLocked({ ...localOpen, allowAnonymous: true }), false)
+  assert.equal(nextAuthView({ ...localOpen, allowAnonymous: true }, 'app'), 'app')
+  assert.equal(modelLocked({ ...localOpen, requireLogin: true, allowAnonymous: true }), true)
   assert.equal(nextAuthView(user, 'app'), 'app')
 })
 
