@@ -25,7 +25,7 @@ func bridgeWorkspace(item session.Workspace) auth.ModelWorkspace {
 	}
 }
 
-func (b modelBridge) List(userID string) []auth.ModelWorkspace {
+func (b *modelBridge) List(userID string) []auth.ModelWorkspace {
 	items := b.store.ForOwner(userID)
 	out := make([]auth.ModelWorkspace, 0, len(items))
 	for _, item := range items {
@@ -60,7 +60,7 @@ func (b *modelBridge) Open(userID string) (auth.ModelWorkspace, bool, error) {
 	return auth.ModelWorkspace{ID: s.ID(), ModelName: "fire.nlogo", Status: session.StatusStopped}, true, nil
 }
 
-func (b modelBridge) Claim(userID, id string) bool {
+func (b *modelBridge) Claim(userID, id string) bool {
 	s, ok := b.store.Get(id)
 	if !ok || userID == "" {
 		return false
@@ -73,7 +73,7 @@ func (b modelBridge) Claim(userID, id string) bool {
 	return true
 }
 
-func (b modelBridge) End(userID, id string) bool {
+func (b *modelBridge) End(userID, id string) bool {
 	for _, item := range b.store.ForOwner(userID) {
 		if item.ID == id {
 			return b.store.Release(id)
