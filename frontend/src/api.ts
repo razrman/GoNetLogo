@@ -66,7 +66,7 @@ const ws = createWS({
 export async function graphqlFetch(input: RequestInfo | URL, init?: RequestInit) {
   let res: Response
   try {
-    res = await fetch(input, init)
+    res = await fetch(input, { credentials: 'same-origin', ...init })
   } catch {
     reportConnection(false)
     throw new Error('Server disconnected')

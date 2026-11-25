@@ -9,15 +9,26 @@ import (
 	"fmt"
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
+	"gonetlogo/internal/auth"
 	"log/slog"
 	"time"
 )
 
 // CreateSession is the resolver for the createSession field.
 func (r *mutationResolver) CreateSession(ctx context.Context, model string) (*model.Session, error) {
+	r.createMu.Lock()
+	defer r.createMu.Unlock()
+	if ident, ok := auth.FromContext(ctx); ok && ident.MaxSessions > 0 {
+		if n := r.Store.CountOpen(ident.UserID); n >= ident.MaxSessions {
+			return nil, auth.SessionLimitError(n, ident.MaxSessions)
+		}
+	}
 	s, err := r.Store.Create(model)
 	if err != nil {
 		return nil, err
+	}
+	if ident, ok := auth.FromContext(ctx); ok {
+		s.SetOwner(ident.UserID)
 	}
 	return s.Session(), nil
 }
@@ -251,6 +262,18 @@ func (r *queryResolver) Session(ctx context.Context, id string) (*model.Session,
 	s, ok := r.Store.Use(id)
 	if !ok {
 		return nil, nil
+	}
+	// A signed-in user does not resume a model that belongs to someone else.
+	// An unowned session was just attached by the operation hook when this
+	// request carried their cookie. An ending session is not resumed; the
+	// UI starts a new one instead of showing a model that is about to go.
+	if ident, ok := auth.FromContext(ctx); ok {
+		if owner := s.OwnerID(); owner != "" && owner != ident.UserID {
+			return nil, nil
+		}
+		if r.Store.IsClosing(id) {
+			return nil, nil
+		}
 	}
 	return s.Session(), nil
 }

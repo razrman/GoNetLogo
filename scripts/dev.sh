@@ -19,10 +19,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 for _ in $(seq 1 50); do
-  if curl -sf -o /dev/null \
-    -X POST -H 'content-type: application/json' \
-    --data '{"query":"{ models }"}' \
-    http://127.0.0.1:43131/graphql; then
+  # /healthz stays open when require_login is on, so sign-in mode still starts.
+  if curl -sf -o /dev/null http://127.0.0.1:43131/healthz; then
     break
   fi
   sleep 0.2

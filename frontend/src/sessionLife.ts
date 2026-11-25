@@ -1,9 +1,20 @@
 // The web UI keeps its session id in sessionStorage, not localStorage
 // and not a cookie. sessionStorage survives a reload of this tab and is
-// discarded when the tab closes, so a reload can attach to the same
-// interpreter and a new tab starts a new one.
+// discarded when the tab closes. A reload of the same tab attaches to
+// the same interpreter. A new tab of a signed-in user resumes that
+// account's most recent model session. An anonymous new tab starts one.
 
 export const sessionStorageKey = 'gonetlogo.session'
+
+// sessionMark is the short label shown next to the model name. The last
+// five characters identify the session; the full id is the tooltip.
+export function sessionMark(id: string | null | undefined): { label: string; title: string } | null {
+  const full = (id ?? '').trim()
+  if (!full) return null
+  const tail = full.length > 5 ? full.slice(-5) : full
+  const label = full.length > 5 ? `· …${tail}` : `· ${tail}`
+  return { label, title: full }
+}
 
 // presentCreateSessionError is the banner text when the page cannot open
 // its first session. A full server is named in a sentence. Other GraphQL

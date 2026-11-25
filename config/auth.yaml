@@ -1,0 +1,80 @@
+# GoNetLogo authentication. provider: none leaves the site anonymous,
+# which is how existing deploys behave. Set provider: local to turn on
+# email-and-password accounts stored in users_file.
+#
+# The local file is ephemeral. A container restart, or deleting the file,
+# drops every account and password. It is not a production user database.
+#
+# Pass 2 will add real providers. The commented blocks below are the
+# settings those plugins will read. Selecting cognito or github today
+# fails at startup because those plugins are not registered.
+
+provider: none
+require_login: false
+
+# require_login true rejects anonymous API calls. It cannot be combined
+# with provider: none.
+#
+# allow_anonymous matters when a provider other than none is selected.
+# It defaults to false: the UI shows sign-in / sign-up and does not
+# auto-start a model. Set true to let anonymous visitors open and run
+# models the way provider: none does. require_login true still blocks
+# those API calls.
+# allow_anonymous: false
+
+# How long a signed-in browser stays signed in. A Go duration.
+session_lifetime: 168h
+
+cookie:
+  name: gonetlogo_auth
+  # true marks the cookie Secure on HTTPS. http://localhost still receives
+  # a cookie the browser will store, so local sign-in keeps working.
+  secure: false
+  # lax, strict, or none. none requires secure: true.
+  same_site: lax
+  path: /
+
+# Created on first signup. Relative paths are from the process working
+# directory. In the container that directory is /tmp, so this file
+# disappears when the container is replaced.
+users_file: data/users.json
+
+# Open model sessions each account may have. An admin can change it
+# per user. Existing accounts with no value use this number. 1 to 50.
+default_max_sessions: 4
+
+# How long a signed-in user's model session stays after the last tab
+# closes. Closing a tab does not end it. Account End, Admin End, and
+# this idle time do. Logout leaves it so the next sign-in can resume it.
+# A Go duration. Omitted means 24h.
+# owned_session_idle_timeout: 24h
+
+# Addresses that are admins. A person who signs up with one of these
+# emails becomes an admin. On each startup, an existing user with one
+# of these emails is promoted. The address is not given a password here;
+# they still sign up or log in.
+initial_admin_emails: []
+
+providers:
+  local:
+    min_password_length: 8
+
+  # cognito:
+  #   region: us-west-2
+  #   user_pool_id: us-west-2_example
+  #   client_id: exampleclientid
+  #   client_secret: example-secret
+  #   issuer: https://cognito-idp.us-west-2.amazonaws.com/us-west-2_example
+  #   redirect_url: https://gonetlogo.app.sapienexmachina.si/auth/callback
+
+  # github:
+  #   client_id: example-github-client
+  #   client_secret: example-github-secret
+  #   redirect_url: https://gonetlogo.app.sapienexmachina.si/auth/callback
+  #   scopes: read:user user:email
+
+  # oidc:
+  #   issuer: https://example.com
+  #   client_id: example-oidc-client
+  #   client_secret: example-oidc-secret
+  #   redirect_url: https://gonetlogo.app.sapienexmachina.si/auth/callback

@@ -11,6 +11,7 @@ import {
   readStoredSession,
   sessionEndBody,
   sessionEndPath,
+  sessionMark,
   sessionHeartbeatPath,
   sessionStorageKey,
   writeStoredSession,
@@ -44,6 +45,15 @@ test('a session id round-trips in session storage and rejects garbage', () => {
   store.setItem(sessionStorageKey, '0123456789abcdef')
   clearStoredSession(store)
   assert.equal(readStoredSession(store), null)
+})
+
+test('the interface mark is the last five characters and the tooltip is the full id', () => {
+  assert.equal(sessionMark(null), null)
+  assert.equal(sessionMark(''), null)
+  assert.equal(sessionMark('  '), null)
+  assert.deepEqual(sessionMark('0123456789abcdef'), { label: '· …bcdef', title: '0123456789abcdef' })
+  assert.deepEqual(sessionMark('a1b2c'), { label: '· a1b2c', title: 'a1b2c' })
+  assert.deepEqual(sessionMark('zzzzza1b2c'), { label: '· …a1b2c', title: 'zzzzza1b2c' })
 })
 
 test('the beacon body is the session id posted to /session/end', async () => {
@@ -163,6 +173,10 @@ test('a full server is explained without the GraphQL prefix', () => {
   )
   assert.equal(presentCreateSessionError('too many sessions'), friendly)
   assert.equal(presentCreateSessionError('[GraphQL] no such model'), 'no such model')
+  assert.match(
+    presentCreateSessionError('[GraphQL] you have 4 open model sessions, which is your limit of 4. End one on the Account page before starting another'),
+    /End one on the Account page/,
+  )
   assert.equal(presentCreateSessionError(''), 'Could not open a session')
   assert.equal(presentCreateSessionError(null), 'Could not open a session')
   assert.match(presentCreateSessionError('[Network] failed to fetch'), /failed to fetch/)

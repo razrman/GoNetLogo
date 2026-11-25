@@ -1,4 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { AuthMenu, AuthScreens, claimWorkspace, ensureWorkspaces } from './AuthChrome'
+import { authControls, closePanel, freshSessionNavigation, leaveEndsSession, modelLocked, nextAuthView, preferredWorkspace, pushPanel, type AuthStatus, type AuthView } from './auth'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -67,7 +69,7 @@ import { LibraryBrowser } from './LibraryBrowser'
 import { parentFolder, readLastModelPath, writeLastModelPath } from './libraryMemory'
 import { WorldCanvas } from './WorldCanvas'
 import { readSeedOverride, rngSeedError, rngSeedForApply, seedControlState, writeSeedOverride } from './rngSeed'
-import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, presentCreateSessionError, readStoredSession, writeStoredSession } from './sessionLife'
+import { bindSessionEnd, bindSessionHeartbeat, clearStoredSession, postSessionEnd, postSessionHeartbeat, presentCreateSessionError, readStoredSession, sessionMark, writeStoredSession } from './sessionLife'
 import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 
 // three.js is only needed for 3D worlds, so it loads in its own chunk the
@@ -129,6 +131,7 @@ export function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   sessionIdRef.current = sessionId
+  const signedInRef = useRef(false)
   const [modelName, setModelName] = useState('fire.nlogo')
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
@@ -163,6 +166,10 @@ export function App() {
   const [commandError, setCommandError] = useState<string | null>(null)
   const [active, setActive] = useState<number | null>(null)
   const [booting, setBooting] = useState(true)
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
+  signedInRef.current = Boolean(authStatus?.user)
+  const [history, setHistory] = useState<AuthView[]>(['app'])
+  const authView = history[history.length - 1] ?? 'app'
   const [outputText, setOutputText] = useState('')
   const [dropping, setDropping] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
@@ -179,6 +186,7 @@ export function App() {
   const [libraryLoading, setLibraryLoading] = useState(false)
 
   const modelTitle = interfaceModelTitle(modelName)
+  const sessionChip = sessionMark(sessionId)
   useEffect(() => {
     document.title = `${modelTitle} - GoNetLogo`
   }, [modelTitle])
@@ -209,7 +217,10 @@ export function App() {
     if (sessionId) writeStoredSession(sessionId)
   }, [sessionId])
 
-  useEffect(() => bindSessionEnd(window, () => sessionIdRef.current, (id) => {
+  useEffect(() => bindSessionEnd(window, () => {
+    if (!leaveEndsSession(signedInRef.current)) return null
+    return sessionIdRef.current
+  }, (id) => {
     postSessionEnd(id)
   }), [])
 
@@ -218,6 +229,46 @@ export function App() {
   }), [sessionId])
 
   useEffect(() => {
+    let cancel = false
+    void fetch('/auth/status')
+      .then(async (res) => {
+        if (!res.ok) throw new Error('auth status')
+        return res.json() as Promise<AuthStatus>
+      })
+      .then((status) => {
+        if (!cancel) setAuthStatus(status)
+      })
+      .catch(() => {
+        if (!cancel) setAuthStatus({ provider: 'none', requireLogin: false, allowAnonymous: true, user: null })
+      })
+    return () => {
+      cancel = true
+    }
+  }, [])
+
+  const claimed = useRef('')
+  useEffect(() => {
+    const id = sessionId
+    const userId = authStatus?.user?.userId
+    if (!id || !userId) return
+    const key = userId + ':' + id
+    if (claimed.current === key) return
+    claimed.current = key
+    void claimWorkspace(id).catch(() => {
+      if (claimed.current === key) claimed.current = ''
+    })
+  }, [sessionId, authStatus])
+
+  const bootGate = authStatus === null ? 'wait' : modelLocked(authStatus) ? 'locked' : 'go'
+  const signedInID = authStatus?.user?.userId ?? ''
+  // anon and each signed-in user boot separately. Logging in must not keep
+  // using a model session that was opened with no account.
+  const bootedFor = useRef('')
+  useEffect(() => {
+    if (bootGate !== 'go') return
+    const who = signedInID || 'anon'
+    if (bootedFor.current === who) return
+    bootedFor.current = who
     let cancel = false
     const adopt = (info: SessionInfo) => {
       setSessionId(info.id)
@@ -232,26 +283,80 @@ export function App() {
       rememberDynamics(info.dynamics ?? null)
     }
     ;(async () => {
+      // A signed-in account always owns at least one model session. Ensure
+      // asks the server, which counts only this user, then we show that session.
+      if (signedInID) {
+        const stored = readStoredSession()
+        let ensured
+        try {
+          ensured = await ensureWorkspaces(stored || sessionIdRef.current || '')
+        } catch (err) {
+          if (!cancel) {
+            setBanner(err instanceof Error ? err.message : 'Could not open your model session.')
+            setBooting(false)
+          }
+          return
+        }
+        if (cancel) return
+        const pick = preferredWorkspace(stored, ensured.workspaces)
+        if (!pick) {
+          setBanner('Could not open your model session.')
+          setBooting(false)
+          return
+        }
+        const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id: pick.id }).toPromise()
+        if (cancel) return
+        if (!looked.data?.session) {
+          setBanner('Could not open your model session.')
+          setBooting(false)
+          return
+        }
+        adopt(looked.data.session)
+        if (ensured.createdId === pick.id) {
+          await speedMut({ id: pick.id, speed: 30 })
+          await autoSetup(pick.id, looked.data.session.procedures)
+          const go = await goMut({ id: pick.id })
+          if (go.error && !reportDisconnect(go.error.message)) setBanner(go.error.message)
+          else setActive(foreverIndex(looked.data.session.widgets))
+        }
+        if (!cancel) setBooting(false)
+        return
+      }
       // A reload of this tab keeps the id in sessionStorage. Reattach
       // instead of creating another interpreter, so the grace timer the
       // previous page's beacon started is cancelled by the frames subscription.
       const stored = readStoredSession()
       if (stored) {
-        const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id: stored }).toPromise()
-        if (cancel) return
-        if (looked.data?.session) {
-          adopt(looked.data.session)
-          setBooting(false)
-          return
+        let keep = !signedInID
+        if (signedInID) {
+          try {
+            await claimWorkspace(stored)
+            const listed = await fetch('/auth/workspaces', { credentials: 'same-origin' })
+            const body = await listed.json() as { workspaces?: { id: string; status: string }[] }
+            const row = (body.workspaces ?? []).find((item) => item.id === stored)
+            keep = !!row && row.status !== 'ending'
+          } catch {
+            keep = false
+          }
         }
-        if (looked.error) {
-          const message = looked.error.message
-          if (!reportDisconnect(message)) setBanner(message)
-          setBooting(false)
-          return
+        if (keep) {
+          const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id: stored }).toPromise()
+          if (cancel) return
+          if (looked.data?.session) {
+            adopt(looked.data.session)
+            setBooting(false)
+            return
+          }
+          if (looked.error && !signedInID) {
+            const message = looked.error.message
+            if (!reportDisconnect(message)) setBanner(message)
+            setBooting(false)
+            return
+          }
         }
         clearStoredSession()
       }
+      if (cancel) return
       const created = await createSession({ model: 'fire.nlogo' })
       if (cancel) return
       if (created.error || !created.data) {
@@ -272,9 +377,9 @@ export function App() {
     return () => {
       cancel = true
     }
-    // Boot once. The mutation executors are stable for this client.
+    // Boot again when a different person signs in, so the model is theirs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [bootGate, signedInID])
 
   useEffect(() => {
     const el = logRef.current
@@ -545,6 +650,40 @@ export function App() {
     setLibraryError(null)
   }
 
+  async function claimCurrentSession(): Promise<void> {
+    const id = sessionIdRef.current
+    if (!id) return
+    try {
+      await claimWorkspace(id)
+    } catch {
+      // The account list still loads. A later heartbeat attaches the model.
+    }
+  }
+
+  async function openWorkspace(id: string): Promise<string | null> {
+    if (sessionIdRef.current === id) {
+      setHistory(['app'])
+      return null
+    }
+    const looked = await client.query<{ session: SessionInfo | null }>(SessionQuery, { id }).toPromise()
+    if (looked.error) {
+      const message = looked.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+      return message || 'Could not open that session.'
+    }
+    const info = looked.data?.session
+    if (!info) return 'That session has ended.'
+    setFrame(null)
+    setOutputText('')
+    outputState.current = { epoch: -1, seq: 0, lines: [], partial: '' }
+    setSessionId(info.id)
+    applyOpenedModel(info)
+    writeStoredSession(info.id)
+    setBanner(null)
+    setCommandError(null)
+    setHistory(['app'])
+    return null
+  }
+
   async function openLibraryFile(entry: LibraryEntry) {
     if (!sessionId) return
     setLibraryError(null)
@@ -655,6 +794,36 @@ export function App() {
     return null
   }
 
+  async function startFreshSession(): Promise<string | null> {
+    const created = await createSession({ model: 'fire.nlogo' })
+    if (created.error || !created.data) {
+      return presentCreateSessionError(created.error?.message)
+    }
+    const info = created.data.createSession
+    const opened = freshSessionNavigation(info.id)
+    if (opened.action === 'error') return opened.reason
+    setFrame(null)
+    setOutputText('')
+    outputState.current = { epoch: -1, seq: 0, lines: [], partial: '' }
+    setSessionId(info.id)
+    applyOpenedModel(info)
+    writeStoredSession(info.id)
+    setBanner(null)
+    setCommandError(null)
+    await speedMut({ id: info.id, speed: 30 })
+    const setupProblem = await autoSetup(info.id, info.procedures)
+    if (setupProblem && !reportDisconnect(setupProblem)) setBanner(setupProblem)
+    const go = await goMut({ id: info.id })
+    if (go.error) {
+      const message = go.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
+      if (!reportDisconnect(message)) setBanner(message || 'Could not start go.')
+    } else {
+      setActive(foreverIndex(info.widgets))
+    }
+    setHistory(['app'])
+    return null
+  }
+
   function requestTab(next: MainTab) {
     if (next === tab) return
     if (tab === 'world' && worldDirty) {
@@ -701,6 +870,10 @@ export function App() {
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
   const dropLabel = frame ? String(frame.droppedFrames) : '—'
+  const auth = authControls(authStatus)
+  const view = nextAuthView(authStatus, authView)
+  const showPanel = (next: AuthView) => setHistory((stack) => pushPanel(stack, next))
+  const hidePanel = () => setHistory((stack) => closePanel(stack))
   return (
     <div className="app">
       <header className="topbar">
@@ -793,6 +966,9 @@ export function App() {
           </div>
         </div>
         <div className="topbar-right">
+          {auth.showAuth && authStatus && (
+            <AuthMenu status={authStatus} view={view} onView={showPanel} />
+          )}
           <div className="run-timer" data-timer={timerLabel}><b>{timerLabel}</b></div>
           <div
             className="ticks"
@@ -832,6 +1008,7 @@ export function App() {
         </div>
       )}
 
+      <div className={view === 'app' ? 'model-slot' : 'model-slot is-hidden'} aria-hidden={view !== 'app'}>
       <VSplit
         trailingSize={commandH}
         onTrailingSize={setCommandH}
@@ -1002,9 +1179,16 @@ export function App() {
             >
               <div className="view-bar">
                 <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
-                <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
-                  {modelTitle}
-                </h1>
+                <div className="model-heading">
+                  <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                    {modelTitle}
+                  </h1>
+                  {sessionChip && (
+                    <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
+                      {sessionChip.label}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="canvas-wrap">
                 {booting && !frame ? (
@@ -1074,6 +1258,22 @@ export function App() {
       </section>
         }
       />
+      </div>
+      {view !== 'app' && authStatus && (
+        <AuthScreens
+          view={view}
+          onView={showPanel}
+          onClose={hidePanel}
+          onSignedIn={(user) => {
+            setAuthStatus({ ...authStatus, user })
+            const id = sessionIdRef.current
+            if (id) void claimWorkspace(id).catch(() => {})
+          }}
+          claimCurrent={claimCurrentSession}
+          onOpenWorkspace={openWorkspace}
+          onNewSession={startFreshSession}
+        />
+      )}
 
       {library && (
         <LibraryBrowser

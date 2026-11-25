@@ -41,6 +41,8 @@ RUN go mod download
 COPY backend ./backend
 COPY pkg ./pkg
 COPY internal/logcfg ./internal/logcfg
+COPY internal/auth ./internal/auth
+COPY config/auth.yaml ./config/auth.yaml
 # *.nlogo is what //go:embed in models pulls in. library/ is not embedded;
 # the runtime stage copies it to /models.
 COPY models/*.go models/*.nlogo ./models/
@@ -54,9 +56,11 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=server /out/gonetlogo-server /gonetlogo-server
+COPY --from=server /src/config/auth.yaml /config/auth.yaml
 COPY models /models
 ENV MODELS_DIR=/models \
-    TMPDIR=/tmp
+    TMPDIR=/tmp \
+    GONETLOGO_AUTH_CONFIG=/config/auth.yaml
 WORKDIR /tmp
 EXPOSE 8080
 USER nonroot:nonroot
