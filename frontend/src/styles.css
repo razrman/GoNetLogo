@@ -1125,6 +1125,80 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
   color: var(--muted);
 }
 
+.auth-menu {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.auth-who {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #f3ecdf;
+  font-size: 0.85rem;
+}
+
+.auth-link, .auth-text, .auth-actions button, .auth-list button, .auth-search button, .auth-table button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.auth-link.on { background: rgba(196, 73, 29, 0.35); }
+
+.auth-page {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 28px;
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  background: var(--ivory);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-card.wide { width: min(920px, 100%); }
+
+.auth-card h1, .auth-card h2 { margin: 0; font-family: Palatino, "Palatino Linotype", serif; }
+.auth-card h2 { font-size: 1.05rem; margin-top: 8px; }
+
+.auth-card label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.auth-card input, .auth-search input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: white;
+  color: var(--ink);
+}
+
+.auth-error { color: var(--danger); margin: 0; }
+.auth-quiet { color: var(--muted); margin: 0; }
+.auth-text { align-self: flex-start; background: transparent; border: 0; padding: 0; color: var(--steel); }
+
+.auth-search { display: flex; gap: 8px; }
+.auth-search input { flex: 1; }
+
+.auth-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.auth-table th, .auth-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.auth-actions, .auth-list li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.auth-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.auth-actions button, .auth-list button, .auth-search button, .auth-table button { color: var(--ink); border-radius: 8px; }
+
 @media (max-width: 860px) {
   .topbar {
     display: flex;

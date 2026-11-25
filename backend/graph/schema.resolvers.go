@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"gonetlogo/backend/graph/model"
 	"gonetlogo/backend/session"
+	"gonetlogo/internal/auth"
 	"log/slog"
 	"time"
 )
@@ -18,6 +19,9 @@ func (r *mutationResolver) CreateSession(ctx context.Context, model string) (*mo
 	s, err := r.Store.Create(model)
 	if err != nil {
 		return nil, err
+	}
+	if ident, ok := auth.FromContext(ctx); ok {
+		s.SetOwner(ident.UserID)
 	}
 	return s.Session(), nil
 }

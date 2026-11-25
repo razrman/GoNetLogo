@@ -26,6 +26,7 @@ import (
 
 	"gonetlogo/backend/graph"
 	"gonetlogo/backend/session"
+	"gonetlogo/internal/auth"
 	"gonetlogo/internal/logcfg"
 	"gonetlogo/models"
 )
@@ -105,6 +106,21 @@ func main() {
 	} else {
 		slog.Warn("model open folder not found; the web Open button uses a local file chooser")
 	}
+	authCfg, err := auth.Load(os.Getenv)
+	if err != nil {
+		logcfg.Fail(2, "auth", "err", err)
+	}
+	authSessions := auth.NewSessionManager(authCfg)
+	authProvider, err := auth.NewProvider(authCfg, authSessions)
+	if err != nil {
+		logcfg.Fail(2, "auth", "err", err)
+	}
+	var users auth.UserStore
+	if src, ok := authProvider.(interface{ Users() auth.UserStore }); ok {
+		users = src.Users()
+	}
+	slog.Info("auth", "provider", authCfg.Provider, "requireLogin", authCfg.RequireLogin)
+
 	srv := newHandler(store, pol)
 
 	ui, err := openUI(*webDir)
@@ -112,11 +128,27 @@ func main() {
 		logcfg.Fail(1, "web UI", "err", err)
 	}
 
+	gql := http.Handler(srv)
+	end := session.EndHandler(store)
+	beat := session.HeartbeatHandler(store)
+	if authCfg.RequireLogin {
+		gql = auth.RequireUser(gql)
+		end = auth.RequireUser(end)
+		beat = auth.RequireUser(beat)
+	}
 	mux := http.NewServeMux()
-	mux.Handle("/graphql", srv)
-	mux.Handle("/session/end", session.EndHandler(store))
-	mux.Handle("/session/heartbeat", session.HeartbeatHandler(store))
+	mux.Handle("/graphql", gql)
+	mux.Handle("/session/end", end)
+	mux.Handle("/session/heartbeat", beat)
 	mux.Handle("/model-asset/", modelAssetHandler())
+	authHandler := &auth.Handler{
+		Config:   authCfg,
+		Provider: authProvider,
+		Sessions: authSessions,
+		Users:    users,
+		Models:   modelBridge{store},
+	}
+	authHandler.Mount(mux)
 	mountUI(mux, ui, pol.production)
 	if ui != nil {
 		slog.Info("web UI", "url", "http://"+listen+"/")
@@ -133,7 +165,7 @@ func main() {
 	slog.Info("shutdown timeout", "timeout", timeout.String())
 	httpSrv := &http.Server{
 		Addr:    listen,
-		Handler: rootHandler(logHTTP(withCORS(pol, mux))),
+		Handler: rootHandler(logHTTP(auth.Middleware(authProvider, authSessions)(withCORS(pol, mux)))),
 	}
 	// The hook runs on the signal goroutine, before CloseOnSignal flushes
 	// the log. It must close the store itself: that flush then exits, and

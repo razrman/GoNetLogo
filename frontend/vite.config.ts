@@ -26,6 +26,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:43131',
         changeOrigin: false,
       },
+      '/auth': {
+        target: 'http://127.0.0.1:43131',
+        changeOrigin: false,
+      },
+      '/admin': {
+        target: 'http://127.0.0.1:43131',
+        changeOrigin: false,
+      },
       // Info images live next to the model, under the API's models directory.
       '/model-asset': {
         target: 'http://127.0.0.1:43131',

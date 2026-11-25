@@ -161,6 +161,23 @@ func (st *Store) Create(modelName string) (*Session, error) {
 
 // Get returns a session by id. It does not count as client activity, so a
 // test poll or a log line cannot postpone the idle sweep.
+// ForOwner lists model workspaces opened by a signed-in user.
+func (st *Store) ForOwner(userID string) []Workspace {
+	if userID == "" {
+		return nil
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var out []Workspace
+	for _, s := range st.sessions {
+		item := s.workspace()
+		if item.OwnerID == userID {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 func (st *Store) Get(id string) (*Session, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -180,6 +197,8 @@ type Session struct {
 	mu        sync.Mutex
 	logMu     sync.Mutex
 	id        string
+	ownerID   string
+	created   time.Time
 	modelName string
 	model     *nl.FileModel
 	// modelSource is the full file text. Changing the view update mode
@@ -277,6 +296,7 @@ type Session struct {
 func newSession() *Session {
 	s := &Session{
 		id:          newID(),
+		created:     time.Now().UTC(),
 		running:     -1,
 		pendingOnce: nil,
 		speed:       40,
@@ -296,6 +316,41 @@ func newSession() *Session {
 }
 
 func (s *Session) ID() string { return s.id }
+
+// SetOwner records the signed-in user who opened this model workspace.
+func (s *Session) SetOwner(userID string) {
+	s.mu.Lock()
+	s.ownerID = userID
+	s.mu.Unlock()
+}
+
+// OwnerID is the signed-in user, or empty when the model was opened anonymously.
+func (s *Session) OwnerID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ownerID
+}
+
+// Workspace is the public description of a model session.
+type Workspace struct {
+	ID        string
+	OwnerID   string
+	ModelName string
+	Created   time.Time
+	Running   bool
+}
+
+func (s *Session) workspace() Workspace {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return Workspace{
+		ID:        s.id,
+		OwnerID:   s.ownerID,
+		ModelName: s.modelName,
+		Created:   s.created,
+		Running:   !s.closed && s.running >= 0,
+	}
+}
 
 // Running reports whether a forever button is stepping.
 // A closed session is not running.

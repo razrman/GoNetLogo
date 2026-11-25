@@ -8,7 +8,7 @@ In order:
 
 1. **Widget text edit tab.** A tab next to Code that shows the model's interface section (buttons, sliders, switches, choosers, monitors, plots) as editable text. Applying an edit rebuilds the side panel, and the change is saved with the model.
 2. **Import/export.** NetLogo's import and export items (scope to be decided), and possibly the file primitives (`file-open`, `file-read`, and the rest) working for real.
-3. **User signup, authorization, and admin page.** Real accounts with signup, replacing the "simple login" idea below. Covers the User & Session Management section: user types, session caps, session picker, ask on close, and the `/admin` page.
+3. **User signup, authorization, and admin page.** Real accounts with signup, replacing the "simple login" idea below. Covers the User & Session Management section: user types, session caps, session picker, ask on close, and the `/admin` page. Pass 1 (web UI, local ephemeral user file, `provider: none` or `local`) is complete; pass 2 (Cognito and GitHub providers, plus the infra to host them) is still pending. This item is not done.
 4. **A subset of impactful extensions.** Honor the `extensions` declaration with a small Go extension API. Candidates: `sound` (plays in the browser), `table`, `array`, then `nw`, `gis`, `matrix`, `bitmap`.
 5. **Interface mouse actions.** Wire the view's mouse into the session so `mouse-down?`, `mouse-xcor`, and `mouse-ycor` work in the web UI; let the user draw turtles and patches with the mouse; and show a turtle's or patch's properties (an agent inspector, so `inspect` does something).
 

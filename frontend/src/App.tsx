@@ -1,4 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { AuthMenu, AuthScreens, claimWorkspace } from './AuthChrome'
+import { authControls, modelLocked, nextAuthView, type AuthStatus, type AuthView } from './auth'
 import type { DragEvent, FormEvent } from 'react'
 import { useMutation, useQuery, useSubscription } from 'urql'
 import {
@@ -163,6 +165,8 @@ export function App() {
   const [commandError, setCommandError] = useState<string | null>(null)
   const [active, setActive] = useState<number | null>(null)
   const [booting, setBooting] = useState(true)
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
+  const [authView, setAuthView] = useState<AuthView>('app')
   const [outputText, setOutputText] = useState('')
   const [dropping, setDropping] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
@@ -219,6 +223,41 @@ export function App() {
 
   useEffect(() => {
     let cancel = false
+    void fetch('/auth/status')
+      .then(async (res) => {
+        if (!res.ok) throw new Error('auth status')
+        return res.json() as Promise<AuthStatus>
+      })
+      .then((status) => {
+        if (!cancel) setAuthStatus(status)
+      })
+      .catch(() => {
+        if (!cancel) setAuthStatus({ provider: 'none', requireLogin: false, user: null })
+      })
+    return () => {
+      cancel = true
+    }
+  }, [])
+
+  const claimed = useRef('')
+  useEffect(() => {
+    const id = sessionId
+    const userId = authStatus?.user?.userId
+    if (!id || !userId) return
+    const key = userId + ':' + id
+    if (claimed.current === key) return
+    claimed.current = key
+    void claimWorkspace(id).catch(() => {
+      if (claimed.current === key) claimed.current = ''
+    })
+  }, [sessionId, authStatus])
+
+  const bootGate = authStatus === null ? 'wait' : modelLocked(authStatus) ? 'locked' : 'go'
+  const booted = useRef(false)
+  useEffect(() => {
+    if (bootGate !== 'go' || booted.current) return
+    booted.current = true
+    let cancel = false
     const adopt = (info: SessionInfo) => {
       setSessionId(info.id)
       setModelName(info.modelName)
@@ -272,9 +311,9 @@ export function App() {
     return () => {
       cancel = true
     }
-    // Boot once. The mutation executors are stable for this client.
+    // Boot once sign-in is satisfied. Later account updates must not open a second model.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [bootGate])
 
   useEffect(() => {
     const el = logRef.current
@@ -701,6 +740,8 @@ export function App() {
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
   const dropLabel = frame ? String(frame.droppedFrames) : '—'
+  const auth = authControls(authStatus)
+  const view = nextAuthView(authStatus, authView)
   return (
     <div className="app">
       <header className="topbar">
@@ -793,6 +834,9 @@ export function App() {
           </div>
         </div>
         <div className="topbar-right">
+          {auth.showAuth && authStatus && (
+            <AuthMenu status={authStatus} view={view} onView={setAuthView} />
+          )}
           <div className="run-timer" data-timer={timerLabel}><b>{timerLabel}</b></div>
           <div
             className="ticks"
@@ -832,6 +876,13 @@ export function App() {
         </div>
       )}
 
+      {view !== 'app' && authStatus ? (
+        <AuthScreens
+          view={view}
+          onView={setAuthView}
+          onSignedIn={(user) => setAuthStatus({ ...authStatus, user })}
+        />
+      ) : (
       <VSplit
         trailingSize={commandH}
         onTrailingSize={setCommandH}
@@ -1074,6 +1125,7 @@ export function App() {
       </section>
         }
       />
+      )}
 
       {library && (
         <LibraryBrowser
