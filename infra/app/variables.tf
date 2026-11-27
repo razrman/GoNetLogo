@@ -103,6 +103,12 @@ variable "log_retention_days" {
   default     = 14
 }
 
+variable "peer_openvpn" {
+  type        = bool
+  description = "Peer this VPC to the account default VPC (172.31.0.0/16), where the OpenVPN server runs. Infra up creates the peering. Infra down deletes its routes and the peering before the VPC. Set false to skip it."
+  default     = true
+}
+
 variable "access_log_retention_days" {
   type        = number
   description = "Days to keep ALB access logs in S3 before they expire."
