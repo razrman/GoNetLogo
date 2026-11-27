@@ -993,8 +993,23 @@ func TestSetFrameRateClampAndDrops(t *testing.T) {
 	at60 := run(60)
 	if at24.Session.DroppedFrames == 0 && at60.Session.DroppedFrames == 0 {
 		t.Log("model did not outrun either cap during the sample")
-	} else if at24.Session.DroppedFrames <= at60.Session.DroppedFrames {
-		t.Fatalf("expected more cap drops at 24 fps (%d) than 60 (%d)", at24.Session.DroppedFrames, at60.Session.DroppedFrames)
+		return
+	}
+	// DroppedFrames counts skipped steps, not a rate. A 60 fps cap lets the
+	// model finish more ticks in the same two seconds, so the raw count can
+	// be higher at 60 fps even though a smaller share of those ticks was
+	// skipped. Compare drops per tick. The publish rate still has to follow
+	// the cap when both windows reported one.
+	rate24 := float64(at24.Session.DroppedFrames) / *at24.Session.Ticks
+	rate60 := float64(at60.Session.DroppedFrames) / *at60.Session.Ticks
+	if rate24 <= rate60 {
+		t.Fatalf("expected a larger share of ticks dropped at 24 fps (%.3f, %d/%.0f) than at 60 (%.3f, %d/%.0f)",
+			rate24, at24.Session.DroppedFrames, *at24.Session.Ticks,
+			rate60, at60.Session.DroppedFrames, *at60.Session.Ticks)
+	}
+	if at24.Session.PublishedFps > 0 && at60.Session.PublishedFps > 0 && at24.Session.PublishedFps >= at60.Session.PublishedFps {
+		t.Fatalf("expected a lower publish rate at 24 fps (%.2f) than at 60 (%.2f)",
+			at24.Session.PublishedFps, at60.Session.PublishedFps)
 	}
 }
 
