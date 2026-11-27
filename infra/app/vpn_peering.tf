@@ -31,13 +31,6 @@ data "aws_route_table" "default_main" {
 # The main table is created with the VPC. Waiting for the public table
 # means a same-apply create sees every table that exists today: the main
 # table and gonetlogo-public. There is no separate private table.
-data "aws_route_tables" "app" {
-  count  = var.peer_openvpn ? 1 : 0
-  vpc_id = aws_vpc.main.id
-
-  depends_on = [aws_route_table.public]
-}
-
 resource "aws_vpc_peering_connection" "openvpn" {
   count = var.peer_openvpn ? 1 : 0
 
@@ -68,8 +61,13 @@ resource "aws_route" "default_to_app" {
 
 # Clients are masqueraded to the instance address in the default VPC, so
 # return traffic is 172.31.0.0/16, not the tunnel 10.8.0.0/24.
+# Keys are static so plan works on a fresh VPC whose table ids are not
+# known yet. Every table in the VPC: the main table and gonetlogo-public.
 resource "aws_route" "app_to_default" {
-  for_each = var.peer_openvpn ? toset(data.aws_route_tables.app[0].ids) : toset([])
+  for_each = var.peer_openvpn ? {
+    main   = aws_vpc.main.main_route_table_id
+    public = aws_route_table.public.id
+  } : {}
 
   route_table_id            = each.value
   destination_cidr_block    = data.aws_vpc.default[0].cidr_block
