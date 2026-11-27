@@ -372,6 +372,16 @@ type Widget struct {
 	Height int `json:"height"`
 	// Point size for an output widget. Zero for widgets that do not use it.
 	FontSize int `json:"fontSize"`
+	// Short optional note. Empty when the model did not set one.
+	Description string `json:"description"`
+}
+
+type WidgetEditResult struct {
+	Ok    bool    `json:"ok"`
+	Error *string `json:"error,omitempty"`
+	// Canonical YAML after a successful edit. Null when ok is false.
+	Spec    *string `json:"spec,omitempty"`
+	Session Session `json:"session"`
 }
 
 type World struct {

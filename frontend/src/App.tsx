@@ -17,7 +17,8 @@ import {
   RunCommand,
   SetChooser,
   SetCode,
-  SetWidgets,
+  SetWidgetYAML,
+  WidgetYAML,
   SetDynamics,
   SetDynamicsDt,
   SetInput,
@@ -43,7 +44,7 @@ import {
 } from './api'
 import type { Frame, PlotView, SessionInfo, SystemDynamics, Widget, WorldView } from './types'
 import { viewUpdateChoices, viewUpdatesFromModel, type ViewUpdates } from './viewUpdates'
-import { presentWidgetError, settleWidgetApply, widgetsApplyEnabled, widgetsLockedMessage } from './widgetsTab'
+import { settleWidgetYAML, widgetChoiceLabel, widgetsApplyEnabled, widgetsLockedMessage } from './widgetsTab'
 import {
   dynamicsApplyEnabled,
   dynamicsDefinitionReadOnly,
@@ -84,7 +85,7 @@ type FileResult = { loadModelFile: SessionInfo }
 type SourceResult = { loadModelSource: SessionInfo }
 type LibraryResult = { library: LibraryListing }
 type CodeResult = { setCode: { ok: boolean; error: string | null; session?: { procedures: string[] } } }
-type WidgetResult = { setWidgets: { ok: boolean; error: string | null; session?: { widgetText: string } } }
+type WidgetYAMLResult = { setWidgetYaml: { ok: boolean; error: string | null; spec: string | null } }
 type DynamicsApply = {
   setDynamics: {
     ok: boolean
@@ -108,7 +109,7 @@ export function App() {
   const [, loadModelFile] = useMutation<FileResult>(LoadModelFile)
   const [, loadModelSource] = useMutation<SourceResult>(LoadModelSource)
   const [, setCodeMut] = useMutation<CodeResult>(SetCode)
-  const [, setWidgetsMut] = useMutation<WidgetResult>(SetWidgets)
+  const [, setWidgetYamlMut] = useMutation<WidgetYAMLResult>(SetWidgetYAML)
   const [, setDynamicsMut] = useMutation<DynamicsApply>(SetDynamics)
   const [, setDtMut] = useMutation<DynamicsDtResult>(SetDynamicsDt)
   const [, runCommand] = useMutation<CommandResult>(RunCommand)
@@ -136,6 +137,8 @@ export function App() {
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
   const [widgetText, setWidgetText] = useState('')
+  const [widgetIndex, setWidgetIndex] = useState(0)
+  const [widgetDraft, setWidgetDraft] = useState('')
   const [widgetError, setWidgetError] = useState<string | null>(null)
   const [dynamics, setDynamics] = useState<SystemDynamics | null>(null)
   const [definition, setDefinition] = useState('')
@@ -477,22 +480,38 @@ export function App() {
     }
   }
 
+  useEffect(() => {
+    if (!sessionId) return
+    let cancel = false
+    void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId, index: widgetIndex }).toPromise().then((res) => {
+      if (cancel) return
+      if (res.error) {
+        setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
+        return
+      }
+      setWidgetDraft(res.data?.widgetYaml ?? '')
+      setWidgetError(null)
+    })
+    return () => {
+      cancel = true
+    }
+  }, [sessionId, widgetIndex, widgetText])
+
   async function applyWidgets() {
     if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
-    const res = await setWidgetsMut({ id: sessionId, text: widgetText })
+    const res = await setWidgetYamlMut({ id: sessionId, index: widgetIndex, yaml: widgetDraft })
     if (res.error) {
-      const message = res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim()
-      setWidgetError(presentWidgetError(message, widgetText))
+      setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
       return
     }
-    const applied = res.data?.setWidgets
-    const settled = settleWidgetApply(widgetText, {
+    const applied = res.data?.setWidgetYaml
+    const settled = settleWidgetYAML(widgetDraft, {
       ok: applied?.ok ?? false,
       error: applied?.error,
-      widgetText: applied?.session?.widgetText,
+      spec: applied?.spec,
     })
-    setWidgetText(settled.widgetText)
-    setWidgetError(settled.error ? presentWidgetError(settled.error, settled.widgetText) : null)
+    setWidgetDraft(settled.draft)
+    setWidgetError(settled.error)
   }
 
   async function applyCode() {
@@ -1082,13 +1101,29 @@ export function App() {
             </div>
           </section>
         ) : shownTab === 'widgets' ? (
-          <section className="code-panel" aria-label="Widget text">
+          <section className="code-panel" aria-label="Widget YAML">
             <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+            <select
+              className="widget-pick"
+              aria-label="Widget"
+              value={widgets.some((w) => w.index === widgetIndex) ? widgetIndex : ''}
+              onChange={(e) => setWidgetIndex(Number(e.target.value))}
+              disabled={widgets.length === 0}
+            >
+              {widgets.length === 0 && <option value="">No widgets</option>}
+              {widgets.map((w) => (
+                <option key={w.index} value={w.index}>{widgetChoiceLabel(w.kind, w.display)}</option>
+              ))}
+            </select>
             <textarea
-              aria-label="Widget text"
+              aria-label="Widget YAML"
               spellCheck={false}
-              value={widgetText}
-              onChange={(e) => setWidgetText(e.target.value)}
+              value={widgetDraft}
+              onChange={(e) => {
+                setWidgetDraft(e.target.value)
+                setWidgetError(null)
+              }}
+              disabled={widgets.length === 0}
             />
             <div className="code-actions">
               <button
@@ -1908,11 +1943,12 @@ function WidgetView({
 }) {
   const [slider, setSlider] = useState<number | null>(null)
   const [text, setText] = useState<string | null>(null)
+  const tip = widget.description ? { title: widget.description } : {}
 
   if (widget.kind === 'button') {
     const label = live ? 'stop' : widget.display
     return (
-      <div className="widget">
+      <div className="widget" {...tip}>
         <button
           type="button"
           className={live ? 'iface live' : widget.forever ? 'iface forever' : 'iface'}
@@ -1930,7 +1966,7 @@ function WidgetView({
     const value = slider ?? widget.value ?? widget.min ?? 0
     const units = widget.units ? ` ${widget.units}` : ''
     return (
-      <div className="widget">
+      <div className="widget" {...tip}>
         <div className="label">{widget.display}</div>
         <input
           type="range"
@@ -1966,7 +2002,7 @@ function WidgetView({
 
   if (widget.kind === 'monitor') {
     return (
-      <div className="widget">
+      <div className="widget" {...tip}>
         <div className="label">{widget.display}</div>
         <div className="readout">{widget.reading ?? '—'}</div>
       </div>
@@ -1975,7 +2011,7 @@ function WidgetView({
 
   if (widget.kind === 'chooser') {
     return (
-      <div className="widget">
+      <div className="widget" {...tip}>
         <div className="label">{widget.display}</div>
         <select
           aria-label={widget.display}
@@ -1993,7 +2029,7 @@ function WidgetView({
   if (widget.kind === 'input') {
     const shown = text ?? widget.text ?? ''
     return (
-      <div className="widget">
+      <div className="widget" {...tip}>
         <div className="label">{widget.display}</div>
         <input
           type="text"

@@ -20,6 +20,7 @@ export type Widget = {
   width: number
   height: number
   fontSize: number
+  description?: string
 }
 
 export type DrawingMark = {

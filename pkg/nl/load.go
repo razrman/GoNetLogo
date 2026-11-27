@@ -65,13 +65,15 @@ func DefaultView() ViewSpec {
 // Widget is one interface widget. A plot widget's pens and ranges are in
 // the plot fields; the interpreter copies them onto the VM.
 type Widget struct {
-	Kind     string // button, slider, switch, monitor, chooser, input, note, plot, output
-	X, Y     int
-	W, H     int
-	Display  string
-	Variable string
-	Source   string
-	Forever  bool
+	Kind string // button, slider, switch, monitor, chooser, input, note, plot, output
+	X, Y int
+	W, H int
+	// Description is a short optional note. Empty when the file has none.
+	Description string
+	Display     string
+	Variable    string
+	Source      string
+	Forever     bool
 	// Agent is observer, turtle, patch, or link.
 	Agent             string
 	Min, Max          float64
@@ -294,46 +296,46 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 		if err != nil {
 			return err
 		}
-		m.Widgets = append(m.Widgets, w)
+		m.Widgets = append(m.Widgets, finishWidget(w, lines))
 	case "SLIDER":
 		w, err := parseSliderLines(lines)
 		if err != nil {
 			return err
 		}
-		m.Widgets = append(m.Widgets, w)
+		m.Widgets = append(m.Widgets, finishWidget(w, lines))
 	case "SWITCH":
 		w, err := parseSwitchLines(lines)
 		if err != nil {
 			return err
 		}
-		m.Widgets = append(m.Widgets, w)
+		m.Widgets = append(m.Widgets, finishWidget(w, lines))
 	case "MONITOR":
 		w, err := parseMonitorLines(lines)
 		if err != nil {
 			return err
 		}
-		m.Widgets = append(m.Widgets, w)
+		m.Widgets = append(m.Widgets, finishWidget(w, lines))
 	case "CHOOSER":
 		w, err := parseChooserLines(lines)
 		if err != nil {
 			return err
 		}
-		m.Widgets = append(m.Widgets, w)
+		m.Widgets = append(m.Widgets, finishWidget(w, lines))
 	case "INPUTBOX":
 		w, err := parseInputLines(lines)
 		if err != nil {
 			return err
 		}
-		m.Widgets = append(m.Widgets, w)
+		m.Widgets = append(m.Widgets, finishWidget(w, lines))
 	case "TEXTBOX":
-		m.Widgets = append(m.Widgets, Widget{
+		m.Widgets = append(m.Widgets, finishWidget(Widget{
 			Kind: "note", Display: optUnescape(lineAt(lines, 5)),
 			X: atoi(lineAt(lines, 1)), Y: atoi(lineAt(lines, 2)),
-		})
+		}, lines))
 	case "PLOT":
-		m.Widgets = append(m.Widgets, parsePlotLines(lines))
+		m.Widgets = append(m.Widgets, finishWidget(parsePlotLines(lines), lines))
 	case "OUTPUT":
-		m.Widgets = append(m.Widgets, parseOutputLines(lines))
+		m.Widgets = append(m.Widgets, finishWidget(parseOutputLines(lines), lines))
 	default:
 		m.Notes = append(m.Notes, "skipped widget "+kind)
 	}
@@ -600,14 +602,14 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			if err := dec.DecodeElement(&text, &se); err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, buttonFromXML(se, text))
+			m.Widgets = append(m.Widgets, withXMLDescription(buttonFromXML(se, text), se))
 		case "slider":
-			m.Widgets = append(m.Widgets, sliderFromXML(se))
+			m.Widgets = append(m.Widgets, withXMLDescription(sliderFromXML(se), se))
 			if err := dec.Skip(); err != nil {
 				return nil, err
 			}
 		case "switch":
-			m.Widgets = append(m.Widgets, switchFromXML(se))
+			m.Widgets = append(m.Widgets, withXMLDescription(switchFromXML(se), se))
 			if err := dec.Skip(); err != nil {
 				return nil, err
 			}
@@ -616,33 +618,33 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			if err := dec.DecodeElement(&text, &se); err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, monitorFromXML(se, text))
+			m.Widgets = append(m.Widgets, withXMLDescription(monitorFromXML(se, text), se))
 		case "chooser":
 			w, err := chooserFromXML(dec, se)
 			if err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, w)
+			m.Widgets = append(m.Widgets, withXMLDescription(w, se))
 		case "input":
 			var text string
 			if err := dec.DecodeElement(&text, &se); err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, inputFromXML(se, text))
+			m.Widgets = append(m.Widgets, withXMLDescription(inputFromXML(se, text), se))
 		case "note":
 			var text string
 			if err := dec.DecodeElement(&text, &se); err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, Widget{Kind: "note", Display: text})
+			m.Widgets = append(m.Widgets, withXMLDescription(Widget{Kind: "note", Display: text}, se))
 		case "plot":
 			w, err := plotFromXML(dec, se)
 			if err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, w)
+			m.Widgets = append(m.Widgets, withXMLDescription(w, se))
 		case "output":
-			m.Widgets = append(m.Widgets, outputFromXML(se))
+			m.Widgets = append(m.Widgets, withXMLDescription(outputFromXML(se), se))
 			if err := dec.Skip(); err != nil {
 				return nil, err
 			}
@@ -1375,6 +1377,31 @@ func lineAt(lines []string, i int) string {
 		return ""
 	}
 	return strings.TrimSpace(lines[i])
+}
+
+// widgetDescriptionPrefix is an extra line GoNetLogo appends to a classic
+// widget block. NetLogo's own fields stay on their numbered lines, and a
+// file that has no such line loads with an empty description.
+const widgetDescriptionPrefix = "# gonetlogo-description:"
+
+func finishWidget(w Widget, lines []string) Widget {
+	w.Description = widgetDescription(lines)
+	return w
+}
+
+func widgetDescription(lines []string) string {
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, widgetDescriptionPrefix) {
+			return strings.TrimSpace(strings.TrimPrefix(trim, widgetDescriptionPrefix))
+		}
+	}
+	return ""
+}
+
+func withXMLDescription(w Widget, se xml.StartElement) Widget {
+	w.Description = attr(se, "description")
+	return w
 }
 
 func optString(s string) string {
