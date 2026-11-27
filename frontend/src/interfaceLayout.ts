@@ -38,6 +38,17 @@ export function writeLayoutChoice(choice: LayoutChoice) {
 // in the column even when the user asked for the NetLogo layout. Until
 // the first frame arrives, the automatic choice follows the pane width
 // so the page does not flash the other layout.
+// layoutPaneWidth is the width Auto compares with the breakpoint. A phone
+// window and a narrow interface pane both count, so the column is used
+// when either one is the smaller.
+export function layoutPaneWidth(slotWidth: number, viewportWidth: number) {
+  const slot = Number.isFinite(slotWidth) && slotWidth > 0 ? slotWidth : viewportWidth
+  const viewport = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : slot
+  if (!Number.isFinite(slot) || slot <= 0) return viewport
+  if (!Number.isFinite(viewport) || viewport <= 0) return slot
+  return Math.min(slot, viewport)
+}
+
 export function resolveLayout(
   choice: LayoutChoice,
   paneWidth: number,

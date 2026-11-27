@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   geometryUsable,
   interfaceBreakpoint,
+  layoutPaneWidth,
   layoutScale,
   parseLayoutChoice,
   placeInterface,
@@ -25,6 +26,8 @@ test('automatic layout follows the pane, and the toggle overrides it', () => {
   assert.equal(resolveLayout('column', 1400, true, false), 'column')
   assert.equal(resolveLayout('netlogo', 1400, false, false), 'column')
   assert.equal(resolveLayout('auto', 1100, false, true), 'netlogo')
+  assert.equal(layoutPaneWidth(1200, 700), 700)
+  assert.equal(layoutPaneWidth(640, 1400), 640)
 })
 
 test('a model with no view box, or a huge one, is not placed on the canvas', () => {

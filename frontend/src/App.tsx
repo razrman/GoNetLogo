@@ -79,7 +79,7 @@ const WorldView3D = lazy(() => import('./WorldView3D'))
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
 import { InterfaceCanvas, LayoutToggle } from './InterfaceCanvas'
-import { geometryUsable, readLayoutChoice, resolveLayout, writeLayoutChoice, type LayoutChoice } from './interfaceLayout'
+import { geometryUsable, layoutPaneWidth, readLayoutChoice, resolveLayout, writeLayoutChoice, type LayoutChoice } from './interfaceLayout'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
@@ -891,13 +891,20 @@ export function App() {
   const shownTab: MainTab = tab === 'dynamics' && !showDynamics ? 'interface' : tab
   useEffect(() => {
     if (shownTab !== 'interface') return
-    const el = interfaceRef.current
-    if (!el) return
-    const measure = () => setPaneWidth(el.clientWidth)
+    const measure = () => {
+      const viewport = window.visualViewport?.width ?? window.innerWidth
+      setPaneWidth(layoutPaneWidth(interfaceRef.current?.clientWidth ?? 0, viewport))
+    }
     measure()
     const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => observer.disconnect()
+    if (interfaceRef.current) observer.observe(interfaceRef.current)
+    window.addEventListener('resize', measure)
+    window.visualViewport?.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+      window.visualViewport?.removeEventListener('resize', measure)
+    }
   }, [shownTab])
   const viewBox = frame
     ? { x: frame.world.viewX ?? 0, y: frame.world.viewY ?? 0, w: frame.world.viewWidth ?? 0, h: frame.world.viewHeight ?? 0 }
