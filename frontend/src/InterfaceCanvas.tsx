@@ -44,6 +44,7 @@ export function InterfaceCanvas({
             width: placed.width * scale,
             height: placed.height * scale,
             fontSize: readableFontPx(scale),
+            ['--iface-scale' as string]: scale,
           }}
         >
           {placed.view && (

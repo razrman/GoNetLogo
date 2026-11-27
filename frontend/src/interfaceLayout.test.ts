@@ -7,6 +7,7 @@ import {
   layoutScale,
   parseLayoutChoice,
   placeInterface,
+  noteFontPx,
   readableFontPx,
   resolveLayout,
   type Box,
@@ -55,4 +56,7 @@ test('the canvas keeps model positions and scales with the pane', () => {
   assert.equal(readableFontPx(1), 13)
   assert.equal(readableFontPx(2), 18)
   assert.equal(readableFontPx(0.4), 12)
+  assert.equal(noteFontPx(11, 1), 11)
+  assert.equal(noteFontPx(11, 1.5), 16.5)
+  assert.equal(noteFontPx(0, 2), 24)
 })

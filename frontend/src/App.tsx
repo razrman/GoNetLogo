@@ -153,7 +153,7 @@ export function App() {
   const [layoutChoice, setLayoutChoice] = useState<LayoutChoice>(() => readLayoutChoice())
   const [paneWidth, setPaneWidth] = useState(() => (typeof window === 'undefined' ? 1200 : window.innerWidth))
   const interfaceRef = useRef<HTMLDivElement>(null)
-  const [commandH, setCommandH] = useStoredSize(commandStorageKey, 156)
+  const [commandH, setCommandH] = useStoredSize(commandStorageKey, 58)
   const [worldDirty, setWorldDirty] = useState(false)
   const [leaveTo, setLeaveTo] = useState<MainTab | null>(null)
   const [leaving, setLeaving] = useState(false)
@@ -1094,7 +1094,7 @@ export function App() {
         trailingSize={commandH}
         onTrailingSize={setCommandH}
         minLeading={240}
-        minTrailing={120}
+        minTrailing={48}
         label="Resize command center"
         leading={
       <main className="stage">
@@ -1357,11 +1357,12 @@ export function App() {
         }
         trailing={
       <section className="command" aria-label="Command center">
-        <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'Command center. A reporter prints its result here.'}</pre>
+        <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'A reporter prints its result here.'}</pre>
         <form onSubmit={(e) => void onCommand(e)}>
           <input
             aria-label="Command"
             placeholder="show count turtles"
+            title="Observer commands and reporters, one line at a time."
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             disabled={!sessionId}
@@ -1369,9 +1370,8 @@ export function App() {
           <button className="act" type="submit" disabled={!sessionId || !command.trim()}>
             Run
           </button>
-          <div className="hint">Observer commands and reporters, one line at a time.</div>
-          {commandError && <div className="err">{commandError}</div>}
         </form>
+        {commandError && <div className="err">{commandError}</div>}
       </section>
         }
       />
@@ -2133,7 +2133,12 @@ function WidgetView({
   }
 
   if (widget.kind === 'note') {
-    return <p className="note" {...tip}>{widget.display}</p>
+    const font = widget.fontSize > 0 ? widget.fontSize : 12
+    return (
+      <p className="note" style={fitted ? { ['--note-font' as string]: font } : undefined} {...tip}>
+        {widget.display}
+      </p>
+    )
   }
 
   if (widget.kind === 'plot') {

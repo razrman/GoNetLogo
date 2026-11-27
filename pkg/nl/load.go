@@ -347,7 +347,7 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 		x, y, w, h := boxFromLines(lines)
 		m.Widgets = append(m.Widgets, finishWidget(Widget{
 			Kind: "note", Display: optUnescape(lineAt(lines, 5)),
-			X: x, Y: y, W: w, H: h,
+			X: x, Y: y, W: w, H: h, FontSize: atoi(lineAt(lines, 6)),
 		}, lines))
 	case "PLOT":
 		m.Widgets = append(m.Widgets, finishWidget(parsePlotLines(lines), lines))
@@ -675,7 +675,9 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			if err := dec.DecodeElement(&text, &se); err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, withXMLDescription(Widget{Kind: "note", Display: text}, se))
+			m.Widgets = append(m.Widgets, withXMLDescription(Widget{
+				Kind: "note", Display: text, FontSize: atoi(attr(se, "fontSize")),
+			}, se))
 		case "plot":
 			w, err := plotFromXML(dec, se)
 			if err != nil {

@@ -1,6 +1,7 @@
 package nl
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,31 @@ func TestMissingInterfaceBoxStaysZero(t *testing.T) {
 	if m.View.W != 0 || m.View.H != 0 {
 		t.Fatalf("expected no view box, got %+v", m.View)
 	}
+}
+
+func TestRobbyNotesKeepTheirFont(t *testing.T) {
+	m := loadModel(t, "library/Sample Models/Computer Science/Robby the Robot.nlogox")
+	note := widgetBy(m, "note", "More similar\nto best strategy")
+	if note.FontSize != 11 || note.W != 150 || note.H != 56 {
+		t.Fatalf("note %+v", note)
+	}
+	classic, err := ParseModel("robby.nlogo", mustRead(t, "../../models/Robby the Robot.nlogo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legend := widgetBy(classic, "note", "\"↑\" =   move-north  \n \"→\"  = move-east \n \"↓\"  = move-south  \n \"←\"  = move-west\n \"+\"   = move-random\n \"x\"    =  stay-put   \n\"●\"    =  pick-up-can")
+	if legend.FontSize != 13 || legend.W != 158 || legend.H != 143 {
+		t.Fatalf("classic note %+v", legend)
+	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func widgetBy(m *FileModel, kind, display string) Widget {

@@ -602,13 +602,16 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
 
 .iface-item .widget,
 .iface-item .switch,
-.iface-item .note,
 .iface-item .output-panel,
 .iface-item .plot-card {
   height: 100%;
   width: 100%;
   max-width: none;
   box-sizing: border-box;
+}
+
+.iface-item:has(.note) {
+  overflow: visible;
 }
 
 .iface-item .widget .label,
@@ -635,17 +638,31 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
 .iface-item .widget.slider {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 0 0.4em;
+  align-content: center;
+  gap: 0.15em 0.4em;
+  font-size: calc(11 * var(--iface-scale, 1) * 1px);
+  overflow: hidden;
 }
 
-.iface-item .widget.slider .label { grid-column: 1; line-height: 1.1; }
-.iface-item .widget.slider .slider-val { grid-column: 2; line-height: 1.1; }
+.iface-item .widget.slider .label {
+  grid-column: 1;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.iface-item .widget.slider .slider-val {
+  grid-column: 2;
+  line-height: 1.1;
+  white-space: nowrap;
+}
 .iface-item .widget.slider input[type="range"] {
   grid-column: 1 / -1;
+  grid-row: 2;
   width: 100%;
-  height: 1.1em;
+  height: 1em;
   margin: 0;
 }
 
@@ -928,6 +945,18 @@ canvas.world {
 }
 
 .note { color: var(--muted); font-size: 0.85rem; white-space: pre-wrap; }
+
+.iface-item .note {
+  height: auto;
+  max-height: none;
+  margin: 0;
+  overflow: visible;
+  color: var(--ink);
+  line-height: 1.15;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-size: calc(var(--note-font, 12) * var(--iface-scale, 1) * 1px);
+}
 
 .plot-card {
   display: flex;
@@ -1264,10 +1293,11 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
 
 .command {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  grid-template-rows: minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(9rem, 18rem);
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 8px;
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
@@ -1280,17 +1310,25 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
   max-height: none;
   overflow: auto;
   font-family: ui-monospace, "Cascadia Code", monospace;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
   white-space: pre-wrap;
   background: #241f18;
   color: #f4efe4;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 4px 8px;
 }
 
-.command form { display: flex; flex-direction: column; gap: 8px; }
-.command .hint { color: var(--muted); font-size: 0.78rem; }
-.command .err { color: var(--danger); font-size: 0.82rem; }
+.command form {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.command form input { flex: 1 1 auto; min-width: 0; padding: 4px 8px; }
+.command form button.act { flex: 0 0 auto; padding: 4px 10px; }
+.command .err { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 0.78rem; }
 
 .empty, .loading {
   padding: 28px 8px;
@@ -1500,6 +1538,6 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
   }
   .topbar-left { flex: 1 1 100%; flex-wrap: wrap; }
   .topbar-right { flex: 0 0 auto; }
-  .command { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .command { grid-template-columns: minmax(0, 1fr) minmax(8rem, 14rem); }
   .canvas-wrap { min-height: 180px; }
 }

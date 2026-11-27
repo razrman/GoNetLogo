@@ -158,6 +158,14 @@ export function layoutScale(contentW: number, contentH: number, availW: number, 
 
 // readableFontPx tracks the scale and stays in a range that can be read
 // inside a widget. The boxes themselves use the full scale.
+// noteFontPx is the note's own point size, scaled with the canvas.
+// NetLogo sizes the text box for that font, so the text fits the box.
+export function noteFontPx(fontSize: number, scale: number): number {
+  const base = fontSize > 0 ? fontSize : 12
+  const factor = Number.isFinite(scale) && scale > 0 ? scale : 1
+  return base * factor
+}
+
 export function readableFontPx(scale: number): number {
   if (!Number.isFinite(scale) || scale <= 0) return 12
   return Math.round(Math.min(18, Math.max(12, 13 * scale)))
