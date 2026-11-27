@@ -16,8 +16,11 @@ type Query {
   and the client should fall back to choosing a file on this computer.
   """
   library(path: String): LibraryListing!
-  """YAML document of one widget's editable properties, for the Widgets tab."""
-  widgetYaml(sessionId: ID!, index: Int!): String!
+  """
+  YAML list of every widget, in model order, for the Widgets tab.
+  Each entry has that widget's editable properties.
+  """
+  widgetYaml(sessionId: ID!): String!
 }
 
 type LibraryEntry {
@@ -70,11 +73,15 @@ type Mutation {
   """
   setWidgets(sessionId: ID!, text: String!): CompileResult!
   """
-  Replace one widget from a YAML document of its editable properties.
+  Replace the interface widgets from a YAML list, in document order.
   A syntax error, an unknown key, or a value of the wrong type leaves the
-  widget unchanged. kind cannot be changed. Rejected while go is running.
+  model unchanged and names the widget entry and the field. kind cannot
+  be changed on an existing widget. Removing an entry deletes that widget.
+  An entry that does not match an existing widget is added. Reordering
+  entries keeps each widget, matched by kind and variable, or by kind and
+  display when it has no variable. Rejected while go is running.
   """
-  setWidgetYaml(sessionId: ID!, index: Int!, yaml: String!): WidgetEditResult!
+  setWidgetYaml(sessionId: ID!, yaml: String!): WidgetEditResult!
   """
   Replace the system dynamics diagram from the Dynamics tab text and recompile.
   A definition the parser rejects leaves the diagram unchanged. A diagram that

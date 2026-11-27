@@ -114,23 +114,26 @@ func TestSetWidgetYAMLKeepsTheDraftOnABadDocument(t *testing.T) {
 	if err := s.LoadModelSource("view.nlogo", classicWidgetModel("go", "100")); err != nil {
 		t.Fatal(err)
 	}
-	spec, err := s.WidgetYAML(1)
+	spec, err := s.WidgetYAML()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(spec, "kind: slider") || !strings.Contains(spec, "description:") {
+	if !strings.Contains(spec, "kind: slider") || !strings.Contains(spec, "kind: button") || !strings.Contains(spec, "y: ") {
 		t.Fatalf("spec:\n%s", spec)
 	}
-	bad := spec + "color: red\n"
-	if _, err := s.SetWidgetYAML(1, bad); err == nil || !strings.Contains(err.Error(), "unknown key") {
+	if strings.Contains(spec, `"y"`) {
+		t.Fatalf("y key was quoted:\n%s", spec)
+	}
+	bad := strings.Replace(spec, "kind: slider", "kind: slider\n  color: red", 1)
+	if _, err := s.SetWidgetYAML(bad); err == nil || !strings.Contains(err.Error(), "unknown key") || !strings.Contains(err.Error(), "density") {
 		t.Fatalf("bad yaml %v", err)
 	}
 	if sliderMaxOf(s, "density") != 100 {
 		t.Fatal("bad yaml changed the slider")
 	}
 	edited := strings.Replace(spec, "max: 100", "max: 80", 1)
-	edited = strings.Replace(edited, `description: ""`, `description: Forest density`, 1)
-	got, err := s.SetWidgetYAML(1, edited)
+	edited = strings.Replace(edited, "description: \"\"", "description: Forest density", 1)
+	got, err := s.SetWidgetYAML(edited)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,14 +142,6 @@ func TestSetWidgetYAMLKeepsTheDraftOnABadDocument(t *testing.T) {
 	}
 	if sliderMaxOf(s, "density") != 80 {
 		t.Fatal("max was not saved")
-	}
-	again, err := s.WidgetYAML(1)
-	if err != nil || !strings.Contains(again, "Forest density") {
-		t.Fatalf("stored %q %v", again, err)
-	}
-	button, err := s.WidgetYAML(0)
-	if err != nil || !strings.Contains(button, "kind: button") {
-		t.Fatalf("button spec:\n%s %v", button, err)
 	}
 }
 

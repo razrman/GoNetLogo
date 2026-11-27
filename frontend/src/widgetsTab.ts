@@ -20,11 +20,6 @@ export function presentWidgetError(message: string, source: string): string {
   return `${cleaned}\n${String(n).padStart(4, ' ')} | ${text}`
 }
 
-export function widgetChoiceLabel(kind: string, display: string): string {
-  const name = display.trim() || 'untitled'
-  return `${kind} · ${name}`
-}
-
 // settleWidgetYAML keeps the user's text when the server rejects it.
 export function settleWidgetYAML(
   draft: string,

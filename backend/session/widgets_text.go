@@ -44,10 +44,10 @@ func (s *Session) SetWidgets(text string) error {
 	return s.installWidgetsLocked(view, widgets, notes, next)
 }
 
-// SetWidgetYAML replaces one widget from the Widgets tab YAML. A bad
-// document leaves the model unchanged. The returned text is the canonical
-// document after a successful edit.
-func (s *Session) SetWidgetYAML(index int, text string) (string, error) {
+// SetWidgetYAML replaces the interface widgets from the Widgets tab list.
+// A bad document leaves the model unchanged. The returned text is the
+// canonical list after a successful edit.
+func (s *Session) SetWidgetYAML(text string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.rejectIfActiveLocked("set widgets"); err != nil {
@@ -56,14 +56,11 @@ func (s *Session) SetWidgetYAML(index int, text string) (string, error) {
 	if s.model == nil || s.vm == nil || s.vm.World == nil {
 		return "", fmt.Errorf("no model is loaded")
 	}
-	if index < 0 || index >= len(s.model.Widgets) {
-		return "", fmt.Errorf("widget %d is not in the interface", index)
-	}
-	updated, err := nl.ApplyWidgetYAML(s.model.Widgets[index], text)
+	updated, from, err := nl.ApplyWidgetsYAML(s.model.Widgets, text)
 	if err != nil {
 		return "", err
 	}
-	next, err := nl.WriteWidget(s.modelSource, index, updated)
+	next, err := nl.WriteWidgets(s.modelSource, updated, from)
 	if err != nil {
 		return "", err
 	}
@@ -78,23 +75,17 @@ func (s *Session) SetWidgetYAML(index int, text string) (string, error) {
 	if err := s.installWidgetsLocked(view, widgets, notes, next); err != nil {
 		return "", err
 	}
-	if index >= len(s.model.Widgets) {
-		return "", fmt.Errorf("widget %d is not in the interface", index)
-	}
-	return nl.FormatWidgetYAML(s.model.Widgets[index])
+	return nl.FormatWidgetsYAML(s.model.Widgets)
 }
 
-// WidgetYAML is the Widgets tab document for one widget.
-func (s *Session) WidgetYAML(index int) (string, error) {
+// WidgetYAML is the Widgets tab document for every widget, in model order.
+func (s *Session) WidgetYAML() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.model == nil {
 		return "", fmt.Errorf("no model is loaded")
 	}
-	if index < 0 || index >= len(s.model.Widgets) {
-		return "", fmt.Errorf("widget %d is not in the interface", index)
-	}
-	return nl.FormatWidgetYAML(s.model.Widgets[index])
+	return nl.FormatWidgetsYAML(s.model.Widgets)
 }
 
 func (s *Session) installWidgetsLocked(view nl.ViewSpec, widgets []nl.Widget, notes []string, next string) error {

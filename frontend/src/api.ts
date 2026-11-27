@@ -181,14 +181,14 @@ export const CreateSession = `
 `
 
 export const WidgetYAML = `
-  query WidgetYAML($id: ID!, $index: Int!) {
-    widgetYaml(sessionId: $id, index: $index)
+  query WidgetYAML($id: ID!) {
+    widgetYaml(sessionId: $id)
   }
 `
 
 export const SetWidgetYAML = `
-  mutation SetWidgetYAML($id: ID!, $index: Int!, $yaml: String!) {
-    setWidgetYaml(sessionId: $id, index: $index, yaml: $yaml) {
+  mutation SetWidgetYAML($id: ID!, $yaml: String!) {
+    setWidgetYaml(sessionId: $id, yaml: $yaml) {
       ok
       error
       spec
