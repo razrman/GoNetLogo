@@ -156,7 +156,7 @@ Set `peer_openvpn` to false and apply to skip the peering.
 
 Push a tag `YYYYMMDD-XX`, for example `20261111-03`. The Deploy workflow checks out that tag, assumes the role, and stops immediately if the ECS service is not `ACTIVE`, with the message to run Infra up first. Otherwise it builds `linux/amd64` and `linux/arm64`, pushes the tag and the commit sha to ECR, writes the tag to SSM, registers a new task definition revision, and waits until the service is stable on that revision. A rolled-back deployment fails the job.
 
-Re-run a tag from the Actions tab with the Deploy workflow's `image_tag` input. That checks out the tag you name, not the branch selected in the UI.
+To deploy any branch or tag for testing, open Actions, pick Deploy, choose Run workflow, and select the branch or tag in "Use workflow from" (or type it in the `ref` input, which wins when set). A release tag `YYYYMMDD-XX` is deployed under its own name; any other ref is deployed as `<ref>-<short sha>`, for example `feat-widgets-1a2b3c4`. The production environment must allow that branch (see the environment's deployment branch policy).
 
 A deploy drops in-memory sessions. The circuit breaker rolls a bad image back to the previous revision.
 
