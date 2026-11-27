@@ -5,7 +5,7 @@ OpenTofu layout for the web server. Two stacks:
 | Stack | State | Survives teardown |
 | --- | --- | --- |
 | `infra/bootstrap` | Local file on the machine that applied it | Yes. State bucket, GitHub OIDC provider, deploy role, ECR repository, Route 53 zone, ACM certificate, budget, image-tag parameter |
-| `infra/app` | S3 bucket from bootstrap, locked with an S3 lockfile (`use_lockfile`, no DynamoDB) | No. VPC, subnets, security groups, load balancer, ECS service, log group, and the alias record |
+| `infra/app` | S3 bucket from bootstrap, locked with an S3 lockfile (`use_lockfile`, no DynamoDB) | No. VPC, subnets, security groups, the OpenVPN peering, load balancer, ECS service, log group, and the alias record |
 
 Account `457504029722`, region `us-west-2`. The provider refuses any other account. The account is a Sign up for AWS (new) free plan today, and that plan cannot use `us-west-2`. Upgrade it to a paid plan before bootstrap. Bootstrap is applied by hand with an administrator key. After that, GitHub Actions assumes `gonetlogo-github-deploy` through OIDC. There are no long-lived AWS keys in the repository.
 
@@ -130,13 +130,27 @@ tofu init
 tofu apply
 ```
 
-That creates the network, the load balancer, the ECS service, the log group, and an alias A record at `gonetlogo.app.sapienexmachina.si` aimed at the load balancer. Port 80 redirects to 443. The load balancer has deletion protection off.
+That creates the network, the peering to the account default VPC, the load balancer, the ECS service, the log group, and an alias A record at `gonetlogo.app.sapienexmachina.si` aimed at the load balancer. Port 80 redirects to 443. The load balancer has deletion protection off.
 
 Until an image tag has been published, the service is created at desired count 0, because the SSM parameter still says `bootstrap` and that image does not exist. The first tag deploy starts the task. After that, the parameter holds the real tag, and a later Infra up starts the last image without another deploy.
 
 The alias is updated in the same apply that creates the load balancer. The load balancer's own DNS name changes every time the app stack is created. GoDaddy does not. Clients use `https://gonetlogo.app.sapienexmachina.si`. The load balancer security group allows `allowed_cidrs` (default `0.0.0.0/0`, public) on ports 80 and 443. The load balancer itself is IPv4-only, so there is no IPv6 (`::/0`) rule and no AAAA record.
 
 Infra up fails with a missing-certificate error if it runs before ACM has issued the certificate. Wait for `ISSUED` and run it again.
+
+## OpenVPN peering
+
+`peer_openvpn` defaults to true. Infra up creates `aws_vpc_peering_connection.openvpn` from this VPC (`10.20.0.0/16`, tag Name=`gonetlogo`) to the account default VPC (`172.31.0.0/16`), with `auto_accept` and tag Name=`openvpn-gonetlogo`. It adds a route for `10.20.0.0/16` on the default VPC main route table, and a return route for `172.31.0.0/16` on every route table in this VPC (the main table and `gonetlogo-public`). Destroy removes those routes, then the peering, then the VPC.
+
+The peering APIs are on `gonetlogo-github-deploy` only after `infra/bootstrap` is applied by hand. Until that apply, Infra up fails with AccessDenied on `CreateVpcPeeringConnection`.
+
+`razrman/openvpn-infra` used to create this same connection. Apply that repo's change that drops the peering before the first Infra up here. Otherwise the route `10.20.0.0/16` already exists and this apply stops. Order:
+
+1. Apply `infra/bootstrap` in this repo (the new peering permissions).
+2. Apply the openvpn-infra change that deletes `aws_vpc_peering_connection.gonetlogo` and its routes. That repo keeps pushing `10.20.0.0/16` to VPN clients.
+3. Merge this change and run Infra up.
+
+Set `peer_openvpn` to false and apply to skip the peering.
 
 ## Deploy
 
@@ -159,7 +173,7 @@ cd infra/app
 tofu destroy
 ```
 
-One destroy removes the VPC, subnets, security groups, load balancer, target group, listeners, ECS cluster and service, log group, the ALB access-log bucket, and the alias record. The log bucket has `force_destroy` set, so a non-empty bucket does not stop the destroy. Destroy waits up to 20 minutes for Fargate network interfaces to release. There is no deletion protection to turn off. CloudWatch logs for the service are deleted with the log group.
+One destroy removes the peering and its routes, the VPC, subnets, security groups, load balancer, target group, listeners, ECS cluster and service, log group, the ALB access-log bucket, and the alias record. Before OpenTofu runs, Infra down deletes any peering on the gonetlogo VPC that this state does not own, and the routes that target it. That is the connection openvpn-infra used to create. Left in place, it makes `DeleteVpc` fail with DependencyViolation. A peering this state owns is left for OpenTofu, which removes its routes and then the peering before the VPC. The log bucket has `force_destroy` set, so a non-empty bucket does not stop the destroy. Destroy waits up to 20 minutes for Fargate network interfaces to release. There is no deletion protection to turn off. CloudWatch logs for the service are deleted with the log group.
 
 Left in place: the state bucket and the app state file, the OIDC provider, the deploy role, the hosted zone and its NS and certificate-validation records, the certificate, the ECR images, the budget, and the image tag. The hostname stops resolving until the next Infra up, which writes a new alias at the new load balancer. GoDaddy is not edited.
 
@@ -200,7 +214,7 @@ Bootstrap is not planned in GitHub. An empty local state on the runner would ask
 
 ## What the role can do
 
-The deploy role's trust policy is `sts:AssumeRoleWithWebIdentity` for the one subject above and audience `sts.amazonaws.com`. Its policies cover the state bucket, pushing to the `gonetlogo` ECR repository and reading that repository's tags, the `gonetlogo` ECS cluster and service, registering task definitions and listing their tags, passing `gonetlogo-ecs-execution` to ECS, the image-tag parameter, the VPC and load balancer APIs in us-west-2 (including describe and `elasticloadbalancing:ModifyLoadBalancerAttributes`, which turns access logs on), the `gonetlogo-alb-logs-<account>` bucket (create, policy, lifecycle, encryption, public-access block, and the object deletes `force_destroy` uses), the log group, reading the certificate, and changing records in this hosted zone. It cannot delete the hosted zone, the certificate, or the ECR repository, and it cannot edit its own trust policy. The task has no task role. The server does not call AWS.
+The deploy role's trust policy is `sts:AssumeRoleWithWebIdentity` for the one subject above and audience `sts.amazonaws.com`. Its policies cover the state bucket, pushing to the `gonetlogo` ECR repository and reading that repository's tags, the `gonetlogo` ECS cluster and service, registering task definitions and listing their tags, passing `gonetlogo-ecs-execution` to ECS, the image-tag parameter, the VPC and load balancer APIs in us-west-2 (including describe, `ec2:CreateRoute` and `ec2:DeleteRoute` on any route table in the region, and `elasticloadbalancing:ModifyLoadBalancerAttributes`, which turns access logs on), VPC peering (`ec2:CreateVpcPeeringConnection`, `AcceptVpcPeeringConnection`, `DeleteVpcPeeringConnection`, `DescribeVpcPeeringConnections`, `ModifyVpcPeeringConnectionOptions`, and `CreateTags` on the connection), the `gonetlogo-alb-logs-<account>` bucket (create, policy, lifecycle, encryption, public-access block, and the object deletes `force_destroy` uses), the log group, reading the certificate, and changing records in this hosted zone. The peering actions are in `infra/bootstrap` and are not on the live role until that stack is applied by hand. The role cannot delete the hosted zone, the certificate, or the ECR repository, and it cannot edit its own trust policy. The task has no task role. The server does not call AWS.
 
 The load balancer writes access logs to `s3://gonetlogo-alb-logs-<account>/alb/`. S3 expires them after `access_log_retention_days` (default 90). `./scripts/top-ips.sh` reads that bucket.
 

@@ -370,6 +370,10 @@ data "aws_iam_policy_document" "infra" {
     sid    = "Network"
     effect = "Allow"
     actions = [
+      # Peering actions are not on the live role until this policy is
+      # applied by hand from infra/bootstrap. Infra up cannot create
+      # aws_vpc_peering_connection.openvpn before that apply.
+      "ec2:AcceptVpcPeeringConnection",
       "ec2:AssociateRouteTable",
       "ec2:AttachInternetGateway",
       "ec2:AuthorizeSecurityGroupEgress",
@@ -381,6 +385,7 @@ data "aws_iam_policy_document" "infra" {
       "ec2:CreateSubnet",
       "ec2:CreateTags",
       "ec2:CreateVpc",
+      "ec2:CreateVpcPeeringConnection",
       "ec2:DeleteInternetGateway",
       "ec2:DeleteRoute",
       "ec2:DeleteRouteTable",
@@ -388,12 +393,15 @@ data "aws_iam_policy_document" "infra" {
       "ec2:DeleteSubnet",
       "ec2:DeleteTags",
       "ec2:DeleteVpc",
+      "ec2:DeleteVpcPeeringConnection",
       "ec2:Describe*",
+      "ec2:DescribeVpcPeeringConnections",
       "ec2:Get*",
       "ec2:DetachInternetGateway",
       "ec2:DisassociateRouteTable",
       "ec2:ModifySubnetAttribute",
       "ec2:ModifyVpcAttribute",
+      "ec2:ModifyVpcPeeringConnectionOptions",
       "ec2:RevokeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupIngress",
     ]

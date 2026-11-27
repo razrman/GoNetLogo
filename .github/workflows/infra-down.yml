@@ -73,4 +73,8 @@ jobs:
         run: |
           set -euo pipefail
           tofu init -input=false
+          # A peering this state does not own (the old openvpn-infra
+          # connection) blocks DeleteVpc. Drop those, then let OpenTofu
+          # destroy the peering it owns before the VPC.
+          bash detach-foreign-peering.sh
           tofu destroy -input=false -auto-approve -lock-timeout=10m

@@ -35,6 +35,11 @@ output "image_tag" {
   value       = local.image_tag
 }
 
+output "vpn_peering_connection_id" {
+  description = "Peering from this VPC to the account default VPC. Empty when peer_openvpn is false."
+  value       = try(aws_vpc_peering_connection.openvpn[0].id, "")
+}
+
 output "certificate_arn" {
   description = "Issued certificate from the persistent stack, attached to the HTTPS listener."
   value       = data.aws_acm_certificate.app.arn
