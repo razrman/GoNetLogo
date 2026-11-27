@@ -1,6 +1,7 @@
 package nl
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"regexp"
@@ -10,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// FormatWidgetYAML is the Widgets tab document for one widget.
+// FormatWidgetYAML is one widget's editable properties.
 // kind is shown and cannot be changed. index, the live disabled flag,
 // and a monitor reading are left out.
 func FormatWidgetYAML(w Widget) (string, error) {
@@ -18,11 +19,24 @@ func FormatWidgetYAML(w Widget) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	b, err := yaml.Marshal(doc)
-	if err != nil {
-		return "", err
+	return marshalPlain(doc)
+}
+
+// FormatWidgetsYAML is the Widgets tab document: a list of every widget,
+// in model order. Each entry has the same keys as FormatWidgetYAML.
+func FormatWidgetsYAML(widgets []Widget) (string, error) {
+	docs := make([]any, len(widgets))
+	for i, w := range widgets {
+		doc, err := widgetDocument(w)
+		if err != nil {
+			return "", err
+		}
+		docs[i] = doc
 	}
-	return string(b), nil
+	if len(docs) == 0 {
+		return "[]\n", nil
+	}
+	return marshalPlain(docs)
 }
 
 // ApplyWidgetYAML checks a Widgets tab document and returns the widget
@@ -52,6 +66,284 @@ func ApplyWidgetYAML(w Widget, text string) (Widget, error) {
 	return next, nil
 }
 
+// ApplyWidgetsYAML reads the Widgets tab list. Entries are matched to
+// existing widgets by kind and variable (or display, when the widget has
+// no variable). A match is edited and keeps fields the document does not
+// show, such as plot pens. Unmatched entries are added. Existing widgets
+// with no entry are removed. The result order is the document order.
+// Changing kind on a widget that still has the same variable or display
+// is rejected. Renaming variable or display and reordering that same
+// widget in one save is treated as removing it and adding a new one.
+func ApplyWidgetsYAML(existing []Widget, text string) ([]Widget, []int, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil, fmt.Errorf("the widget document is empty")
+	}
+	dec := yaml.NewDecoder(strings.NewReader(text))
+	var doc yaml.Node
+	if err := dec.Decode(&doc); err != nil {
+		return nil, nil, friendlyYAMLError(err)
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); err != io.EOF {
+		return nil, nil, fmt.Errorf("the widget document must be a single list")
+	}
+	root := &doc
+	if root.Kind == yaml.DocumentNode {
+		if len(root.Content) == 0 {
+			return []Widget{}, []int{}, nil
+		}
+		root = root.Content[0]
+	}
+	if root.Kind != yaml.SequenceNode {
+		return nil, nil, fmt.Errorf("the widget document must be a list of widgets")
+	}
+	type item struct {
+		kind, display, variable string
+		node                    *yaml.Node
+	}
+	items := make([]item, len(root.Content))
+	seen := map[string]int{}
+	for i, node := range root.Content {
+		if node.Kind != yaml.MappingNode {
+			return nil, nil, fmt.Errorf("widget %d: each entry must be a map", i)
+		}
+		kind, display, variable, err := peekWidget(node)
+		if err != nil {
+			return nil, nil, fmt.Errorf("widget %d: %w", i, err)
+		}
+		id := stableID(kind, variable, display)
+		if id != "" {
+			key := kind + "\x00" + id
+			if prev, ok := seen[key]; ok {
+				return nil, nil, fmt.Errorf("widget %d (%s): duplicates widget %d", i, widgetLabel(display, variable, kind), prev)
+			}
+			seen[key] = i
+		}
+		for _, old := range existing {
+			if id == "" || stableID(old.Kind, old.Variable, old.Display) != id || idClass(old.Kind) != idClass(kind) {
+				continue
+			}
+			if old.Kind != kind {
+				return nil, nil, fmt.Errorf("widget %d (%s): kind cannot be changed from %s to %s", i, widgetLabel(display, variable, kind), old.Kind, kind)
+			}
+		}
+		items[i] = item{kind: kind, display: display, variable: variable, node: node}
+	}
+	used := make([]bool, len(existing))
+	from := make([]int, len(items))
+	assigned := make([]bool, len(items))
+	for i, item := range items {
+		id := stableID(item.kind, item.variable, item.display)
+		if id == "" {
+			continue
+		}
+		match := -1
+		for j, old := range existing {
+			if used[j] || old.Kind != item.kind {
+				continue
+			}
+			if stableID(old.Kind, old.Variable, old.Display) == id {
+				if match >= 0 {
+					return nil, nil, fmt.Errorf("widget %d (%s): matches more than one existing widget", i, widgetLabel(item.display, item.variable, item.kind))
+				}
+				match = j
+			}
+		}
+		if match >= 0 {
+			used[match] = true
+			from[i] = match
+			assigned[i] = true
+		}
+	}
+	for i, item := range items {
+		if assigned[i] {
+			continue
+		}
+		if i < len(existing) && !used[i] && existing[i].Kind == item.kind {
+			used[i] = true
+			from[i] = i
+			assigned[i] = true
+			continue
+		}
+		from[i] = -1
+	}
+	out := make([]Widget, len(items))
+	for i, item := range items {
+		base := Widget{Kind: item.kind}
+		if assigned[i] {
+			base = existing[from[i]]
+		}
+		next, err := decodeWidget(base, item.node)
+		if err != nil {
+			return nil, nil, fmt.Errorf("widget %d (%s): %w", i, widgetLabel(item.display, item.variable, item.kind), err)
+		}
+		out[i] = next
+	}
+	return out, from, nil
+}
+
+func widgetLabel(display, variable, kind string) string {
+	name := strings.TrimSpace(display)
+	if name == "" {
+		name = strings.TrimSpace(variable)
+	}
+	if name == "" {
+		return kind
+	}
+	return name + ", " + kind
+}
+
+func idClass(kind string) string {
+	switch kind {
+	case "slider", "switch", "chooser", "input":
+		return "var"
+	default:
+		return "label"
+	}
+}
+
+func stableID(kind, variable, display string) string {
+	switch kind {
+	case "slider", "switch", "chooser", "input":
+		return strings.ToLower(strings.TrimSpace(variable))
+	default:
+		return strings.TrimSpace(display)
+	}
+}
+
+func peekWidget(node *yaml.Node) (kind, display, variable string, err error) {
+	kind, ok := mappingString(node, "kind")
+	if !ok || strings.TrimSpace(kind) == "" {
+		return "", "", "", fmt.Errorf("kind is required")
+	}
+	if _, err := newWidgetDocument(kind); err != nil {
+		return "", "", "", fmt.Errorf("unknown kind %q", kind)
+	}
+	display, _ = mappingString(node, "display")
+	variable, _ = mappingString(node, "variable")
+	return kind, display, variable, nil
+}
+
+func mappingString(node *yaml.Node, key string) (string, bool) {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			val := node.Content[i+1]
+			if val.Kind != yaml.ScalarNode {
+				return "", true
+			}
+			return val.Value, true
+		}
+	}
+	return "", false
+}
+
+func decodeWidget(base Widget, node *yaml.Node) (Widget, error) {
+	allowed := widgetKeys(base.Kind)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		if !allowed[key] {
+			return base, fmt.Errorf("unknown key %q", key)
+		}
+		one := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{node.Content[i], node.Content[i+1]}}
+		doc, err := newWidgetDocument(base.Kind)
+		if err != nil {
+			return base, err
+		}
+		if err := one.Decode(doc); err != nil {
+			return base, fmt.Errorf("%s: %s", key, yamlTypeHint(err))
+		}
+	}
+	doc, err := newWidgetDocument(base.Kind)
+	if err != nil {
+		return base, err
+	}
+	if err := node.Decode(doc); err != nil {
+		return base, friendlyYAMLError(err)
+	}
+	return doc.apply(base)
+}
+
+func widgetKeys(kind string) map[string]bool {
+	common := []string{"kind", "display", "x", "y", "width", "height", "description"}
+	var extra []string
+	switch kind {
+	case "button":
+		extra = []string{"source", "forever", "agent", "disableUntilTicks"}
+	case "slider":
+		extra = []string{"variable", "min", "max", "value", "step", "units"}
+	case "switch":
+		extra = []string{"variable", "on"}
+	case "monitor":
+		extra = []string{"source", "precision"}
+	case "chooser":
+		extra = []string{"variable", "choices", "current"}
+	case "input":
+		extra = []string{"variable", "text", "inputType"}
+	case "plot":
+		extra = []string{"xLabel", "yLabel", "xMin", "xMax", "yMin", "yMax", "autoPlot", "legend"}
+	case "output":
+		extra = []string{"fontSize"}
+	}
+	out := map[string]bool{}
+	for _, k := range append(common, extra...) {
+		out[k] = true
+	}
+	return out
+}
+
+func yamlTypeHint(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "into float"):
+		return "value must be a number"
+	case strings.Contains(msg, "into int"):
+		return "value must be an integer"
+	case strings.Contains(msg, "into bool"):
+		return "value must be true or false"
+	case strings.Contains(msg, "into []string"), strings.Contains(msg, "into string"):
+		return "value must be text"
+	default:
+		return "value has the wrong type"
+	}
+}
+
+// marshalPlain encodes doc with plain keys. yaml.v3 quotes YAML 1.1
+// boolean words such as y, n, on, and off. Those keys are still strings,
+// so the Widgets tab writes them unquoted.
+func marshalPlain(doc any) (string, error) {
+	var node yaml.Node
+	if err := node.Encode(doc); err != nil {
+		return "", err
+	}
+	clearKeyStyle(&node)
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&node); err != nil {
+		return "", err
+	}
+	if err := enc.Close(); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func clearKeyStyle(n *yaml.Node) {
+	switch n.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, c := range n.Content {
+			clearKeyStyle(c)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key := n.Content[i]
+			key.Style = 0
+			key.Tag = ""
+			clearKeyStyle(n.Content[i+1])
+		}
+	}
+}
+
 // WriteWidget edits one widget inside a model file. Other sections stay
 // as they are. index is the widget's position among parsed widgets.
 func WriteWidget(source string, index int, w Widget) (string, error) {
@@ -62,6 +354,27 @@ func WriteWidget(source string, index int, w Widget) (string, error) {
 		next, err = patchXMLWidget(section.Text, index, w)
 	} else {
 		next, err = patchClassicWidget(section.Text, index, w)
+	}
+	if err != nil {
+		return "", err
+	}
+	return ReplaceWidgetSection(source, next)
+}
+
+// WriteWidgets rewrites every widget in source to match widgets, in that
+// order. from[i] is the previous index of widgets[i], or -1 when it is new.
+// The graphics window and the other model sections stay in place.
+func WriteWidgets(source string, widgets []Widget, from []int) (string, error) {
+	if len(widgets) != len(from) {
+		return "", fmt.Errorf("widget edit length mismatch")
+	}
+	section := ExtractWidgetSection(source)
+	var next string
+	var err error
+	if section.XML {
+		next, err = writeXMLWidgets(section.Text, widgets, from)
+	} else {
+		next, err = writeClassicWidgets(section.Text, widgets, from)
 	}
 	if err != nil {
 		return "", err
@@ -507,6 +820,174 @@ func friendlyYAMLError(err error) error {
 		return fmt.Errorf("a value has the wrong type (%s)", strings.TrimSpace(msg))
 	}
 	return fmt.Errorf("could not read the widget YAML: %s", strings.TrimSpace(msg))
+}
+
+func writeClassicWidgets(section string, widgets []Widget, from []int) (string, error) {
+	lines := strings.Split(strings.ReplaceAll(section, "\r\n", "\n"), "\n")
+	var blocks [][]string
+	var cur []string
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		blocks = append(blocks, cur)
+		cur = nil
+	}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			flush()
+			continue
+		}
+		cur = append(cur, line)
+	}
+	flush()
+	var others, old [][]string
+	for _, block := range blocks {
+		if classicWidgetKind(strings.ToUpper(strings.TrimSpace(block[0]))) {
+			old = append(old, block)
+			continue
+		}
+		others = append(others, block)
+	}
+	out := append([][]string{}, others...)
+	for i, w := range widgets {
+		base := []string{classicKindLine(w.Kind)}
+		if from[i] >= 0 {
+			if from[i] >= len(old) {
+				return "", fmt.Errorf("widget %d is not in the interface", from[i])
+			}
+			base = old[from[i]]
+		}
+		out = append(out, rewriteClassicBlock(base, w))
+	}
+	parts := make([]string, len(out))
+	for i, block := range out {
+		parts[i] = strings.Join(block, "\n")
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return strings.Join(parts, "\n\n"), nil
+}
+
+func classicKindLine(kind string) string {
+	switch kind {
+	case "button":
+		return "BUTTON"
+	case "slider":
+		return "SLIDER"
+	case "switch":
+		return "SWITCH"
+	case "monitor":
+		return "MONITOR"
+	case "chooser":
+		return "CHOOSER"
+	case "input":
+		return "INPUTBOX"
+	case "note":
+		return "TEXTBOX"
+	case "plot":
+		return "PLOT"
+	case "output":
+		return "OUTPUT"
+	default:
+		return strings.ToUpper(kind)
+	}
+}
+
+func writeXMLWidgets(section string, widgets []Widget, from []int) (string, error) {
+	matches := xmlWidgetTag.FindAllStringIndex(section, -1)
+	spans := make([][2]int, len(matches))
+	for i, match := range matches {
+		end := xmlElementEnd(section, match[0])
+		if end < 0 {
+			return "", fmt.Errorf("widget %d has a broken tag", i)
+		}
+		spans[i] = [2]int{match[0], end}
+	}
+	var b strings.Builder
+	if len(spans) == 0 {
+		idx := strings.LastIndex(strings.ToLower(section), "</widgets>")
+		if idx < 0 {
+			return "", fmt.Errorf("the interface must be a <widgets> element")
+		}
+		b.WriteString(section[:idx])
+		for i, w := range widgets {
+			if i > 0 {
+				b.WriteString("\n    ")
+			}
+			b.WriteString(freshXMLWidget(w))
+		}
+		if len(widgets) > 0 {
+			b.WriteString("\n  ")
+		}
+		b.WriteString(section[idx:])
+		return b.String(), nil
+	}
+	b.WriteString(section[:spans[0][0]])
+	for i, w := range widgets {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if from[i] >= 0 {
+			if from[i] >= len(spans) {
+				return "", fmt.Errorf("widget %d is not in the interface", from[i])
+			}
+			el := section[spans[from[i]][0]:spans[from[i]][1]]
+			b.WriteString(rewriteXMLElement(el, w))
+			continue
+		}
+		b.WriteString(freshXMLWidget(w))
+	}
+	b.WriteString(section[spans[len(spans)-1][1]:])
+	return b.String(), nil
+}
+
+func xmlElementEnd(section string, tagStart int) int {
+	tagEnd := xmlTagEnd(section, tagStart)
+	if tagEnd < 0 {
+		return -1
+	}
+	if strings.HasSuffix(section[tagStart:tagEnd], "/>") {
+		return tagEnd
+	}
+	name := ""
+	if m := xmlWidgetTag.FindStringSubmatch(section[tagStart:]); len(m) > 1 {
+		name = m[1]
+	}
+	rel := strings.Index(strings.ToLower(section[tagEnd:]), "</"+strings.ToLower(name)+">")
+	if rel < 0 {
+		return -1
+	}
+	return tagEnd + rel + len("</") + len(name) + len(">")
+}
+
+func freshXMLWidget(w Widget) string {
+	switch w.Kind {
+	case "button", "monitor":
+		return rewriteXMLElement("<"+w.Kind+">"+escapeXMLText(w.Source)+"</"+w.Kind+">", w)
+	case "note":
+		return rewriteXMLElement("<note>"+escapeXMLText(w.Display)+"</note>", w)
+	default:
+		return rewriteXMLElement("<"+w.Kind+"/>", w)
+	}
+}
+
+func rewriteXMLElement(element string, w Widget) string {
+	tagEnd := xmlTagEnd(element, 0)
+	if tagEnd < 0 {
+		return element
+	}
+	tag := upsertXMLAttrs(element[:tagEnd], w)
+	body := element[tagEnd:]
+	if w.Kind == "button" || w.Kind == "monitor" {
+		closeAt := strings.Index(strings.ToLower(body), "</"+w.Kind+">")
+		if closeAt >= 0 {
+			body = ">" + escapeXMLText(codeText(w)) + body[closeAt:]
+			tag = strings.TrimSuffix(strings.TrimSuffix(tag, "/>"), ">")
+		}
+	}
+	return tag + body
 }
 
 func patchClassicWidget(section string, index int, w Widget) (string, error) {

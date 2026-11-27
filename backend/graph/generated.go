@@ -184,7 +184,7 @@ type ComplexityRoot struct {
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
 		SetViewUpdates  func(childComplexity int, sessionID string, mode string) int
-		SetWidgetYaml   func(childComplexity int, sessionID string, index int, yaml string) int
+		SetWidgetYaml   func(childComplexity int, sessionID string, yaml string) int
 		SetWidgets      func(childComplexity int, sessionID string, text string) int
 		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) int
 		Setup           func(childComplexity int, sessionID string) int
@@ -245,7 +245,7 @@ type ComplexityRoot struct {
 		Library       func(childComplexity int, path *string) int
 		Models        func(childComplexity int) int
 		Session       func(childComplexity int, id string) int
-		WidgetYaml    func(childComplexity int, sessionID string, index int) int
+		WidgetYaml    func(childComplexity int, sessionID string) int
 		WorldSettings func(childComplexity int, sessionID string) int
 	}
 
@@ -418,7 +418,7 @@ type MutationResolver interface {
 	LoadModelFile(ctx context.Context, sessionID string, path string) (*model.Session, error)
 	SetCode(ctx context.Context, sessionID string, code string) (*model.CompileResult, error)
 	SetWidgets(ctx context.Context, sessionID string, text string) (*model.CompileResult, error)
-	SetWidgetYaml(ctx context.Context, sessionID string, index int, yaml string) (*model.WidgetEditResult, error)
+	SetWidgetYaml(ctx context.Context, sessionID string, yaml string) (*model.WidgetEditResult, error)
 	SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error)
 	SetDynamicsDt(ctx context.Context, sessionID string, dt string) (*model.CompileResult, error)
 	RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error)
@@ -443,7 +443,7 @@ type QueryResolver interface {
 	Session(ctx context.Context, id string) (*model.Session, error)
 	WorldSettings(ctx context.Context, sessionID string) (*model.WorldSettings, error)
 	Library(ctx context.Context, path *string) (*model.LibraryListing, error)
-	WidgetYaml(ctx context.Context, sessionID string, index int) (string, error)
+	WidgetYaml(ctx context.Context, sessionID string) (string, error)
 }
 type SubscriptionResolver interface {
 	Frames(ctx context.Context, sessionID string) (<-chan *model.Frame, error)
@@ -1280,7 +1280,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.SetWidgetYaml(childComplexity, args["sessionId"].(string), args["index"].(int), args["yaml"].(string)), true
+		return e.complexity.Mutation.SetWidgetYaml(childComplexity, args["sessionId"].(string), args["yaml"].(string)), true
 
 	case "Mutation.setWidgets":
 		if e.complexity.Mutation.SetWidgets == nil {
@@ -1621,7 +1621,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Query.WidgetYaml(childComplexity, args["sessionId"].(string), args["index"].(int)), true
+		return e.complexity.Query.WidgetYaml(childComplexity, args["sessionId"].(string)), true
 
 	case "Query.worldSettings":
 		if e.complexity.Query.WorldSettings == nil {
@@ -2696,8 +2696,11 @@ type Query {
   and the client should fall back to choosing a file on this computer.
   """
   library(path: String): LibraryListing!
-  """YAML document of one widget's editable properties, for the Widgets tab."""
-  widgetYaml(sessionId: ID!, index: Int!): String!
+  """
+  YAML list of every widget, in model order, for the Widgets tab.
+  Each entry has that widget's editable properties.
+  """
+  widgetYaml(sessionId: ID!): String!
 }
 
 type LibraryEntry {
@@ -2750,11 +2753,15 @@ type Mutation {
   """
   setWidgets(sessionId: ID!, text: String!): CompileResult!
   """
-  Replace one widget from a YAML document of its editable properties.
+  Replace the interface widgets from a YAML list, in document order.
   A syntax error, an unknown key, or a value of the wrong type leaves the
-  widget unchanged. kind cannot be changed. Rejected while go is running.
+  model unchanged and names the widget entry and the field. kind cannot
+  be changed on an existing widget. Removing an entry deletes that widget.
+  An entry that does not match an existing widget is added. Reordering
+  entries keeps each widget, matched by kind and variable, or by kind and
+  display when it has no variable. Rejected while go is running.
   """
-  setWidgetYaml(sessionId: ID!, index: Int!, yaml: String!): WidgetEditResult!
+  setWidgetYaml(sessionId: ID!, yaml: String!): WidgetEditResult!
   """
   Replace the system dynamics diagram from the Dynamics tab text and recompile.
   A definition the parser rejects leaves the diagram unchanged. A diagram that
@@ -3865,24 +3872,15 @@ func (ec *executionContext) field_Mutation_setWidgetYaml_args(ctx context.Contex
 		}
 	}
 	args["sessionId"] = arg0
-	var arg1 int
-	if tmp, ok := rawArgs["index"]; ok {
-		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("index"))
-		arg1, err = ec.unmarshalNInt2int(ctx, tmp)
-		if err != nil {
-			return nil, err
-		}
-	}
-	args["index"] = arg1
-	var arg2 string
+	var arg1 string
 	if tmp, ok := rawArgs["yaml"]; ok {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("yaml"))
-		arg2, err = ec.unmarshalNString2string(ctx, tmp)
+		arg1, err = ec.unmarshalNString2string(ctx, tmp)
 		if err != nil {
 			return nil, err
 		}
 	}
-	args["yaml"] = arg2
+	args["yaml"] = arg1
 	return args, nil
 }
 
@@ -4135,15 +4133,6 @@ func (ec *executionContext) field_Query_widgetYaml_args(ctx context.Context, raw
 		}
 	}
 	args["sessionId"] = arg0
-	var arg1 int
-	if tmp, ok := rawArgs["index"]; ok {
-		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("index"))
-		arg1, err = ec.unmarshalNInt2int(ctx, tmp)
-		if err != nil {
-			return nil, err
-		}
-	}
-	args["index"] = arg1
 	return args, nil
 }
 
@@ -8623,7 +8612,7 @@ func (ec *executionContext) _Mutation_setWidgetYaml(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().SetWidgetYaml(rctx, fc.Args["sessionId"].(string), fc.Args["index"].(int), fc.Args["yaml"].(string))
+		return ec.resolvers.Mutation().SetWidgetYaml(rctx, fc.Args["sessionId"].(string), fc.Args["yaml"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -12250,7 +12239,7 @@ func (ec *executionContext) _Query_widgetYaml(ctx context.Context, field graphql
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Query().WidgetYaml(rctx, fc.Args["sessionId"].(string), fc.Args["index"].(int))
+		return ec.resolvers.Query().WidgetYaml(rctx, fc.Args["sessionId"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)

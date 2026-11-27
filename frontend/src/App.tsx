@@ -44,7 +44,7 @@ import {
 } from './api'
 import type { Frame, PlotView, SessionInfo, SystemDynamics, Widget, WorldView } from './types'
 import { viewUpdateChoices, viewUpdatesFromModel, type ViewUpdates } from './viewUpdates'
-import { settleWidgetYAML, widgetChoiceLabel, widgetsApplyEnabled, widgetsLockedMessage } from './widgetsTab'
+import { settleWidgetYAML, widgetsApplyEnabled, widgetsLockedMessage } from './widgetsTab'
 import {
   dynamicsApplyEnabled,
   dynamicsDefinitionReadOnly,
@@ -137,7 +137,6 @@ export function App() {
   const [procedures, setProcedures] = useState<string[]>([])
   const [code, setCode] = useState('')
   const [widgetText, setWidgetText] = useState('')
-  const [widgetIndex, setWidgetIndex] = useState(0)
   const [widgetDraft, setWidgetDraft] = useState('')
   const [widgetError, setWidgetError] = useState<string | null>(null)
   const [dynamics, setDynamics] = useState<SystemDynamics | null>(null)
@@ -483,7 +482,7 @@ export function App() {
   useEffect(() => {
     if (!sessionId) return
     let cancel = false
-    void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId, index: widgetIndex }).toPromise().then((res) => {
+    void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }).toPromise().then((res) => {
       if (cancel) return
       if (res.error) {
         setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
@@ -495,11 +494,11 @@ export function App() {
     return () => {
       cancel = true
     }
-  }, [sessionId, widgetIndex, widgetText])
+  }, [sessionId, widgetText])
 
   async function applyWidgets() {
     if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
-    const res = await setWidgetYamlMut({ id: sessionId, index: widgetIndex, yaml: widgetDraft })
+    const res = await setWidgetYamlMut({ id: sessionId, yaml: widgetDraft })
     if (res.error) {
       setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
       return
@@ -1103,18 +1102,6 @@ export function App() {
         ) : shownTab === 'widgets' ? (
           <section className="code-panel" aria-label="Widget YAML">
             <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
-            <select
-              className="widget-pick"
-              aria-label="Widget"
-              value={widgets.some((w) => w.index === widgetIndex) ? widgetIndex : ''}
-              onChange={(e) => setWidgetIndex(Number(e.target.value))}
-              disabled={widgets.length === 0}
-            >
-              {widgets.length === 0 && <option value="">No widgets</option>}
-              {widgets.map((w) => (
-                <option key={w.index} value={w.index}>{widgetChoiceLabel(w.kind, w.display)}</option>
-              ))}
-            </select>
             <textarea
               aria-label="Widget YAML"
               spellCheck={false}
@@ -1123,7 +1110,6 @@ export function App() {
                 setWidgetDraft(e.target.value)
                 setWidgetError(null)
               }}
-              disabled={widgets.length === 0}
             />
             <div className="code-actions">
               <button
