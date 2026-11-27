@@ -16,6 +16,8 @@ type Query {
   and the client should fall back to choosing a file on this computer.
   """
   library(path: String): LibraryListing!
+  """YAML document of one widget's editable properties, for the Widgets tab."""
+  widgetYaml(sessionId: ID!, index: Int!): String!
 }
 
 type LibraryEntry {
@@ -67,6 +69,12 @@ type Mutation {
   change. Rejected while go is running.
   """
   setWidgets(sessionId: ID!, text: String!): CompileResult!
+  """
+  Replace one widget from a YAML document of its editable properties.
+  A syntax error, an unknown key, or a value of the wrong type leaves the
+  widget unchanged. kind cannot be changed. Rejected while go is running.
+  """
+  setWidgetYaml(sessionId: ID!, index: Int!, yaml: String!): WidgetEditResult!
   """
   Replace the system dynamics diagram from the Dynamics tab text and recompile.
   A definition the parser rejects leaves the diagram unchanged. A diagram that
@@ -266,6 +274,14 @@ type DynamicsConverter {
   constant: Boolean!
 }
 
+type WidgetEditResult {
+  ok: Boolean!
+  error: String
+  """Canonical YAML after a successful edit. Null when ok is false."""
+  spec: String
+  session: Session!
+}
+
 type CompileResult {
   ok: Boolean!
   error: String
@@ -398,6 +414,8 @@ type Widget {
   height: Int!
   """Point size for an output widget. Zero for widgets that do not use it."""
   fontSize: Int!
+  """Short optional note. Empty when the model did not set one."""
+  description: String!
 }
 
 type WorldSettings {

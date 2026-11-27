@@ -180,6 +180,22 @@ export const CreateSession = `
   }
 `
 
+export const WidgetYAML = `
+  query WidgetYAML($id: ID!, $index: Int!) {
+    widgetYaml(sessionId: $id, index: $index)
+  }
+`
+
+export const SetWidgetYAML = `
+  mutation SetWidgetYAML($id: ID!, $index: Int!, $yaml: String!) {
+    setWidgetYaml(sessionId: $id, index: $index, yaml: $yaml) {
+      ok
+      error
+      spec
+    }
+  }
+`
+
 export const SessionQuery = `
   query Session($id: ID!) {
     session(id: $id) {${openedModelFields}}
@@ -430,6 +446,7 @@ export const Frames = `
         width
         height
         fontSize
+        description
       }
       world {
         minPxcor

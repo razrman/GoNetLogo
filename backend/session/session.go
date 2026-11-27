@@ -2241,15 +2241,16 @@ func (s *Session) widgetsLocked() []model.Widget {
 	out := make([]model.Widget, 0, len(s.model.Widgets))
 	for i, w := range s.model.Widgets {
 		item := model.Widget{
-			Index:    i,
-			Kind:     w.Kind,
-			Display:  w.Display,
-			Forever:  w.Forever,
-			X:        w.X,
-			Y:        w.Y,
-			Width:    w.W,
-			Height:   w.H,
-			FontSize: w.FontSize,
+			Index:       i,
+			Kind:        w.Kind,
+			Display:     w.Display,
+			Forever:     w.Forever,
+			X:           w.X,
+			Y:           w.Y,
+			Width:       w.W,
+			Height:      w.H,
+			FontSize:    w.FontSize,
+			Description: w.Description,
 		}
 		if w.Variable != "" {
 			v := w.Variable

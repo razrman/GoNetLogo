@@ -1053,6 +1053,17 @@ body.library-resizing, body.library-resizing * { cursor: nwse-resize !important;
   color: var(--muted);
 }
 
+.widget-pick {
+  flex: 0 0 auto;
+  max-width: 100%;
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 6px 8px;
+}
+
 .code-panel textarea {
   flex: 1 1 auto;
   min-height: 0;

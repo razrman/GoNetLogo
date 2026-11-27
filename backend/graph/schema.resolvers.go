@@ -99,6 +99,23 @@ func (r *mutationResolver) SetWidgets(ctx context.Context, sessionID string, tex
 	return out, nil
 }
 
+// SetWidgetYaml is the resolver for the setWidgetYaml field.
+func (r *mutationResolver) SetWidgetYaml(ctx context.Context, sessionID string, index int, yaml string) (*model.WidgetEditResult, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	spec, err := s.SetWidgetYAML(index, yaml)
+	out := &model.WidgetEditResult{Ok: err == nil, Session: *s.Session()}
+	if err != nil {
+		msg := err.Error()
+		out.Error = &msg
+		return out, nil
+	}
+	out.Spec = &spec
+	return out, nil
+}
+
 // SetDynamics is the resolver for the setDynamics field.
 func (r *mutationResolver) SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error) {
 	s, err := r.session(sessionID)
@@ -316,6 +333,15 @@ func (r *queryResolver) Library(ctx context.Context, path *string) (*model.Libra
 		Entries:   entries,
 		Available: true,
 	}, nil
+}
+
+// WidgetYaml is the resolver for the widgetYaml field.
+func (r *queryResolver) WidgetYaml(ctx context.Context, sessionID string, index int) (string, error) {
+	s, err := r.session(sessionID)
+	if err != nil {
+		return "", err
+	}
+	return s.WidgetYAML(index)
 }
 
 // Frames is the resolver for the frames field.

@@ -184,6 +184,7 @@ type ComplexityRoot struct {
 		SetSpeed        func(childComplexity int, sessionID string, speed float64) int
 		SetSwitch       func(childComplexity int, sessionID string, index int, on bool) int
 		SetViewUpdates  func(childComplexity int, sessionID string, mode string) int
+		SetWidgetYaml   func(childComplexity int, sessionID string, index int, yaml string) int
 		SetWidgets      func(childComplexity int, sessionID string, text string) int
 		SetWorld        func(childComplexity int, sessionID string, minPxcor int, maxPxcor int, minPycor int, maxPycor int, patchSize float64, wrapX bool, wrapY bool, minPzcor *int, maxPzcor *int, wrapZ *bool, rngSeed *string, seedOverride *bool) int
 		Setup           func(childComplexity int, sessionID string) int
@@ -244,6 +245,7 @@ type ComplexityRoot struct {
 		Library       func(childComplexity int, path *string) int
 		Models        func(childComplexity int) int
 		Session       func(childComplexity int, id string) int
+		WidgetYaml    func(childComplexity int, sessionID string, index int) int
 		WorldSettings func(childComplexity int, sessionID string) int
 	}
 
@@ -325,27 +327,35 @@ type ComplexityRoot struct {
 	}
 
 	Widget struct {
-		Choices  func(childComplexity int) int
-		Current  func(childComplexity int) int
-		Disabled func(childComplexity int) int
-		Display  func(childComplexity int) int
-		FontSize func(childComplexity int) int
-		Forever  func(childComplexity int) int
-		Height   func(childComplexity int) int
-		Index    func(childComplexity int) int
-		Kind     func(childComplexity int) int
-		Max      func(childComplexity int) int
-		Min      func(childComplexity int) int
-		On       func(childComplexity int) int
-		Reading  func(childComplexity int) int
-		Step     func(childComplexity int) int
-		Text     func(childComplexity int) int
-		Units    func(childComplexity int) int
-		Value    func(childComplexity int) int
-		Variable func(childComplexity int) int
-		Width    func(childComplexity int) int
-		X        func(childComplexity int) int
-		Y        func(childComplexity int) int
+		Choices     func(childComplexity int) int
+		Current     func(childComplexity int) int
+		Description func(childComplexity int) int
+		Disabled    func(childComplexity int) int
+		Display     func(childComplexity int) int
+		FontSize    func(childComplexity int) int
+		Forever     func(childComplexity int) int
+		Height      func(childComplexity int) int
+		Index       func(childComplexity int) int
+		Kind        func(childComplexity int) int
+		Max         func(childComplexity int) int
+		Min         func(childComplexity int) int
+		On          func(childComplexity int) int
+		Reading     func(childComplexity int) int
+		Step        func(childComplexity int) int
+		Text        func(childComplexity int) int
+		Units       func(childComplexity int) int
+		Value       func(childComplexity int) int
+		Variable    func(childComplexity int) int
+		Width       func(childComplexity int) int
+		X           func(childComplexity int) int
+		Y           func(childComplexity int) int
+	}
+
+	WidgetEditResult struct {
+		Error   func(childComplexity int) int
+		Ok      func(childComplexity int) int
+		Session func(childComplexity int) int
+		Spec    func(childComplexity int) int
 	}
 
 	World struct {
@@ -408,6 +418,7 @@ type MutationResolver interface {
 	LoadModelFile(ctx context.Context, sessionID string, path string) (*model.Session, error)
 	SetCode(ctx context.Context, sessionID string, code string) (*model.CompileResult, error)
 	SetWidgets(ctx context.Context, sessionID string, text string) (*model.CompileResult, error)
+	SetWidgetYaml(ctx context.Context, sessionID string, index int, yaml string) (*model.WidgetEditResult, error)
 	SetDynamics(ctx context.Context, sessionID string, definition string) (*model.CompileResult, error)
 	SetDynamicsDt(ctx context.Context, sessionID string, dt string) (*model.CompileResult, error)
 	RunCommand(ctx context.Context, sessionID string, text string) (*model.CommandResult, error)
@@ -432,6 +443,7 @@ type QueryResolver interface {
 	Session(ctx context.Context, id string) (*model.Session, error)
 	WorldSettings(ctx context.Context, sessionID string) (*model.WorldSettings, error)
 	Library(ctx context.Context, path *string) (*model.LibraryListing, error)
+	WidgetYaml(ctx context.Context, sessionID string, index int) (string, error)
 }
 type SubscriptionResolver interface {
 	Frames(ctx context.Context, sessionID string) (<-chan *model.Frame, error)
@@ -1258,6 +1270,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.SetViewUpdates(childComplexity, args["sessionId"].(string), args["mode"].(string)), true
 
+	case "Mutation.setWidgetYaml":
+		if e.complexity.Mutation.SetWidgetYaml == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setWidgetYaml_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.SetWidgetYaml(childComplexity, args["sessionId"].(string), args["index"].(int), args["yaml"].(string)), true
+
 	case "Mutation.setWidgets":
 		if e.complexity.Mutation.SetWidgets == nil {
 			break
@@ -1586,6 +1610,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Query.Session(childComplexity, args["id"].(string)), true
+
+	case "Query.widgetYaml":
+		if e.complexity.Query.WidgetYaml == nil {
+			break
+		}
+
+		args, err := ec.field_Query_widgetYaml_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.WidgetYaml(childComplexity, args["sessionId"].(string), args["index"].(int)), true
 
 	case "Query.worldSettings":
 		if e.complexity.Query.WorldSettings == nil {
@@ -2031,6 +2067,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Widget.Current(childComplexity), true
 
+	case "Widget.description":
+		if e.complexity.Widget.Description == nil {
+			break
+		}
+
+		return e.complexity.Widget.Description(childComplexity), true
+
 	case "Widget.disabled":
 		if e.complexity.Widget.Disabled == nil {
 			break
@@ -2163,6 +2206,34 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Widget.Y(childComplexity), true
+
+	case "WidgetEditResult.error":
+		if e.complexity.WidgetEditResult.Error == nil {
+			break
+		}
+
+		return e.complexity.WidgetEditResult.Error(childComplexity), true
+
+	case "WidgetEditResult.ok":
+		if e.complexity.WidgetEditResult.Ok == nil {
+			break
+		}
+
+		return e.complexity.WidgetEditResult.Ok(childComplexity), true
+
+	case "WidgetEditResult.session":
+		if e.complexity.WidgetEditResult.Session == nil {
+			break
+		}
+
+		return e.complexity.WidgetEditResult.Session(childComplexity), true
+
+	case "WidgetEditResult.spec":
+		if e.complexity.WidgetEditResult.Spec == nil {
+			break
+		}
+
+		return e.complexity.WidgetEditResult.Spec(childComplexity), true
 
 	case "World.depth":
 		if e.complexity.World.Depth == nil {
@@ -2625,6 +2696,8 @@ type Query {
   and the client should fall back to choosing a file on this computer.
   """
   library(path: String): LibraryListing!
+  """YAML document of one widget's editable properties, for the Widgets tab."""
+  widgetYaml(sessionId: ID!, index: Int!): String!
 }
 
 type LibraryEntry {
@@ -2676,6 +2749,12 @@ type Mutation {
   change. Rejected while go is running.
   """
   setWidgets(sessionId: ID!, text: String!): CompileResult!
+  """
+  Replace one widget from a YAML document of its editable properties.
+  A syntax error, an unknown key, or a value of the wrong type leaves the
+  widget unchanged. kind cannot be changed. Rejected while go is running.
+  """
+  setWidgetYaml(sessionId: ID!, index: Int!, yaml: String!): WidgetEditResult!
   """
   Replace the system dynamics diagram from the Dynamics tab text and recompile.
   A definition the parser rejects leaves the diagram unchanged. A diagram that
@@ -2875,6 +2954,14 @@ type DynamicsConverter {
   constant: Boolean!
 }
 
+type WidgetEditResult {
+  ok: Boolean!
+  error: String
+  """Canonical YAML after a successful edit. Null when ok is false."""
+  spec: String
+  session: Session!
+}
+
 type CompileResult {
   ok: Boolean!
   error: String
@@ -3007,6 +3094,8 @@ type Widget {
   height: Int!
   """Point size for an output widget. Zero for widgets that do not use it."""
   fontSize: Int!
+  """Short optional note. Empty when the model did not set one."""
+  description: String!
 }
 
 type WorldSettings {
@@ -3764,6 +3853,39 @@ func (ec *executionContext) field_Mutation_setViewUpdates_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setWidgetYaml_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 int
+	if tmp, ok := rawArgs["index"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("index"))
+		arg1, err = ec.unmarshalNInt2int(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["index"] = arg1
+	var arg2 string
+	if tmp, ok := rawArgs["yaml"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("yaml"))
+		arg2, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["yaml"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_setWidgets_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
 	var err error
 	args := map[string]interface{}{}
@@ -3998,6 +4120,30 @@ func (ec *executionContext) field_Query_session_args(ctx context.Context, rawArg
 		}
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_widgetYaml_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["sessionId"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sessionId"))
+		arg0, err = ec.unmarshalNID2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["sessionId"] = arg0
+	var arg1 int
+	if tmp, ok := rawArgs["index"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("index"))
+		arg1, err = ec.unmarshalNInt2int(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["index"] = arg1
 	return args, nil
 }
 
@@ -6911,6 +7057,8 @@ func (ec *executionContext) fieldContext_Frame_widgets(_ context.Context, field 
 				return ec.fieldContext_Widget_height(ctx, field)
 			case "fontSize":
 				return ec.fieldContext_Widget_fontSize(ctx, field)
+			case "description":
+				return ec.fieldContext_Widget_description(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Widget", field.Name)
 		},
@@ -8455,6 +8603,71 @@ func (ec *executionContext) fieldContext_Mutation_setWidgets(ctx context.Context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_setWidgets_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setWidgetYaml(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_setWidgetYaml(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().SetWidgetYaml(rctx, fc.Args["sessionId"].(string), fc.Args["index"].(int), fc.Args["yaml"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.WidgetEditResult)
+	fc.Result = res
+	return ec.marshalNWidgetEditResult2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐWidgetEditResult(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_setWidgetYaml(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "ok":
+				return ec.fieldContext_WidgetEditResult_ok(ctx, field)
+			case "error":
+				return ec.fieldContext_WidgetEditResult_error(ctx, field)
+			case "spec":
+				return ec.fieldContext_WidgetEditResult_spec(ctx, field)
+			case "session":
+				return ec.fieldContext_WidgetEditResult_session(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type WidgetEditResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setWidgetYaml_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -12023,6 +12236,61 @@ func (ec *executionContext) fieldContext_Query_library(ctx context.Context, fiel
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_widgetYaml(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_widgetYaml(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().WidgetYaml(rctx, fc.Args["sessionId"].(string), fc.Args["index"].(int))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_widgetYaml(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_widgetYaml_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Query___type(ctx, field)
 	if err != nil {
@@ -13195,6 +13463,8 @@ func (ec *executionContext) fieldContext_Session_widgets(_ context.Context, fiel
 				return ec.fieldContext_Widget_height(ctx, field)
 			case "fontSize":
 				return ec.fieldContext_Widget_fontSize(ctx, field)
+			case "description":
+				return ec.fieldContext_Widget_description(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Widget", field.Name)
 		},
@@ -15868,6 +16138,272 @@ func (ec *executionContext) fieldContext_Widget_fontSize(_ context.Context, fiel
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Widget_description(ctx context.Context, field graphql.CollectedField, obj *model.Widget) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Widget_description(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Description, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Widget_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Widget",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WidgetEditResult_ok(ctx context.Context, field graphql.CollectedField, obj *model.WidgetEditResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WidgetEditResult_ok(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Ok, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WidgetEditResult_ok(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WidgetEditResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WidgetEditResult_error(ctx context.Context, field graphql.CollectedField, obj *model.WidgetEditResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WidgetEditResult_error(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Error, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WidgetEditResult_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WidgetEditResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WidgetEditResult_spec(ctx context.Context, field graphql.CollectedField, obj *model.WidgetEditResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WidgetEditResult_spec(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Spec, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WidgetEditResult_spec(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WidgetEditResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _WidgetEditResult_session(ctx context.Context, field graphql.CollectedField, obj *model.WidgetEditResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_WidgetEditResult_session(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Session, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(model.Session)
+	fc.Result = res
+	return ec.marshalNSession2gonetlogoᚋbackendᚋgraphᚋmodelᚐSession(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_WidgetEditResult_session(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "WidgetEditResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Session_id(ctx, field)
+			case "modelName":
+				return ec.fieldContext_Session_modelName(ctx, field)
+			case "code":
+				return ec.fieldContext_Session_code(ctx, field)
+			case "widgetText":
+				return ec.fieldContext_Session_widgetText(ctx, field)
+			case "procedures":
+				return ec.fieldContext_Session_procedures(ctx, field)
+			case "info":
+				return ec.fieldContext_Session_info(ctx, field)
+			case "modelDir":
+				return ec.fieldContext_Session_modelDir(ctx, field)
+			case "ticks":
+				return ec.fieldContext_Session_ticks(ctx, field)
+			case "ticksStarted":
+				return ec.fieldContext_Session_ticksStarted(ctx, field)
+			case "tps":
+				return ec.fieldContext_Session_tps(ctx, field)
+			case "timer":
+				return ec.fieldContext_Session_timer(ctx, field)
+			case "frameRateCap":
+				return ec.fieldContext_Session_frameRateCap(ctx, field)
+			case "droppedFrames":
+				return ec.fieldContext_Session_droppedFrames(ctx, field)
+			case "droppedSlow":
+				return ec.fieldContext_Session_droppedSlow(ctx, field)
+			case "publishedFps":
+				return ec.fieldContext_Session_publishedFps(ctx, field)
+			case "running":
+				return ec.fieldContext_Session_running(ctx, field)
+			case "speed":
+				return ec.fieldContext_Session_speed(ctx, field)
+			case "notes":
+				return ec.fieldContext_Session_notes(ctx, field)
+			case "log":
+				return ec.fieldContext_Session_log(ctx, field)
+			case "hasOutput":
+				return ec.fieldContext_Session_hasOutput(ctx, field)
+			case "output":
+				return ec.fieldContext_Session_output(ctx, field)
+			case "outputPartial":
+				return ec.fieldContext_Session_outputPartial(ctx, field)
+			case "widgets":
+				return ec.fieldContext_Session_widgets(ctx, field)
+			case "world":
+				return ec.fieldContext_Session_world(ctx, field)
+			case "dynamics":
+				return ec.fieldContext_Session_dynamics(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Session", field.Name)
 		},
 	}
 	return fc, nil
@@ -20608,6 +21144,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "setWidgetYaml":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setWidgetYaml(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "setDynamics":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setDynamics(ctx, field)
@@ -21189,6 +21732,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_library(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "widgetYaml":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_widgetYaml(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -21783,6 +22348,59 @@ func (ec *executionContext) _Widget(ctx context.Context, sel ast.SelectionSet, o
 			}
 		case "fontSize":
 			out.Values[i] = ec._Widget_fontSize(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._Widget_description(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var widgetEditResultImplementors = []string{"WidgetEditResult"}
+
+func (ec *executionContext) _WidgetEditResult(ctx context.Context, sel ast.SelectionSet, obj *model.WidgetEditResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, widgetEditResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("WidgetEditResult")
+		case "ok":
+			out.Values[i] = ec._WidgetEditResult_ok(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._WidgetEditResult_error(ctx, field, obj)
+		case "spec":
+			out.Values[i] = ec._WidgetEditResult_spec(ctx, field, obj)
+		case "session":
+			out.Values[i] = ec._WidgetEditResult_session(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -23345,6 +23963,20 @@ func (ec *executionContext) marshalNWidget2ᚕgonetlogoᚋbackendᚋgraphᚋmode
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNWidgetEditResult2gonetlogoᚋbackendᚋgraphᚋmodelᚐWidgetEditResult(ctx context.Context, sel ast.SelectionSet, v model.WidgetEditResult) graphql.Marshaler {
+	return ec._WidgetEditResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNWidgetEditResult2ᚖgonetlogoᚋbackendᚋgraphᚋmodelᚐWidgetEditResult(ctx context.Context, sel ast.SelectionSet, v *model.WidgetEditResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._WidgetEditResult(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNWorld2gonetlogoᚋbackendᚋgraphᚋmodelᚐWorld(ctx context.Context, sel ast.SelectionSet, v model.World) graphql.Marshaler {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { mainTabLabel, visibleMainTabs } from './dynamics.ts'
-import { presentWidgetError, settleWidgetApply, widgetsApplyEnabled, widgetsLockedMessage } from './widgetsTab.ts'
+import { presentWidgetError, settleWidgetApply, settleWidgetYAML, widgetChoiceLabel, widgetsApplyEnabled, widgetsLockedMessage } from './widgetsTab.ts'
 
 test('Widgets sits next to Code', () => {
   assert.deepEqual(visibleMainTabs(false).map(mainTabLabel), ['Interface', 'World', 'Info', 'Code', 'Widgets'])
@@ -13,6 +13,18 @@ test('Widgets sits next to Code', () => {
     'Widgets',
     'Dynamics',
   ])
+})
+
+test('a rejected YAML edit keeps the draft and names the problem', () => {
+  const draft = 'kind: slider\nmax: wide\n'
+  const bad = settleWidgetYAML(draft, { ok: false, error: 'a value has the wrong type' })
+  assert.equal(bad.draft, draft)
+  assert.match(bad.error ?? '', /wrong type/)
+  const good = settleWidgetYAML(draft, { ok: true, spec: 'kind: slider\nmax: 80\n' })
+  assert.equal(good.draft, 'kind: slider\nmax: 80\n')
+  assert.equal(good.error, null)
+  assert.equal(widgetChoiceLabel('slider', ' density '), 'slider · density')
+  assert.equal(widgetChoiceLabel('button', '  '), 'button · untitled')
 })
 
 test('Apply is locked while go is running', () => {

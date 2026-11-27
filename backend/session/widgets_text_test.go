@@ -108,6 +108,48 @@ func TestSetWidgetsNLogoX(t *testing.T) {
 	}
 }
 
+func TestSetWidgetYAMLKeepsTheDraftOnABadDocument(t *testing.T) {
+	s := newSession()
+	defer s.Close()
+	if err := s.LoadModelSource("view.nlogo", classicWidgetModel("go", "100")); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := s.WidgetYAML(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(spec, "kind: slider") || !strings.Contains(spec, "description:") {
+		t.Fatalf("spec:\n%s", spec)
+	}
+	bad := spec + "color: red\n"
+	if _, err := s.SetWidgetYAML(1, bad); err == nil || !strings.Contains(err.Error(), "unknown key") {
+		t.Fatalf("bad yaml %v", err)
+	}
+	if sliderMaxOf(s, "density") != 100 {
+		t.Fatal("bad yaml changed the slider")
+	}
+	edited := strings.Replace(spec, "max: 100", "max: 80", 1)
+	edited = strings.Replace(edited, `description: ""`, `description: Forest density`, 1)
+	got, err := s.SetWidgetYAML(1, edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "description: Forest density") || !strings.Contains(got, "max: 80") {
+		t.Fatalf("canonical:\n%s", got)
+	}
+	if sliderMaxOf(s, "density") != 80 {
+		t.Fatal("max was not saved")
+	}
+	again, err := s.WidgetYAML(1)
+	if err != nil || !strings.Contains(again, "Forest density") {
+		t.Fatalf("stored %q %v", again, err)
+	}
+	button, err := s.WidgetYAML(0)
+	if err != nil || !strings.Contains(button, "kind: button") {
+		t.Fatalf("button spec:\n%s %v", button, err)
+	}
+}
+
 func widgetShown(s *Session, kind, display string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

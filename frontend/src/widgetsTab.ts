@@ -20,6 +20,23 @@ export function presentWidgetError(message: string, source: string): string {
   return `${cleaned}\n${String(n).padStart(4, ' ')} | ${text}`
 }
 
+export function widgetChoiceLabel(kind: string, display: string): string {
+  const name = display.trim() || 'untitled'
+  return `${kind} · ${name}`
+}
+
+// settleWidgetYAML keeps the user's text when the server rejects it.
+export function settleWidgetYAML(
+  draft: string,
+  result: { ok: boolean; error?: string | null; spec?: string | null },
+): { draft: string; error: string | null } {
+  if (!result.ok) {
+    const message = (result.error ?? '').replace(/^\[GraphQL\]\s*/i, '').trim()
+    return { draft, error: message || 'Could not apply the widget' }
+  }
+  return { draft: result.spec ?? draft, error: null }
+}
+
 export function settleWidgetApply(
   draft: string,
   result: { ok: boolean; error?: string | null; widgetText?: string | null },

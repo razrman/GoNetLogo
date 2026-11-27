@@ -41,7 +41,63 @@ func (s *Session) SetWidgets(text string) error {
 	if err != nil {
 		return err
 	}
+	return s.installWidgetsLocked(view, widgets, notes, next)
+}
 
+// SetWidgetYAML replaces one widget from the Widgets tab YAML. A bad
+// document leaves the model unchanged. The returned text is the canonical
+// document after a successful edit.
+func (s *Session) SetWidgetYAML(index int, text string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.rejectIfActiveLocked("set widgets"); err != nil {
+		return "", err
+	}
+	if s.model == nil || s.vm == nil || s.vm.World == nil {
+		return "", fmt.Errorf("no model is loaded")
+	}
+	if index < 0 || index >= len(s.model.Widgets) {
+		return "", fmt.Errorf("widget %d is not in the interface", index)
+	}
+	updated, err := nl.ApplyWidgetYAML(s.model.Widgets[index], text)
+	if err != nil {
+		return "", err
+	}
+	next, err := nl.WriteWidget(s.modelSource, index, updated)
+	if err != nil {
+		return "", err
+	}
+	section := nl.ExtractWidgetSection(next)
+	view, widgets, notes, err := nl.ParseWidgetSection(section.Text, section.XML, s.model.Is3D)
+	if err != nil {
+		return "", err
+	}
+	if err := validateWidgetView(s.vm.World, view); err != nil {
+		return "", err
+	}
+	if err := s.installWidgetsLocked(view, widgets, notes, next); err != nil {
+		return "", err
+	}
+	if index >= len(s.model.Widgets) {
+		return "", fmt.Errorf("widget %d is not in the interface", index)
+	}
+	return nl.FormatWidgetYAML(s.model.Widgets[index])
+}
+
+// WidgetYAML is the Widgets tab document for one widget.
+func (s *Session) WidgetYAML(index int) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.model == nil {
+		return "", fmt.Errorf("no model is loaded")
+	}
+	if index < 0 || index >= len(s.model.Widgets) {
+		return "", fmt.Errorf("widget %d is not in the interface", index)
+	}
+	return nl.FormatWidgetYAML(s.model.Widgets[index])
+}
+
+func (s *Session) installWidgetsLocked(view nl.ViewSpec, widgets []nl.Widget, notes []string, next string) error {
 	oldKind := map[string]string{}
 	for _, w := range s.model.Widgets {
 		if w.Variable != "" {
