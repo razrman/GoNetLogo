@@ -6,7 +6,7 @@ Ideas parked for later. Not scheduled for work yet.
 
 In order:
 
-1. **Widget text edit tab.** A tab next to Code that shows the model's interface section (buttons, sliders, switches, choosers, monitors, plots) as editable text. Applying an edit rebuilds the side panel, and the change is saved with the model.
+1. ~~**Widget text edit tab.** A tab next to Code that shows the model's interface section (buttons, sliders, switches, choosers, monitors, plots) as editable text. Applying an edit rebuilds the side panel, and the change is saved with the model.~~ Done in #65 and #66: the Widgets tab edits every widget as one YAML list, with an optional `description` per widget. Plot pens are kept in the model file and are not editable there.
 2. **Import/export.** NetLogo's import and export items (scope to be decided), and possibly the file primitives (`file-open`, `file-read`, and the rest) working for real.
 3. **User signup, authorization, and admin page.** Real accounts with signup, replacing the "simple login" idea below. Covers the User & Session Management section: user types, session caps, session picker, ask on close, and the `/admin` page. Pass 1 (web UI, local ephemeral user file, `provider: none` or `local`) is complete; pass 2 (Cognito and GitHub providers, plus the infra to host them) is still pending. This item is not done.
 4. **A subset of impactful extensions.** Honor the `extensions` declaration with a small Go extension API. Candidates: `sound` (plays in the browser), `table`, `array`, then `nw`, `gis`, `matrix`, `bitmap`.
