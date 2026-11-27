@@ -1,9 +1,11 @@
 # Build the web image and roll the ECS service.
 #
-# Push a tag YYYYMMDD-XX (for example 20261111-03), or re-run a tag from
-# the Actions tab. The job uses the production environment, so the OIDC
-# subject matches the deploy role. It refuses to build when the app stack
-# is down.
+# Push a tag YYYYMMDD-XX (for example 20261111-03) to deploy a release, or
+# use Actions -> Deploy -> Run workflow to deploy any branch or tag for
+# testing. A release tag is deployed under its own name; any other ref is
+# deployed as <ref>-<short sha>. The job uses the production environment, so
+# the OIDC subject matches the deploy role. It refuses to build when the app
+# stack is down.
 
 name: Deploy
 
@@ -13,9 +15,9 @@ on:
       - "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]"
   workflow_dispatch:
     inputs:
-      image_tag:
-        description: "Tag to build and deploy (YYYYMMDD-XX). The workflow checks out that tag."
-        required: true
+      ref:
+        description: "Branch or tag to deploy. Leave blank to deploy the branch or tag picked in 'Use workflow from'."
+        required: false
         type: string
 
 permissions:
@@ -47,38 +49,55 @@ jobs:
       SSM_PARAMETER: /gonetlogo/image_tag
       TF_IN_AUTOMATION: "true"
     steps:
-      - name: Resolve image tag
-        id: tag
+      - name: Pick the ref
+        id: ref
         env:
           EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG: ${{ inputs.image_tag }}
-          SHA: ${{ github.sha }}
+          GH_REF: ${{ github.ref }}
+          INPUT_REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            tag="$INPUT_TAG"
-          else
-            tag="$REF_NAME"
+          ref="$GH_REF"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_REF" ]; then
+            ref="$INPUT_REF"
           fi
-          case "$tag" in
-            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]) ;;
-            *)
-              echo "image tag must match YYYYMMDD-XX, got: $tag" >&2
-              exit 1
-              ;;
-          esac
-          if ! printf '%s\n' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "refusing to tag an image with unexpected sha: $SHA" >&2
+          if ! printf '%s\n' "$ref" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+            echo "refusing an unexpected ref: $ref" >&2
             exit 1
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Resolve image tag
+        id: tag
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          if ! printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "refusing to tag an image with unexpected sha: $sha" >&2
+            exit 1
+          fi
+          name="${REF#refs/heads/}"
+          name="${name#refs/tags/}"
+          case "$name" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9])
+              tag="$name"
+              ;;
+            *)
+              # ECR tags allow [A-Za-z0-9_.-], up to 128 characters.
+              safe=$(printf '%s' "$name" | tr -c 'A-Za-z0-9_.-' '-' | cut -c1-100)
+              tag="${safe}-${sha:0:7}"
+              ;;
+          esac
+          echo "Deploying $name at $sha as image tag $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Check deploy role variable
         env:
