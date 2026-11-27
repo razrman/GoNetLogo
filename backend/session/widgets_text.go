@@ -56,11 +56,11 @@ func (s *Session) SetWidgetYAML(text string) (string, error) {
 	if s.model == nil || s.vm == nil || s.vm.World == nil {
 		return "", fmt.Errorf("no model is loaded")
 	}
-	updated, from, err := nl.ApplyWidgetsYAML(s.model.Widgets, text)
+	updatedView, updated, from, err := nl.ApplyWidgetsYAML(s.model.View, s.model.Widgets, text)
 	if err != nil {
 		return "", err
 	}
-	next, err := nl.WriteWidgets(s.modelSource, updated, from)
+	next, err := nl.WriteWidgets(s.modelSource, updatedView, updated, from)
 	if err != nil {
 		return "", err
 	}
@@ -75,17 +75,17 @@ func (s *Session) SetWidgetYAML(text string) (string, error) {
 	if err := s.installWidgetsLocked(view, widgets, notes, next); err != nil {
 		return "", err
 	}
-	return nl.FormatWidgetsYAML(s.model.Widgets)
+	return nl.FormatWidgetsYAML(s.model.View, s.model.Widgets)
 }
 
-// WidgetYAML is the Widgets tab document for every widget, in model order.
+// WidgetYAML is the Widgets tab document: the view, then every widget.
 func (s *Session) WidgetYAML() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.model == nil {
 		return "", fmt.Errorf("no model is loaded")
 	}
-	return nl.FormatWidgetsYAML(s.model.Widgets)
+	return nl.FormatWidgetsYAML(s.model.View, s.model.Widgets)
 }
 
 func (s *Session) installWidgetsLocked(view nl.ViewSpec, widgets []nl.Widget, notes []string, next string) error {
@@ -150,6 +150,9 @@ func (s *Session) installWidgetsLocked(view nl.ViewSpec, widgets []nl.Widget, no
 		}
 		if resizeErr != nil {
 			return resizeErr
+		}
+		if view.FontSize > 0 {
+			s.vm.DoLocked(func() { world.LabelFont = view.FontSize })
 		}
 		s.frozenWorld.Store(nil)
 	}

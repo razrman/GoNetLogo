@@ -466,6 +466,10 @@ export const Frames = `
         rngSeed
         seedOverride
         viewUpdates
+        viewX
+        viewY
+        viewWidth
+        viewHeight
         voxels
         observer { x y z targetX targetY targetZ revision }
         perspective

@@ -143,6 +143,12 @@ export type Observer3D = {
 export type World = WorldView & {
   width: number
   height: number
+  // Interface position of the view, in the same pixels as a widget.
+  // Zero when the file did not specify a box.
+  viewX?: number
+  viewY?: number
+  viewWidth?: number
+  viewHeight?: number
   // Patch layers: 1 for a 2D world. A 3D world (depth > 1) is drawn by
   // WorldView3D from voxels, turtle z/pitch/roll, and link z.
   depth?: number

@@ -416,6 +416,7 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
 
 .view-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -518,6 +519,160 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.interface-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.interface-slot > .view,
+.interface-slot > .h-split {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.layout-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.layout-toggle span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-right: 2px;
+}
+
+.layout-toggle button {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.layout-toggle button.on {
+  background: var(--ink);
+  color: var(--ivory);
+}
+
+.iface-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #e7e1d4;
+  border-radius: 10px;
+}
+
+.iface-sheet {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.iface-view,
+.iface-item {
+  position: absolute;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.iface-view .canvas-wrap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.iface-item {
+  overflow: hidden;
+}
+
+.iface-item .widget,
+.iface-item .switch,
+.iface-item .note,
+.iface-item .output-panel,
+.iface-item .plot-card {
+  height: 100%;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.iface-item .widget .label,
+.iface-item .plot-card .label,
+.iface-item .plot-card .plot-axes,
+.iface-item .output-panel .label,
+.iface-item .note,
+.iface-item .switch,
+.iface-item .widget button.iface,
+.iface-item .widget .slider-val,
+.iface-item .widget select,
+.iface-item .widget input[type="text"] {
+  font-size: 1em;
+}
+
+.iface-item .widget .readout { font-size: 1.15em; }
+
+.iface-item .widget button.iface {
+  height: 100%;
+  width: 100%;
+  padding: 0 0.5em;
+}
+
+.iface-item .widget.slider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0 0.4em;
+}
+
+.iface-item .widget.slider .label { grid-column: 1; line-height: 1.1; }
+.iface-item .widget.slider .slider-val { grid-column: 2; line-height: 1.1; }
+.iface-item .widget.slider input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 1.1em;
+  margin: 0;
+}
+
+.iface-item .widget.monitor .readout,
+.iface-item .widget.chooser .label,
+.iface-item .widget.input .label {
+  line-height: 1.1;
+}
+
+.iface-item .widget select,
+.iface-item .widget input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  padding: 0 0.4em;
+}
+
+.iface-item .plot-card canvas {
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+}
+
+.iface-item .output-panel pre {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 
 .world-settings {

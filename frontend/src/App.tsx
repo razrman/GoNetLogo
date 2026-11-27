@@ -78,6 +78,8 @@ import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 const WorldView3D = lazy(() => import('./WorldView3D'))
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
+import { InterfaceCanvas, LayoutToggle } from './InterfaceCanvas'
+import { geometryUsable, readLayoutChoice, resolveLayout, writeLayoutChoice, type LayoutChoice } from './interfaceLayout'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
@@ -148,6 +150,9 @@ export function App() {
   const [frame, setFrame] = useState<Frame | null>(null)
   const [tab, setTab] = useState<MainTab>('interface')
   const [sidebarW, setSidebarW] = useStoredSize(sidebarStorageKey, 300)
+  const [layoutChoice, setLayoutChoice] = useState<LayoutChoice>(() => readLayoutChoice())
+  const [paneWidth, setPaneWidth] = useState(() => (typeof window === 'undefined' ? 1200 : window.innerWidth))
+  const interfaceRef = useRef<HTMLDivElement>(null)
   const [commandH, setCommandH] = useStoredSize(commandStorageKey, 156)
   const [worldDirty, setWorldDirty] = useState(false)
   const [leaveTo, setLeaveTo] = useState<MainTab | null>(null)
@@ -884,6 +889,57 @@ export function App() {
   // A non-SDM model never keeps the Dynamics tab on screen, even for the
   // render before the tab state catches up.
   const shownTab: MainTab = tab === 'dynamics' && !showDynamics ? 'interface' : tab
+  useEffect(() => {
+    if (shownTab !== 'interface') return
+    const el = interfaceRef.current
+    if (!el) return
+    const measure = () => setPaneWidth(el.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [shownTab])
+  const viewBox = frame
+    ? { x: frame.world.viewX ?? 0, y: frame.world.viewY ?? 0, w: frame.world.viewWidth ?? 0, h: frame.world.viewHeight ?? 0 }
+    : null
+  const positionsUsable = geometryUsable(
+    viewBox,
+    widgets.map((w) => ({ x: w.x, y: w.y, w: w.width, h: w.height })),
+  )
+  const interfaceMode = resolveLayout(layoutChoice, paneWidth, positionsUsable, frame == null)
+  const chooseLayout = (next: LayoutChoice) => {
+    setLayoutChoice(next)
+    writeLayoutChoice(next)
+  }
+  const worldView = booting && !frame ? (
+    <div className="loading">Opening the forest fire…</div>
+  ) : frame && (frame.world.depth ?? 1) > 1 ? (
+    <Suspense fallback={<WorldCanvas world={frame.world} />}>
+      <WorldView3D world={frame.world} />
+    </Suspense>
+  ) : (
+    <WorldCanvas world={frame?.world ?? null} />
+  )
+  const viewMeta = frame
+    ? `${frame.world.width} × ${frame.world.height}${(frame.world.depth ?? 1) > 1 ? ` × ${frame.world.depth}` : ''} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
+    : modelName
+  const widgetNodes = (fitted: boolean) =>
+    widgets.map((w) => (
+      <WidgetView
+        key={`${modelName}-${w.index}`}
+        widget={w}
+        fitted={fitted}
+        live={running && active === w.index}
+        outputText={outputText}
+        plot={plotFor(frame, w)}
+        series={plotSeries}
+        onPress={() => void onPress(w)}
+        onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
+        onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
+        onChooser={(current) => sessionId && void chooserMut({ id: sessionId, index: w.index, current })}
+        onInput={(text) => sessionId && void inputMut({ id: sessionId, index: w.index, text })}
+      />
+    ))
   const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
@@ -1167,95 +1223,128 @@ export function App() {
             />
           </section>
         ) : (
-          <HSplit
-            trailingSize={sidebarW}
-            onTrailingSize={setSidebarW}
-            minLeading={320}
-            minTrailing={220}
-            label="Resize widgets panel"
-            leading={
-            <section
-              className={dropping ? 'view drop' : 'view'}
-              onDragEnter={(e) => {
-                if (!dragHasFiles(e)) return
-                e.preventDefault()
-                setDropping(true)
-              }}
-              onDragOver={(e) => {
-                if (!dragHasFiles(e)) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'copy'
-                setDropping(true)
-              }}
-              onDragLeave={(e) => {
-                const next = e.relatedTarget
-                if (next instanceof Node && e.currentTarget.contains(next)) return
-                setDropping(false)
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDropping(false)
-                void onPickFile(e.dataTransfer.files?.[0])
-              }}
-            >
-              <div className="view-bar">
-                <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
-                <div className="model-heading">
-                  <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
-                    {modelTitle}
-                  </h1>
-                  {sessionChip && (
-                    <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
-                      {sessionChip.label}
-                    </span>
-                  )}
+          <div
+            className="interface-slot"
+            ref={interfaceRef}
+            onDragEnter={(e) => {
+              if (!dragHasFiles(e)) return
+              e.preventDefault()
+              setDropping(true)
+            }}
+            onDragOver={(e) => {
+              if (!dragHasFiles(e)) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+              setDropping(true)
+            }}
+            onDragLeave={(e) => {
+              const next = e.relatedTarget
+              if (next instanceof Node && e.currentTarget.contains(next)) return
+              setDropping(false)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDropping(false)
+              void onPickFile(e.dataTransfer.files?.[0])
+            }}
+          >
+            {interfaceMode === 'netlogo' ? (
+              <section className={dropping ? 'view drop' : 'view'} aria-label="Interface">
+                <div className="view-bar">
+                  <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+                  <LayoutToggle
+                    choice={layoutChoice}
+                    onChange={chooseLayout}
+                    forcedColumn={frame != null && !positionsUsable}
+                  />
+                  <div className="model-heading">
+                    <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                      {modelTitle}
+                    </h1>
+                    {sessionChip && (
+                      <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
+                        {sessionChip.label}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="canvas-wrap">
-                {booting && !frame ? (
-                  <div className="loading">Opening the forest fire…</div>
-                ) : frame && (frame.world.depth ?? 1) > 1 ? (
-                  <Suspense fallback={<WorldCanvas world={frame.world} />}>
-                    <WorldView3D world={frame.world} />
-                  </Suspense>
-                ) : (
-                  <WorldCanvas world={frame?.world ?? null} />
-                )}
-                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
-              </div>
-              <div className="view-meta">
-                {frame
-                  ? `${frame.world.width} × ${frame.world.height}${(frame.world.depth ?? 1) > 1 ? ` × ${frame.world.depth}` : ''} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
-                  : modelName}
-              </div>
-            </section>
-            }
-            trailing={
-            <aside className="side" aria-label="Interface widgets">
-              {widgets.length === 0 && (
-                <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
-              )}
-              {widgets.map((w) => (
-                <WidgetView
-                  key={`${modelName}-${w.index}`}
-                  widget={w}
-                  live={running && active === w.index}
-                  outputText={outputText}
-                  plot={plotFor(frame, w)}
-                  series={plotSeries}
-                  onPress={() => void onPress(w)}
-                  onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
-                  onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
-                  onChooser={(current) => sessionId && void chooserMut({ id: sessionId, index: w.index, current })}
-                  onInput={(text) => sessionId && void inputMut({ id: sessionId, index: w.index, text })}
+                <InterfaceCanvas
+                  view={viewBox}
+                  dropping={dropping}
+                  world={worldView}
+                  items={widgets.map((w) => ({
+                    key: `${modelName}-${w.index}`,
+                    box: { x: w.x, y: w.y, w: w.width, h: w.height },
+                    node: (
+                      <WidgetView
+                        widget={w}
+                        fitted
+                        live={running && active === w.index}
+                        outputText={outputText}
+                        plot={plotFor(frame, w)}
+                        series={plotSeries}
+                        onPress={() => void onPress(w)}
+                        onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
+                        onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
+                        onChooser={(current) => sessionId && void chooserMut({ id: sessionId, index: w.index, current })}
+                        onInput={(text) => sessionId && void inputMut({ id: sessionId, index: w.index, text })}
+                      />
+                    ),
+                  }))}
                 />
-              ))}
-              {notes.map((note) => (
-                <p className="note" key={note}>{note}</p>
-              ))}
-            </aside>
-            }
-          />
+                <div className="view-meta">{viewMeta}</div>
+                {notes.map((note) => (
+                  <p className="note" key={note}>{note}</p>
+                ))}
+              </section>
+            ) : (
+              <HSplit
+                trailingSize={sidebarW}
+                onTrailingSize={setSidebarW}
+                minLeading={320}
+                minTrailing={220}
+                label="Resize widgets panel"
+                leading={
+                  <section className={dropping ? 'view drop' : 'view'}>
+                    <div className="view-bar">
+                      <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+                      <LayoutToggle
+                        choice={layoutChoice}
+                        onChange={chooseLayout}
+                        forcedColumn={frame != null && !positionsUsable}
+                      />
+                      <div className="model-heading">
+                        <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                          {modelTitle}
+                        </h1>
+                        {sessionChip && (
+                          <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
+                            {sessionChip.label}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="canvas-wrap">
+                      {worldView}
+                      {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
+                    </div>
+                    <div className="view-meta">{viewMeta}</div>
+                  </section>
+                }
+                trailing={
+                  <aside className="side" aria-label="Interface widgets">
+                    {widgets.length === 0 && (
+                      <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
+                    )}
+                    {widgetNodes(false)}
+                    {notes.map((note) => (
+                      <p className="note" key={note}>{note}</p>
+                    ))}
+                  </aside>
+                }
+              />
+            )}
+          </div>
         )}
       </main>
         }
@@ -1906,6 +1995,7 @@ function plotFor(frame: Frame | null, widget: Widget): PlotView | null {
 
 function WidgetView({
   widget,
+  fitted,
   live,
   outputText,
   plot,
@@ -1917,6 +2007,7 @@ function WidgetView({
   onInput,
 }: {
   widget: Widget
+  fitted?: boolean
   live: boolean
   outputText: string
   plot: PlotView | null
@@ -1934,7 +2025,7 @@ function WidgetView({
   if (widget.kind === 'button') {
     const label = live ? 'stop' : widget.display
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <button
           type="button"
           className={live ? 'iface live' : widget.forever ? 'iface forever' : 'iface'}
@@ -1952,7 +2043,7 @@ function WidgetView({
     const value = slider ?? widget.value ?? widget.min ?? 0
     const units = widget.units ? ` ${widget.units}` : ''
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <input
           type="range"
@@ -1974,7 +2065,7 @@ function WidgetView({
 
   if (widget.kind === 'switch') {
     return (
-      <label className="switch">
+      <label className={fitted ? `switch ${widget.kind}` : 'switch'} {...tip}>
         <input
           type="checkbox"
           checked={widget.on ?? false}
@@ -1988,7 +2079,7 @@ function WidgetView({
 
   if (widget.kind === 'monitor') {
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <div className="readout">{widget.reading ?? '—'}</div>
       </div>
@@ -1997,7 +2088,7 @@ function WidgetView({
 
   if (widget.kind === 'chooser') {
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <select
           aria-label={widget.display}
@@ -2015,7 +2106,7 @@ function WidgetView({
   if (widget.kind === 'input') {
     const shown = text ?? widget.text ?? ''
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <input
           type="text"
@@ -2031,11 +2122,11 @@ function WidgetView({
   }
 
   if (widget.kind === 'output') {
-    return <OutputPanel widget={widget} text={outputText} />
+    return <OutputPanel widget={widget} text={outputText} fitted={fitted} />
   }
 
   if (widget.kind === 'note') {
-    return <p className="note">{widget.display}</p>
+    return <p className="note" {...tip}>{widget.display}</p>
   }
 
   if (widget.kind === 'plot') {
@@ -2046,13 +2137,13 @@ function WidgetView({
         </div>
       )
     }
-    return <PlotCard plot={plot} series={series} />
+    return <PlotCard plot={plot} series={series} hint={widget.description} />
   }
 
   return null
 }
 
-function OutputPanel({ widget, text }: { widget: Widget; text: string }) {
+function OutputPanel({ widget, text, fitted }: { widget: Widget; text: string; fitted?: boolean }) {
   const ref = useRef<HTMLPreElement>(null)
   useEffect(() => {
     const el = ref.current
@@ -2060,10 +2151,11 @@ function OutputPanel({ widget, text }: { widget: Widget; text: string }) {
   }, [text])
   const fontSize = widget.fontSize > 0 ? Math.min(28, Math.max(10, widget.fontSize)) : 12
   const height = widget.height > 0 ? Math.min(200, Math.max(72, widget.height)) : 120
+  const style = fitted ? { fontSize: `${fontSize / 12}em` } : { fontSize, maxHeight: height }
   return (
-    <div className="output-panel" aria-label="Output">
+    <div className="output-panel" aria-label="Output" title={widget.description || undefined}>
       <div className="label">Output</div>
-      <pre ref={ref} style={{ fontSize, maxHeight: height }}>
+      <pre ref={ref} style={style}>
         {text}
       </pre>
     </div>

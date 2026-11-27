@@ -384,7 +384,11 @@ type ComplexityRoot struct {
 		SubjectZ     func(childComplexity int) int
 		ThreeD       func(childComplexity int) int
 		Turtles      func(childComplexity int) int
+		ViewHeight   func(childComplexity int) int
 		ViewUpdates  func(childComplexity int) int
+		ViewWidth    func(childComplexity int) int
+		ViewX        func(childComplexity int) int
+		ViewY        func(childComplexity int) int
 		Voxels       func(childComplexity int) int
 		Width        func(childComplexity int) int
 		WrapX        func(childComplexity int) int
@@ -2410,12 +2414,40 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.World.Turtles(childComplexity), true
 
+	case "World.viewHeight":
+		if e.complexity.World.ViewHeight == nil {
+			break
+		}
+
+		return e.complexity.World.ViewHeight(childComplexity), true
+
 	case "World.viewUpdates":
 		if e.complexity.World.ViewUpdates == nil {
 			break
 		}
 
 		return e.complexity.World.ViewUpdates(childComplexity), true
+
+	case "World.viewWidth":
+		if e.complexity.World.ViewWidth == nil {
+			break
+		}
+
+		return e.complexity.World.ViewWidth(childComplexity), true
+
+	case "World.viewX":
+		if e.complexity.World.ViewX == nil {
+			break
+		}
+
+		return e.complexity.World.ViewX(childComplexity), true
+
+	case "World.viewY":
+		if e.complexity.World.ViewY == nil {
+			break
+		}
+
+		return e.complexity.World.ViewY(childComplexity), true
 
 	case "World.voxels":
 		if e.complexity.World.Voxels == nil {
@@ -2697,8 +2729,8 @@ type Query {
   """
   library(path: String): LibraryListing!
   """
-  YAML list of every widget, in model order, for the Widgets tab.
-  Each entry has that widget's editable properties.
+  YAML list for the Widgets tab. The first entry is the view (kind: view).
+  The model's widgets follow, in model order.
   """
   widgetYaml(sessionId: ID!): String!
 }
@@ -2753,13 +2785,19 @@ type Mutation {
   """
   setWidgets(sessionId: ID!, text: String!): CompileResult!
   """
-  Replace the interface widgets from a YAML list, in document order.
-  A syntax error, an unknown key, or a value of the wrong type leaves the
-  model unchanged and names the widget entry and the field. kind cannot
-  be changed on an existing widget. Removing an entry deletes that widget.
-  An entry that does not match an existing widget is added. Reordering
-  entries keeps each widget, matched by kind and variable, or by kind and
-  display when it has no variable. Rejected while go is running.
+  Replace the interface from a YAML list. The list has exactly one view
+  entry (kind: view); it cannot be removed, duplicated, or given another
+  kind. Editing its x, y, width, or height moves it on the Interface tab.
+  Editing its patch size changes the pixel size and leaves turtles in
+  place. Editing world bounds or wrapping resizes the world the way
+  resize-world does: turtles and links are removed and patches are reset.
+  The other entries are the widgets, in document order. A syntax error,
+  an unknown key, or a value of the wrong type leaves the model unchanged
+  and names the entry and the field. kind cannot be changed on an existing
+  widget. Removing a widget entry deletes that widget. An entry that does
+  not match an existing widget is added. Reordering widget entries keeps
+  each widget, matched by kind and variable, or by kind and display when
+  it has no variable. Rejected while go is running.
   """
   setWidgetYaml(sessionId: ID!, yaml: String!): WidgetEditResult!
   """
@@ -3184,6 +3222,15 @@ type World {
   or command finishes. "continuous" redraws while a button runs.
   """
   viewUpdates: String!
+  """
+  Position and size of the view on the Interface tab, in the same pixels
+  as widget x, y, width, and height. All four are zero when the file did
+  not give the view a box.
+  """
+  viewX: Int!
+  viewY: Int!
+  viewWidth: Int!
+  viewHeight: Int!
   """
   Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
@@ -7128,6 +7175,14 @@ func (ec *executionContext) fieldContext_Frame_world(_ context.Context, field gr
 				return ec.fieldContext_World_seedOverride(ctx, field)
 			case "viewUpdates":
 				return ec.fieldContext_World_viewUpdates(ctx, field)
+			case "viewX":
+				return ec.fieldContext_World_viewX(ctx, field)
+			case "viewY":
+				return ec.fieldContext_World_viewY(ctx, field)
+			case "viewWidth":
+				return ec.fieldContext_World_viewWidth(ctx, field)
+			case "viewHeight":
+				return ec.fieldContext_World_viewHeight(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -13534,6 +13589,14 @@ func (ec *executionContext) fieldContext_Session_world(_ context.Context, field 
 				return ec.fieldContext_World_seedOverride(ctx, field)
 			case "viewUpdates":
 				return ec.fieldContext_World_viewUpdates(ctx, field)
+			case "viewX":
+				return ec.fieldContext_World_viewX(ctx, field)
+			case "viewY":
+				return ec.fieldContext_World_viewY(ctx, field)
+			case "viewWidth":
+				return ec.fieldContext_World_viewWidth(ctx, field)
+			case "viewHeight":
+				return ec.fieldContext_World_viewHeight(ctx, field)
 			case "voxels":
 				return ec.fieldContext_World_voxels(ctx, field)
 			case "observer":
@@ -17141,6 +17204,182 @@ func (ec *executionContext) fieldContext_World_viewUpdates(_ context.Context, fi
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_viewX(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_viewX(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ViewX, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_viewX(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_viewY(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_viewY(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ViewY, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_viewY(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_viewWidth(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_viewWidth(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ViewWidth, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_viewWidth(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _World_viewHeight(ctx context.Context, field graphql.CollectedField, obj *model.World) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_World_viewHeight(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ViewHeight, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_World_viewHeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "World",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -22509,6 +22748,26 @@ func (ec *executionContext) _World(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "viewUpdates":
 			out.Values[i] = ec._World_viewUpdates(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "viewX":
+			out.Values[i] = ec._World_viewX(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "viewY":
+			out.Values[i] = ec._World_viewY(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "viewWidth":
+			out.Values[i] = ec._World_viewWidth(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "viewHeight":
+			out.Values[i] = ec._World_viewHeight(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

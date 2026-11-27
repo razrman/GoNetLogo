@@ -417,6 +417,13 @@ type World struct {
 	// changes at tick, reset-ticks, tick-advance, display, and when a button
 	// or command finishes. "continuous" redraws while a button runs.
 	ViewUpdates string `json:"viewUpdates"`
+	// Position and size of the view on the Interface tab, in the same pixels
+	// as widget x, y, width, and height. All four are zero when the file did
+	// not give the view a box.
+	ViewX      int `json:"viewX"`
+	ViewY      int `json:"viewY"`
+	ViewWidth  int `json:"viewWidth"`
+	ViewHeight int `json:"viewHeight"`
 	// Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
 	// pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.
 	// Patch order (highest layer first). Black patches and alpha 0 are omitted.

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { syncBitmap } from './canvasSurface'
 import type { Frame, PlotPenDelta, PlotPoint, PlotView } from './types'
 
@@ -41,9 +41,23 @@ function penKey(plot: number, pen: number) {
   return `${plot}:${pen}`
 }
 
-export function PlotCard({ plot, series }: { plot: PlotView; series: PlotSeries }) {
+export function PlotCard({ plot, series, hint }: { plot: PlotView; series: PlotSeries; hint?: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const points = countPoints(plot, series)
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    const measure = () => {
+      const w = canvas.clientWidth
+      const h = canvas.clientHeight
+      setBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [])
   // useLayoutEffect paints before the browser composites. Assigning
   // canvas.width in the passive effect ran after paint and discarded the
   // bitmap on every frame; see syncBitmap.
@@ -56,12 +70,12 @@ export function PlotCard({ plot, series }: { plot: PlotView; series: PlotSeries 
     if (!ctx) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     paintPlot(ctx, width, height, plot, series)
-  }, [plot, series, points])
+  }, [plot, series, points, box.w, box.h])
 
   const yName = plot.yLabel || 'y'
   const xName = plot.xLabel || 'x'
   return (
-    <div className="plot-card">
+    <div className="plot-card" title={hint || undefined}>
       <div className="label">{plot.name}</div>
       <div className="plot-axes">
         {yName} vs {xName}
