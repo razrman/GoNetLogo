@@ -98,6 +98,46 @@ func TestViewYAMLMovesAndResizesTheWorld(t *testing.T) {
 	}
 }
 
+func TestWorldResizeStaysAfterAViewPositionEdit(t *testing.T) {
+	s := newSession()
+	defer s.Close()
+	if err := s.LoadModel("fire.nlogo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetWorld(-16, 20, -14, 18, 12, false, false, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := s.WidgetYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(spec, "maxPxcor: 20") || !strings.Contains(spec, "maxPycor: 18") || !strings.Contains(spec, "minPxcor: -16") {
+		t.Fatalf("yaml kept the old world:\n%s", spec)
+	}
+	if _, err := s.RunCommand("resize-world -12 24 -12 16"); err != nil {
+		t.Fatal(err)
+	}
+	spec, err = s.WidgetYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(spec, "maxPxcor: 24") || !strings.Contains(spec, "maxPycor: 16") {
+		t.Fatalf("resize-world did not update the view:\n%s", spec)
+	}
+	edited := strings.Replace(spec, "x: 280\n", "x: 300\n", 1)
+	got, err := s.SetWidgetYAML(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "maxPxcor: 24") || !strings.Contains(got, "maxPycor: 16") || !strings.Contains(got, "x: 300\n") {
+		t.Fatalf("apply restored the old world:\n%s", got)
+	}
+	frame := s.Frame()
+	if frame.World.MaxPxcor != 24 || frame.World.MaxPycor != 16 || frame.World.ViewX != 300 {
+		t.Fatalf("world max %d %d view x %d", frame.World.MaxPxcor, frame.World.MaxPycor, frame.World.ViewX)
+	}
+}
+
 func TestSetWidgetYAMLAfterModelSwitchKeepsTheNewWidgets(t *testing.T) {
 	s := newSession()
 	defer s.Close()

@@ -381,6 +381,60 @@ func WriteWidget(source string, index int, w Widget) (string, error) {
 	return ReplaceWidgetSection(source, next)
 }
 
+// RewriteViewGeometry writes the live world size back into the view
+// widget. Position, font, and the tick label are left as they are.
+func RewriteViewGeometry(source string, view ViewSpec) (string, error) {
+	section := ExtractWidgetSection(source)
+	var next string
+	var err error
+	if section.XML {
+		next, err = rewriteXMLView(section.Text, view)
+	} else {
+		next, err = rewriteClassicViewSection(section.Text, view)
+	}
+	if err != nil {
+		return "", err
+	}
+	return ReplaceWidgetSection(source, next)
+}
+
+func rewriteClassicViewSection(section string, view ViewSpec) (string, error) {
+	lines := strings.Split(strings.ReplaceAll(section, "\r\n", "\n"), "\n")
+	var blocks [][]string
+	var cur []string
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		blocks = append(blocks, cur)
+		cur = nil
+	}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			flush()
+			continue
+		}
+		cur = append(cur, line)
+	}
+	flush()
+	found := false
+	for i, block := range blocks {
+		if strings.EqualFold(strings.TrimSpace(block[0]), "GRAPHICS-WINDOW") {
+			blocks[i] = rewriteGraphicsWindow(block, view)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("model has no graphics window")
+	}
+	parts := make([]string, len(blocks))
+	for i, block := range blocks {
+		parts[i] = strings.Join(block, "\n")
+	}
+	return strings.Join(parts, "\n\n"), nil
+}
+
 // WriteWidgets rewrites the view and every widget in source. from[i] is
 // the previous index of widgets[i], or -1 when it is new. The graphics
 // window keeps the lines this editor does not show.

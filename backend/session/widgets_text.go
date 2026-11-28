@@ -56,6 +56,7 @@ func (s *Session) SetWidgetYAML(text string) (string, error) {
 	if s.model == nil || s.vm == nil || s.vm.World == nil {
 		return "", fmt.Errorf("no model is loaded")
 	}
+	s.syncViewGeometryLocked()
 	updatedView, updated, from, err := nl.ApplyWidgetsYAML(s.model.View, s.model.Widgets, text)
 	if err != nil {
 		return "", err
@@ -85,7 +86,49 @@ func (s *Session) WidgetYAML() (string, error) {
 	if s.model == nil {
 		return "", fmt.Errorf("no model is loaded")
 	}
+	s.syncViewGeometryLocked()
 	return nl.FormatWidgetsYAML(s.model.View, s.model.Widgets)
+}
+
+// syncViewGeometryLocked copies the live world size into the view widget
+// and the model text. A later Widgets YAML read then shows those bounds,
+// so applying a position edit does not restore the old world.
+// Caller holds s.mu.
+func (s *Session) syncViewGeometryLocked() {
+	if s.model == nil || s.vm == nil || s.vm.World == nil {
+		return
+	}
+	w := s.vm.World
+	v := s.model.View
+	same := v.MinPxcor == w.MinPxcor && v.MaxPxcor == w.MaxPxcor &&
+		v.MinPycor == w.MinPycor && v.MaxPycor == w.MaxPycor &&
+		v.PatchSize == w.PatchSize && v.WrapX == w.WrapX && v.WrapY == w.WrapY
+	if w.Is3D() {
+		same = same && v.Is3D && v.MinPzcor == w.MinPzcor && v.MaxPzcor == w.MaxPzcor && v.WrapZ == w.WrapZ
+	}
+	if same {
+		return
+	}
+	v.MinPxcor, v.MaxPxcor = w.MinPxcor, w.MaxPxcor
+	v.MinPycor, v.MaxPycor = w.MinPycor, w.MaxPycor
+	v.PatchSize = w.PatchSize
+	v.WrapX, v.WrapY = w.WrapX, w.WrapY
+	if w.Is3D() {
+		v.Is3D = true
+		v.MinPzcor, v.MaxPzcor = w.MinPzcor, w.MaxPzcor
+		v.WrapZ = w.WrapZ
+	}
+	s.model.View = v
+	next, err := nl.RewriteViewGeometry(s.modelSource, v)
+	if err != nil {
+		return
+	}
+	s.modelSource = next
+	if s.uploadPath != "" {
+		if err := os.WriteFile(s.uploadPath, []byte(next), 0o600); err != nil {
+			slog.Warn("session storage", "session", s.id, "err", err)
+		}
+	}
 }
 
 func (s *Session) installWidgetsLocked(view nl.ViewSpec, widgets []nl.Widget, notes []string, next string) error {

@@ -483,7 +483,7 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   flex: 1;
   min-height: 0;
   background: #0c0e0a;
-  border-radius: 10px;
+  border-radius: 0;
   overflow: hidden;
   border: 1px solid #2a2e24;
 }
@@ -608,7 +608,7 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   justify-content: center;
   overflow: hidden;
   background: #e7e1d4;
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 .iface-sheet {
@@ -627,6 +627,7 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   overflow: hidden;
   z-index: 1;
   contain: paint;
+  border-radius: 0;
 }
 
 .iface-item { z-index: 2; }
@@ -864,10 +865,13 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
 .world-settings button.iface:disabled { opacity: 0.45; cursor: not-allowed; }
 .world-settings .err { margin: 0; font-size: 0.75rem; color: var(--danger); max-width: 100%; }
 
-canvas.world {
+canvas.world,
+.world3d,
+.world3d-canvas {
   width: 100%;
   height: 100%;
   display: block;
+  border-radius: 0;
 }
 
 /* Interactive 3D view: the WebGL canvas fills the wrap, the overlay sits

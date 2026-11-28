@@ -487,11 +487,14 @@ export function App() {
     }
   }
 
+  const worldKey = worldGeometryKey(frame)
   useEffect(() => {
     if (!sessionId) return
     let cancel = false
     // The query is keyed only by session id. A cache hit after loading a
-    // different model would apply the previous model's widgets.
+    // different model would apply the previous model's widgets. World
+    // bounds, patch size, and wrapping are part of the view widget, so a
+    // resize has to reload this document too.
     void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }, { requestPolicy: 'network-only' }).toPromise().then((res) => {
       if (cancel) return
       if (res.error) {
@@ -504,7 +507,7 @@ export function App() {
     return () => {
       cancel = true
     }
-  }, [sessionId, modelName, widgetText])
+  }, [sessionId, modelName, widgetText, worldKey])
 
   async function applyWidgets() {
     if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
@@ -1528,6 +1531,23 @@ export function App() {
 // interfaceModelTitle is the name NetLogo puts in the window title:
 // the file name without its extension. A missing name, or a file
 // named Untitled, is a blank model.
+function worldGeometryKey(frame: Frame | null) {
+  if (!frame) return ''
+  const w = frame.world
+  return [
+    w.minPxcor,
+    w.maxPxcor,
+    w.minPycor,
+    w.maxPycor,
+    w.minPzcor ?? 0,
+    w.maxPzcor ?? 0,
+    w.patchSize,
+    w.wrapX ? 1 : 0,
+    w.wrapY ? 1 : 0,
+    w.wrapZ ? 1 : 0,
+  ].join(',')
+}
+
 function interfaceModelTitle(modelName: string): string {
   const base = modelName.replace(/\.nlogo(?:x3d|x|3d)?$/i, '').trim()
   if (base === '' || /^untitled$/i.test(base)) return 'Untitled'

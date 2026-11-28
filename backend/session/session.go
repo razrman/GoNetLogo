@@ -1293,6 +1293,7 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		// The resized world has new patches and no turtles. Drop the
 		// snapshot so the next frame shows that world.
 		s.frozenWorld.Store(nil)
+		s.syncViewGeometryLocked()
 		s.broadcastLocked()
 		return nil
 	}
@@ -1301,6 +1302,7 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 	}
 	s.finishSeedLocked(seed, seedOverride)
 	s.frozenWorld.Store(nil)
+	s.syncViewGeometryLocked()
 	s.broadcastLocked()
 	return nil
 }
