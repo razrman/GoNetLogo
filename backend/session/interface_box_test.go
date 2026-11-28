@@ -98,6 +98,48 @@ func TestViewYAMLMovesAndResizesTheWorld(t *testing.T) {
 	}
 }
 
+func TestSetWidgetYAMLAfterModelSwitchKeepsTheNewWidgets(t *testing.T) {
+	s := newSession()
+	defer s.Close()
+	if err := s.LoadModel("fire.nlogo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LoadModelFile("library/3D/Sample Models/Flocking 3D Alternate.nlogox3d"); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := s.WidgetYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(spec, "build-cubes") || strings.Contains(spec, "burned trees") {
+		t.Fatalf("yaml is not the flocking model:\n%s", spec)
+	}
+	edited := strings.Replace(spec, "x: 0\n", "x: 40\n", 1)
+	got, err := s.SetWidgetYAML(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "build-cubes") || strings.Contains(got, "burned trees") || strings.Contains(got, "density") {
+		t.Fatalf("apply kept the previous model's widgets:\n%s", got)
+	}
+	frame := s.Frame()
+	if !frame.World.ThreeD || frame.World.ViewX != 40 {
+		t.Fatalf("view %+v threeD=%v", frame.World.ViewX, frame.World.ThreeD)
+	}
+	buttons := map[string]bool{}
+	for _, w := range frame.Widgets {
+		if w.Kind == "button" {
+			buttons[w.Display] = true
+		}
+	}
+	if !buttons["build-cubes"] || !buttons["build-wall"] || buttons["setup"] && len(frame.Widgets) < 5 {
+		t.Fatalf("buttons %+v count %d", buttons, len(frame.Widgets))
+	}
+	if buttons["go"] && !buttons["follow turtle 0"] {
+		t.Fatalf("widgets look like the fire model: %+v", buttons)
+	}
+}
+
 func placedWidgetModel() string {
 	view := strings.Join([]string{
 		"GRAPHICS-WINDOW",

@@ -421,6 +421,7 @@ export function App() {
     setModelName(info.modelName)
     setCode(info.code)
     setWidgetText(info.widgetText ?? '')
+    setWidgetDraft('')
     setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
@@ -489,7 +490,9 @@ export function App() {
   useEffect(() => {
     if (!sessionId) return
     let cancel = false
-    void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }).toPromise().then((res) => {
+    // The query is keyed only by session id. A cache hit after loading a
+    // different model would apply the previous model's widgets.
+    void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }, { requestPolicy: 'network-only' }).toPromise().then((res) => {
       if (cancel) return
       if (res.error) {
         setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
@@ -501,7 +504,7 @@ export function App() {
     return () => {
       cancel = true
     }
-  }, [sessionId, widgetText])
+  }, [sessionId, modelName, widgetText])
 
   async function applyWidgets() {
     if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
@@ -576,6 +579,7 @@ export function App() {
     setModelName(info.modelName)
     setCode(info.code)
     setWidgetText(info.widgetText ?? '')
+    setWidgetDraft('')
     setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
@@ -662,6 +666,7 @@ export function App() {
     setModelName(info.modelName)
     setCode(info.code)
     setWidgetText(info.widgetText ?? '')
+    setWidgetDraft('')
     setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
