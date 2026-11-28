@@ -17,8 +17,8 @@ type Query {
   """
   library(path: String): LibraryListing!
   """
-  YAML list of every widget, in model order, for the Widgets tab.
-  Each entry has that widget's editable properties.
+  YAML list for the Widgets tab. The first entry is the view (kind: view).
+  The model's widgets follow, in model order.
   """
   widgetYaml(sessionId: ID!): String!
 }
@@ -73,13 +73,19 @@ type Mutation {
   """
   setWidgets(sessionId: ID!, text: String!): CompileResult!
   """
-  Replace the interface widgets from a YAML list, in document order.
-  A syntax error, an unknown key, or a value of the wrong type leaves the
-  model unchanged and names the widget entry and the field. kind cannot
-  be changed on an existing widget. Removing an entry deletes that widget.
-  An entry that does not match an existing widget is added. Reordering
-  entries keeps each widget, matched by kind and variable, or by kind and
-  display when it has no variable. Rejected while go is running.
+  Replace the interface from a YAML list. The list has exactly one view
+  entry (kind: view); it cannot be removed, duplicated, or given another
+  kind. Editing its x, y, width, or height moves it on the Interface tab.
+  Editing its patch size changes the pixel size and leaves turtles in
+  place. Editing world bounds or wrapping resizes the world the way
+  resize-world does: turtles and links are removed and patches are reset.
+  The other entries are the widgets, in document order. A syntax error,
+  an unknown key, or a value of the wrong type leaves the model unchanged
+  and names the entry and the field. kind cannot be changed on an existing
+  widget. Removing a widget entry deletes that widget. An entry that does
+  not match an existing widget is added. Reordering widget entries keeps
+  each widget, matched by kind and variable, or by kind and display when
+  it has no variable. Rejected while go is running.
   """
   setWidgetYaml(sessionId: ID!, yaml: String!): WidgetEditResult!
   """
@@ -504,6 +510,15 @@ type World {
   or command finishes. "continuous" redraws while a button runs.
   """
   viewUpdates: String!
+  """
+  Position and size of the view on the Interface tab, in the same pixels
+  as widget x, y, width, and height. All four are zero when the file did
+  not give the view a box.
+  """
+  viewX: Int!
+  viewY: Int!
+  viewWidth: Int!
+  viewHeight: Int!
   """
   Non-black patches of a 3D world, base64. Each voxel is 10 bytes:
   pxcor, pycor, pzcor as little-endian int16, then r, g, b, a.

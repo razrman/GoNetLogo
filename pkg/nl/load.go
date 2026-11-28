@@ -39,6 +39,17 @@ type ViewSpec struct {
 	// and when a button or command finishes. Continuous redraws while the
 	// button runs. A missing value stays continuous.
 	UpdateMode int
+	// X, Y, W, and H are the view's box on the Interface tab, in the same
+	// pixels as a widget. Zero when the file did not specify one.
+	X, Y, W, H int
+	// Description is the optional note on the view, same as a widget.
+	Description string
+	// TickLabel is the tick counter caption, such as "ticks". Empty when
+	// the file has none.
+	TickLabel string
+	// UpdateModeStored is false for a classic 3D graphics window, which
+	// keeps min-pzcor on the line a 2D file uses for the update mode.
+	UpdateModeStored bool
 }
 
 const (
@@ -290,6 +301,12 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 			// stores min-pzcor there instead.
 			v.UpdateMode = UpdateOnTicks
 		}
+		if !m.Is3D {
+			v.UpdateModeStored = true
+		}
+		v.TickLabel = tickLabelFromLines(lines)
+		v.Description = widgetDescription(lines)
+		ensure3DViewBox(&v)
 		m.View = v
 	case "BUTTON":
 		w, err := parseButtonLines(lines)
@@ -328,9 +345,10 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 		}
 		m.Widgets = append(m.Widgets, finishWidget(w, lines))
 	case "TEXTBOX":
+		x, y, w, h := boxFromLines(lines)
 		m.Widgets = append(m.Widgets, finishWidget(Widget{
 			Kind: "note", Display: optUnescape(lineAt(lines, 5)),
-			X: atoi(lineAt(lines, 1)), Y: atoi(lineAt(lines, 2)),
+			X: x, Y: y, W: w, H: h, FontSize: atoi(lineAt(lines, 6)),
 		}, lines))
 	case "PLOT":
 		m.Widgets = append(m.Widgets, finishWidget(parsePlotLines(lines), lines))
@@ -348,7 +366,9 @@ func parseViewLines(lines []string) (ViewSpec, error) {
 	if ps <= 0 {
 		ps = 13
 	}
+	x, y, w, h := boxFromLines(lines)
 	v := ViewSpec{
+		X: x, Y: y, W: w, H: h,
 		WrapX:     lineAt(lines, 14) == "1",
 		WrapY:     lineAt(lines, 15) == "1",
 		MinPxcor:  atoi(lineAt(lines, 17)),
@@ -390,12 +410,13 @@ func parseButtonLines(lines []string) (Widget, error) {
 	if agent == "" {
 		agent = "observer"
 	}
+	x, y, w, h := boxFromLines(lines)
 	return Widget{
 		Kind:              "button",
-		X:                 atoi(lineAt(lines, 1)),
-		Y:                 atoi(lineAt(lines, 2)),
-		W:                 atoi(lineAt(lines, 3)) - atoi(lineAt(lines, 1)),
-		H:                 atoi(lineAt(lines, 4)) - atoi(lineAt(lines, 2)),
+		X:                 x,
+		Y:                 y,
+		W:                 w,
+		H:                 h,
 		Display:           display,
 		Source:            source,
 		Forever:           lineAt(lines, 7) == "T",
@@ -410,10 +431,13 @@ func parseSliderLines(lines []string) (Widget, error) {
 	if display == "" {
 		display = variable
 	}
+	x, y, w, h := boxFromLines(lines)
 	return Widget{
 		Kind:     "slider",
-		X:        atoi(lineAt(lines, 1)),
-		Y:        atoi(lineAt(lines, 2)),
+		X:        x,
+		Y:        y,
+		W:        w,
+		H:        h,
 		Display:  display,
 		Variable: strings.ToLower(variable),
 		Min:      atof(lineAt(lines, 7)),
@@ -431,10 +455,13 @@ func parseSwitchLines(lines []string) (Widget, error) {
 	if display == "" {
 		display = variable
 	}
+	x, y, w, h := boxFromLines(lines)
 	return Widget{
 		Kind:     "switch",
-		X:        atoi(lineAt(lines, 1)),
-		Y:        atoi(lineAt(lines, 2)),
+		X:        x,
+		Y:        y,
+		W:        w,
+		H:        h,
 		Display:  display,
 		Variable: strings.ToLower(variable),
 		On:       lineAt(lines, 7) == "0",
@@ -451,10 +478,13 @@ func parseMonitorLines(lines []string) (Widget, error) {
 	if lineAt(lines, 7) == "" {
 		prec = 17
 	}
+	x, y, w, h := boxFromLines(lines)
 	return Widget{
 		Kind:      "monitor",
-		X:         atoi(lineAt(lines, 1)),
-		Y:         atoi(lineAt(lines, 2)),
+		X:         x,
+		Y:         y,
+		W:         w,
+		H:         h,
 		Display:   display,
 		Source:    source,
 		Precision: prec,
@@ -472,8 +502,13 @@ func parseChooserLines(lines []string) (Widget, error) {
 	if cur < 0 || cur >= len(choices) {
 		cur = 0
 	}
+	x, y, w, h := boxFromLines(lines)
 	return Widget{
 		Kind:     "chooser",
+		X:        x,
+		Y:        y,
+		W:        w,
+		H:        h,
 		Display:  display,
 		Variable: strings.ToLower(variable),
 		Choices:  choices,
@@ -489,8 +524,13 @@ func parseInputLines(lines []string) (Widget, error) {
 		text = unescapeLogo(raw)
 	}
 	typ := lineAt(lines, 9)
+	x, y, bw, bh := boxFromLines(lines)
 	w := Widget{
 		Kind:      "input",
+		X:         x,
+		Y:         y,
+		W:         bw,
+		H:         bh,
 		Display:   variable,
 		Variable:  strings.ToLower(variable),
 		Text:      text,
@@ -636,7 +676,9 @@ func parseNLogoX(name, content string) (*FileModel, error) {
 			if err := dec.DecodeElement(&text, &se); err != nil {
 				return nil, err
 			}
-			m.Widgets = append(m.Widgets, withXMLDescription(Widget{Kind: "note", Display: text}, se))
+			m.Widgets = append(m.Widgets, withXMLDescription(Widget{
+				Kind: "note", Display: text, FontSize: atoi(attr(se, "fontSize")),
+			}, se))
 		case "plot":
 			w, err := plotFromXML(dec, se)
 			if err != nil {
@@ -679,6 +721,8 @@ func viewFromXML(se xml.StartElement) ViewSpec {
 		ps = 13
 	}
 	v := ViewSpec{
+		X: atoi(firstAttr(se, "x", "left")), Y: atoi(firstAttr(se, "y", "top")),
+		W: atoi(attr(se, "width")), H: atoi(attr(se, "height")),
 		MinPxcor:  atoi(attr(se, "minPxcor")),
 		MaxPxcor:  atoi(attr(se, "maxPxcor")),
 		MinPycor:  atoi(attr(se, "minPycor")),
@@ -692,13 +736,33 @@ func viewFromXML(se xml.StartElement) ViewSpec {
 	if attr(se, "updateMode") == "1" {
 		v.UpdateMode = UpdateOnTicks
 	}
+	// .nlogox can always store the mode on the view element.
+	v.UpdateModeStored = true
+	v.TickLabel = attr(se, "tickCounterLabel")
+	v.Description = attr(se, "description")
 	if se.Name.Local == "view3d" {
 		v.Is3D = true
 		v.MinPzcor = atoi(attr(se, "minPzcor"))
 		v.MaxPzcor = atoi(attr(se, "maxPzcor"))
 		v.WrapZ = attr(se, "wrappingAllowedZ") == "true"
+		ensure3DViewBox(&v)
 	}
 	return v
+}
+
+// ensure3DViewBox gives a 3D view with no pixel box the size of its
+// patch grid. The graphics window's left/top/right/bottom stay as written
+// when they are present. A zero box would drop the view off the canvas.
+func ensure3DViewBox(v *ViewSpec) {
+	if v == nil || !v.Is3D || v.PatchSize <= 0 || (v.W > 0 && v.H > 0) {
+		return
+	}
+	if v.W <= 0 && v.MaxPxcor >= v.MinPxcor {
+		v.W = int(float64(v.MaxPxcor-v.MinPxcor+1)*v.PatchSize + 0.5)
+	}
+	if v.H <= 0 && v.MaxPycor >= v.MinPycor {
+		v.H = int(float64(v.MaxPycor-v.MinPycor+1)*v.PatchSize + 0.5)
+	}
 }
 
 func buttonFromXML(se xml.StartElement, source string) Widget {
@@ -1401,7 +1465,67 @@ func widgetDescription(lines []string) string {
 
 func withXMLDescription(w Widget, se xml.StartElement) Widget {
 	w.Description = attr(se, "description")
+	return applyXMLBox(w, se)
+}
+
+// applyXMLBox copies x, y, width, and height when the element has them.
+// A widget the parser already sized, and an element with none of these
+// attributes, keeps the box it has.
+func applyXMLBox(w Widget, se xml.StartElement) Widget {
+	has := false
+	for _, name := range []string{"x", "y", "width", "height", "left", "top", "right", "bottom"} {
+		if attr(se, name) != "" {
+			has = true
+			break
+		}
+	}
+	if !has {
+		return w
+	}
+	x := atoi(firstAttr(se, "x", "left"))
+	y := atoi(firstAttr(se, "y", "top"))
+	width := atoi(attr(se, "width"))
+	height := atoi(attr(se, "height"))
+	if width == 0 && height == 0 {
+		right := atoi(attr(se, "right"))
+		bottom := atoi(attr(se, "bottom"))
+		if right != 0 || bottom != 0 {
+			width = right - x
+			height = bottom - y
+		}
+	}
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	w.X, w.Y, w.W, w.H = x, y, width, height
 	return w
+}
+
+// boxFromLines reads the left, top, right, and bottom lines every classic
+// widget and the graphics window share.
+func tickLabelFromLines(lines []string) string {
+	s := lineAt(lines, 24)
+	if s == "" || s == "NIL" {
+		return ""
+	}
+	return s
+}
+
+func boxFromLines(lines []string) (x, y, w, h int) {
+	x = atoi(lineAt(lines, 1))
+	y = atoi(lineAt(lines, 2))
+	w = atoi(lineAt(lines, 3)) - x
+	h = atoi(lineAt(lines, 4)) - y
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
+	}
+	return
 }
 
 func optString(s string) string {

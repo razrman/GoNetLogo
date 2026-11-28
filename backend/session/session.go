@@ -1293,6 +1293,7 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 		// The resized world has new patches and no turtles. Drop the
 		// snapshot so the next frame shows that world.
 		s.frozenWorld.Store(nil)
+		s.syncViewGeometryLocked()
 		s.broadcastLocked()
 		return nil
 	}
@@ -1301,6 +1302,7 @@ func (s *Session) SetWorld(minPx, maxPx, minPy, maxPy int, patchSize float64, wr
 	}
 	s.finishSeedLocked(seed, seedOverride)
 	s.frozenWorld.Store(nil)
+	s.syncViewGeometryLocked()
 	s.broadcastLocked()
 	return nil
 }
@@ -2199,6 +2201,12 @@ func (s *Session) sessionLocked() *model.Session {
 	var ticks float64
 	var epoch uint64
 	s.withWorldLocked(func() {
+		if s.model != nil {
+			out.World.ViewX = s.model.View.X
+			out.World.ViewY = s.model.View.Y
+			out.World.ViewWidth = s.model.View.W
+			out.World.ViewHeight = s.model.View.H
+		}
 		if s.vm == nil || s.vm.World == nil {
 			return
 		}
@@ -2217,7 +2225,9 @@ func (s *Session) sessionLocked() *model.Session {
 			}
 		}
 		out.Widgets = s.widgetsLocked()
+		viewX, viewY, viewW, viewH := out.World.ViewX, out.World.ViewY, out.World.ViewWidth, out.World.ViewHeight
 		out.World = s.publishedWorldLocked(w)
+		out.World.ViewX, out.World.ViewY, out.World.ViewWidth, out.World.ViewHeight = viewX, viewY, viewW, viewH
 		s.applySeedView(&out.World)
 		out.World.ViewUpdates = viewUpdatesName(s.vm)
 	})

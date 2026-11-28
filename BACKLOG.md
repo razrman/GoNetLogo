@@ -42,4 +42,4 @@ This is a first milestone of the language, plus a GraphQL client. The rest of Ne
 9. **3D.** (Done: NetLogo 3D models and a 3D view are in.) `turtles3d`, `pzcor`, and a second view. The world type would grow a Z axis; the renderer would need a new backend.
 10. **LevelSpace, the controlling API, and the profiler.** Embedding one model in another, driving a model from outside the process, and primitive-level timing.
 
-Also not in this milestone: the shape editor, bitmap import, and the full widget geometry of the Interface tab (widgets here are a column, not a free-form canvas).
+Also not in this milestone: the shape editor and bitmap import. The Interface tab places the view and the widgets on one canvas at the model's positions when that geometry is usable, and scales the canvas with the pane. Below 860px, or when the positions are unusable, they stay in a column. The Layout control (Auto, NetLogo, Column) overrides the automatic choice.

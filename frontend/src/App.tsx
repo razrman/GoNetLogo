@@ -78,6 +78,8 @@ import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 const WorldView3D = lazy(() => import('./WorldView3D'))
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
+import { GridControl, InterfaceCanvas, LayoutToggle } from './InterfaceCanvas'
+import { arrangeWidgetDocument, geometryUsable, layoutPaneWidth, readGridSpacing, readLayoutChoice, resolveLayout, snapWidgetYAML, writeGridSpacing, writeLayoutChoice, type GridSpacing, type LayoutChoice } from './interfaceLayout'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
@@ -148,7 +150,12 @@ export function App() {
   const [frame, setFrame] = useState<Frame | null>(null)
   const [tab, setTab] = useState<MainTab>('interface')
   const [sidebarW, setSidebarW] = useStoredSize(sidebarStorageKey, 300)
-  const [commandH, setCommandH] = useStoredSize(commandStorageKey, 156)
+  const [layoutChoice, setLayoutChoice] = useState<LayoutChoice>(() => readLayoutChoice())
+  const [grid, setGrid] = useState<GridSpacing>(() => readGridSpacing())
+  const [arrangeAsk, setArrangeAsk] = useState(false)
+  const [paneWidth, setPaneWidth] = useState(() => (typeof window === 'undefined' ? 1200 : window.innerWidth))
+  const interfaceRef = useRef<HTMLDivElement>(null)
+  const [commandH, setCommandH] = useStoredSize(commandStorageKey, 58)
   const [worldDirty, setWorldDirty] = useState(false)
   const [leaveTo, setLeaveTo] = useState<MainTab | null>(null)
   const [leaving, setLeaving] = useState(false)
@@ -414,6 +421,7 @@ export function App() {
     setModelName(info.modelName)
     setCode(info.code)
     setWidgetText(info.widgetText ?? '')
+    setWidgetDraft('')
     setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
@@ -479,10 +487,15 @@ export function App() {
     }
   }
 
+  const worldKey = worldGeometryKey(frame)
   useEffect(() => {
     if (!sessionId) return
     let cancel = false
-    void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }).toPromise().then((res) => {
+    // The query is keyed only by session id. A cache hit after loading a
+    // different model would apply the previous model's widgets. World
+    // bounds, patch size, and wrapping are part of the view widget, so a
+    // resize has to reload this document too.
+    void client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }, { requestPolicy: 'network-only' }).toPromise().then((res) => {
       if (cancel) return
       if (res.error) {
         setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
@@ -494,11 +507,11 @@ export function App() {
     return () => {
       cancel = true
     }
-  }, [sessionId, widgetText])
+  }, [sessionId, modelName, widgetText, worldKey])
 
   async function applyWidgets() {
     if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
-    const res = await setWidgetYamlMut({ id: sessionId, yaml: widgetDraft })
+    const res = await setWidgetYamlMut({ id: sessionId, yaml: snapWidgetYAML(widgetDraft, grid) })
     if (res.error) {
       setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
       return
@@ -569,6 +582,7 @@ export function App() {
     setModelName(info.modelName)
     setCode(info.code)
     setWidgetText(info.widgetText ?? '')
+    setWidgetDraft('')
     setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
@@ -655,6 +669,7 @@ export function App() {
     setModelName(info.modelName)
     setCode(info.code)
     setWidgetText(info.widgetText ?? '')
+    setWidgetDraft('')
     setWidgetError(null)
     setInfo(info.info ?? '')
     setModelDir(info.modelDir ?? null)
@@ -884,6 +899,101 @@ export function App() {
   // A non-SDM model never keeps the Dynamics tab on screen, even for the
   // render before the tab state catches up.
   const shownTab: MainTab = tab === 'dynamics' && !showDynamics ? 'interface' : tab
+  useEffect(() => {
+    if (shownTab !== 'interface') return
+    const measure = () => {
+      const viewport = window.visualViewport?.width ?? window.innerWidth
+      setPaneWidth(layoutPaneWidth(interfaceRef.current?.clientWidth ?? 0, viewport))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    if (interfaceRef.current) observer.observe(interfaceRef.current)
+    window.addEventListener('resize', measure)
+    window.visualViewport?.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+      window.visualViewport?.removeEventListener('resize', measure)
+    }
+  }, [shownTab])
+  const viewBox = frame
+    ? { x: frame.world.viewX ?? 0, y: frame.world.viewY ?? 0, w: frame.world.viewWidth ?? 0, h: frame.world.viewHeight ?? 0 }
+    : null
+  const positionsUsable = geometryUsable(
+    viewBox,
+    widgets.map((w) => ({ x: w.x, y: w.y, w: w.width, h: w.height })),
+  )
+  const interfaceMode = resolveLayout(layoutChoice, paneWidth, positionsUsable, frame == null)
+  const chooseLayout = (next: LayoutChoice) => {
+    setLayoutChoice(next)
+    writeLayoutChoice(next)
+  }
+  const chooseGrid = (next: GridSpacing) => {
+    setGrid(next)
+    writeGridSpacing(next)
+  }
+  async function confirmArrange() {
+    setArrangeAsk(false)
+    if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
+    const loaded = await client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }, { requestPolicy: 'network-only' }).toPromise()
+    if (loaded.error || !loaded.data) {
+      setBanner((loaded.error?.message ?? 'Could not read the widgets').replace(/^\[GraphQL\]\s*/i, '').trim())
+      return
+    }
+    const written = arrangeWidgetDocument(
+      loaded.data.widgetYaml,
+      widgets.map((widget) => ({ kind: widget.kind, box: { x: widget.x, y: widget.y, w: widget.width, h: widget.height } })),
+      viewBox,
+      grid,
+    )
+    if (written.error) {
+      setBanner(written.error)
+      return
+    }
+    const res = await setWidgetYamlMut({ id: sessionId, yaml: written.text })
+    if (res.error) {
+      setBanner(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
+      return
+    }
+    const applied = res.data?.setWidgetYaml
+    const settled = settleWidgetYAML(written.text, {
+      ok: applied?.ok ?? false,
+      error: applied?.error,
+      spec: applied?.spec,
+    })
+    setWidgetDraft(settled.draft)
+    setWidgetError(settled.error)
+    if (settled.error) setBanner(settled.error)
+  }
+  const worldView = booting && !frame ? (
+    <div className="loading">Opening the forest fire…</div>
+  ) : frame && (frame.world.depth ?? 1) > 1 ? (
+    <Suspense fallback={<WorldCanvas world={frame.world} />}>
+      <WorldView3D world={frame.world} />
+    </Suspense>
+  ) : (
+    <WorldCanvas world={frame?.world ?? null} />
+  )
+  const viewMeta = frame
+    ? `${frame.world.width} × ${frame.world.height}${(frame.world.depth ?? 1) > 1 ? ` × ${frame.world.depth}` : ''} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
+    : modelName
+  const widgetNodes = (fitted: boolean) =>
+    widgets.map((w) => (
+      <WidgetView
+        key={`${modelName}-${w.index}`}
+        widget={w}
+        fitted={fitted}
+        live={running && active === w.index}
+        outputText={outputText}
+        plot={plotFor(frame, w)}
+        series={plotSeries}
+        onPress={() => void onPress(w)}
+        onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
+        onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
+        onChooser={(current) => sessionId && void chooserMut({ id: sessionId, index: w.index, current })}
+        onInput={(text) => sessionId && void inputMut({ id: sessionId, index: w.index, text })}
+      />
+    ))
   const ticksLabel = frame?.ticksStarted && frame.ticks != null ? String(frame.ticks) : '—'
   const tpsLabel = frame?.running ? frame.tps.toFixed(1) : '—'
   const timerLabel = frame?.timer || '00:00.0'
@@ -1031,7 +1141,7 @@ export function App() {
         trailingSize={commandH}
         onTrailingSize={setCommandH}
         minLeading={240}
-        minTrailing={120}
+        minTrailing={48}
         label="Resize command center"
         leading={
       <main className="stage">
@@ -1167,105 +1277,160 @@ export function App() {
             />
           </section>
         ) : (
-          <HSplit
-            trailingSize={sidebarW}
-            onTrailingSize={setSidebarW}
-            minLeading={320}
-            minTrailing={220}
-            label="Resize widgets panel"
-            leading={
-            <section
-              className={dropping ? 'view drop' : 'view'}
-              onDragEnter={(e) => {
-                if (!dragHasFiles(e)) return
-                e.preventDefault()
-                setDropping(true)
-              }}
-              onDragOver={(e) => {
-                if (!dragHasFiles(e)) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'copy'
-                setDropping(true)
-              }}
-              onDragLeave={(e) => {
-                const next = e.relatedTarget
-                if (next instanceof Node && e.currentTarget.contains(next)) return
-                setDropping(false)
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDropping(false)
-                void onPickFile(e.dataTransfer.files?.[0])
-              }}
-            >
-              <div className="view-bar">
-                <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
-                <div className="model-heading">
-                  <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
-                    {modelTitle}
-                  </h1>
-                  {sessionChip && (
-                    <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
-                      {sessionChip.label}
-                    </span>
-                  )}
+          <div
+            className="interface-slot"
+            ref={interfaceRef}
+            onDragEnter={(e) => {
+              if (!dragHasFiles(e)) return
+              e.preventDefault()
+              setDropping(true)
+            }}
+            onDragOver={(e) => {
+              if (!dragHasFiles(e)) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+              setDropping(true)
+            }}
+            onDragLeave={(e) => {
+              const next = e.relatedTarget
+              if (next instanceof Node && e.currentTarget.contains(next)) return
+              setDropping(false)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDropping(false)
+              void onPickFile(e.dataTransfer.files?.[0])
+            }}
+          >
+            {interfaceMode === 'netlogo' ? (
+              <section className={dropping ? 'view drop' : 'view'} aria-label="Interface">
+                <div className="view-bar">
+                  <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+                  <LayoutToggle
+                    choice={layoutChoice}
+                    onChange={chooseLayout}
+                    forcedColumn={frame != null && !positionsUsable}
+                  />
+                  <GridControl spacing={grid} onChange={chooseGrid} />
+                  <button
+                    type="button"
+                    className="arrange"
+                    disabled={!widgetsApplyEnabled(!!sessionId, running)}
+                    title={running ? widgetsLockedMessage : 'Lay the view and widgets out on the grid'}
+                    onClick={() => setArrangeAsk(true)}
+                  >
+                    Arrange
+                  </button>
+                  <div className="model-heading">
+                    <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                      {modelTitle}
+                    </h1>
+                    {sessionChip && (
+                      <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
+                        {sessionChip.label}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="canvas-wrap">
-                {booting && !frame ? (
-                  <div className="loading">Opening the forest fire…</div>
-                ) : frame && (frame.world.depth ?? 1) > 1 ? (
-                  <Suspense fallback={<WorldCanvas world={frame.world} />}>
-                    <WorldView3D world={frame.world} />
-                  </Suspense>
-                ) : (
-                  <WorldCanvas world={frame?.world ?? null} />
-                )}
-                {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
-              </div>
-              <div className="view-meta">
-                {frame
-                  ? `${frame.world.width} × ${frame.world.height}${(frame.world.depth ?? 1) > 1 ? ` × ${frame.world.depth}` : ''} patches · patch size ${frame.world.patchSize} · wrap ${frame.world.wrapX ? 'x' : '–'}${frame.world.wrapY ? ' y' : ''}`
-                  : modelName}
-              </div>
-            </section>
-            }
-            trailing={
-            <aside className="side" aria-label="Interface widgets">
-              {widgets.length === 0 && (
-                <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
-              )}
-              {widgets.map((w) => (
-                <WidgetView
-                  key={`${modelName}-${w.index}`}
-                  widget={w}
-                  live={running && active === w.index}
-                  outputText={outputText}
-                  plot={plotFor(frame, w)}
-                  series={plotSeries}
-                  onPress={() => void onPress(w)}
-                  onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
-                  onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
-                  onChooser={(current) => sessionId && void chooserMut({ id: sessionId, index: w.index, current })}
-                  onInput={(text) => sessionId && void inputMut({ id: sessionId, index: w.index, text })}
+                <InterfaceCanvas
+                  view={viewBox}
+                  dropping={dropping}
+                  grid={grid}
+                  world={worldView}
+                  items={widgets.map((w) => ({
+                    key: `${modelName}-${w.index}`,
+                    box: { x: w.x, y: w.y, w: w.width, h: w.height },
+                    node: (
+                      <WidgetView
+                        widget={w}
+                        fitted
+                        live={running && active === w.index}
+                        outputText={outputText}
+                        plot={plotFor(frame, w)}
+                        series={plotSeries}
+                        onPress={() => void onPress(w)}
+                        onSlider={(value) => sessionId && void sliderMut({ id: sessionId, index: w.index, value })}
+                        onSwitch={(on) => sessionId && void switchMut({ id: sessionId, index: w.index, on })}
+                        onChooser={(current) => sessionId && void chooserMut({ id: sessionId, index: w.index, current })}
+                        onInput={(text) => sessionId && void inputMut({ id: sessionId, index: w.index, text })}
+                      />
+                    ),
+                  }))}
                 />
-              ))}
-              {notes.map((note) => (
-                <p className="note" key={note}>{note}</p>
-              ))}
-            </aside>
-            }
-          />
+                <div className="view-meta">{viewMeta}</div>
+                {notes.map((note) => (
+                  <p className="note" key={note}>{note}</p>
+                ))}
+              </section>
+            ) : (
+              <HSplit
+                trailingSize={sidebarW}
+                onTrailingSize={setSidebarW}
+                minLeading={320}
+                minTrailing={220}
+                label="Resize widgets panel"
+                leading={
+                  <section className={dropping ? 'view drop' : 'view'}>
+                    <div className="view-bar">
+                      <MainTabs tab={shownTab} showDynamics={showDynamics} onChange={requestTab} />
+                      <LayoutToggle
+                        choice={layoutChoice}
+                        onChange={chooseLayout}
+                        forcedColumn={frame != null && !positionsUsable}
+                      />
+                      <GridControl spacing={grid} onChange={chooseGrid} />
+                      <button
+                        type="button"
+                        className="arrange"
+                        disabled={!widgetsApplyEnabled(!!sessionId, running)}
+                        title={running ? widgetsLockedMessage : 'Lay the view and widgets out on the grid'}
+                        onClick={() => setArrangeAsk(true)}
+                      >
+                        Arrange
+                      </button>
+                      <div className="model-heading">
+                        <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
+                          {modelTitle}
+                        </h1>
+                        {sessionChip && (
+                          <span className="session-mark" title={sessionChip.title} aria-label={`Session ${sessionChip.title}`}>
+                            {sessionChip.label}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="canvas-wrap">
+                      {worldView}
+                      {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
+                    </div>
+                    <div className="view-meta">{viewMeta}</div>
+                  </section>
+                }
+                trailing={
+                  <aside className="side" aria-label="Interface widgets">
+                    {widgets.length === 0 && (
+                      <div className="empty">{booting ? 'Loading widgets…' : 'This model has no interface widgets.'}</div>
+                    )}
+                    {widgetNodes(false)}
+                    {notes.map((note) => (
+                      <p className="note" key={note}>{note}</p>
+                    ))}
+                  </aside>
+                }
+              />
+            )}
+          </div>
         )}
       </main>
         }
         trailing={
       <section className="command" aria-label="Command center">
-        <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'Command center. A reporter prints its result here.'}</pre>
+        <pre ref={logRef}>{frame?.log.length ? frame.log.join('\n') : 'A reporter prints its result here.'}</pre>
         <form onSubmit={(e) => void onCommand(e)}>
           <input
             aria-label="Command"
             placeholder="show count turtles"
+            title="Observer commands and reporters, one line at a time."
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             disabled={!sessionId}
@@ -1273,9 +1438,8 @@ export function App() {
           <button className="act" type="submit" disabled={!sessionId || !command.trim()}>
             Run
           </button>
-          <div className="hint">Observer commands and reporters, one line at a time.</div>
-          {commandError && <div className="err">{commandError}</div>}
         </form>
+        {commandError && <div className="err">{commandError}</div>}
       </section>
         }
       />
@@ -1316,6 +1480,28 @@ export function App() {
           }}
         />
       )}
+      {arrangeAsk && (
+        <div className="modal-back" onMouseDown={() => setArrangeAsk(false)}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="arrange-title"
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setArrangeAsk(false)
+            }}
+          >
+            <p id="arrange-title">Rearrange the interface? This replaces the view and widget positions.</p>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setArrangeAsk(false)}>Cancel</button>
+              <button type="button" className="apply" autoFocus onClick={() => void confirmArrange()}>
+                Arrange
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {leaveTo && (
         <div className="modal-back" onMouseDown={() => { if (!leaving) setLeaveTo(null) }}>
           <div
@@ -1345,6 +1531,23 @@ export function App() {
 // interfaceModelTitle is the name NetLogo puts in the window title:
 // the file name without its extension. A missing name, or a file
 // named Untitled, is a blank model.
+function worldGeometryKey(frame: Frame | null) {
+  if (!frame) return ''
+  const w = frame.world
+  return [
+    w.minPxcor,
+    w.maxPxcor,
+    w.minPycor,
+    w.maxPycor,
+    w.minPzcor ?? 0,
+    w.maxPzcor ?? 0,
+    w.patchSize,
+    w.wrapX ? 1 : 0,
+    w.wrapY ? 1 : 0,
+    w.wrapZ ? 1 : 0,
+  ].join(',')
+}
+
 function interfaceModelTitle(modelName: string): string {
   const base = modelName.replace(/\.nlogo(?:x3d|x|3d)?$/i, '').trim()
   if (base === '' || /^untitled$/i.test(base)) return 'Untitled'
@@ -1906,6 +2109,7 @@ function plotFor(frame: Frame | null, widget: Widget): PlotView | null {
 
 function WidgetView({
   widget,
+  fitted,
   live,
   outputText,
   plot,
@@ -1917,6 +2121,7 @@ function WidgetView({
   onInput,
 }: {
   widget: Widget
+  fitted?: boolean
   live: boolean
   outputText: string
   plot: PlotView | null
@@ -1934,7 +2139,7 @@ function WidgetView({
   if (widget.kind === 'button') {
     const label = live ? 'stop' : widget.display
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <button
           type="button"
           className={live ? 'iface live' : widget.forever ? 'iface forever' : 'iface'}
@@ -1952,7 +2157,7 @@ function WidgetView({
     const value = slider ?? widget.value ?? widget.min ?? 0
     const units = widget.units ? ` ${widget.units}` : ''
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <input
           type="range"
@@ -1974,7 +2179,7 @@ function WidgetView({
 
   if (widget.kind === 'switch') {
     return (
-      <label className="switch">
+      <label className={fitted ? `switch ${widget.kind}` : 'switch'} {...tip}>
         <input
           type="checkbox"
           checked={widget.on ?? false}
@@ -1988,7 +2193,7 @@ function WidgetView({
 
   if (widget.kind === 'monitor') {
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <div className="readout">{widget.reading ?? '—'}</div>
       </div>
@@ -1997,7 +2202,7 @@ function WidgetView({
 
   if (widget.kind === 'chooser') {
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <select
           aria-label={widget.display}
@@ -2015,7 +2220,7 @@ function WidgetView({
   if (widget.kind === 'input') {
     const shown = text ?? widget.text ?? ''
     return (
-      <div className="widget" {...tip}>
+      <div className={fitted ? `widget ${widget.kind}` : 'widget'} {...tip}>
         <div className="label">{widget.display}</div>
         <input
           type="text"
@@ -2031,11 +2236,16 @@ function WidgetView({
   }
 
   if (widget.kind === 'output') {
-    return <OutputPanel widget={widget} text={outputText} />
+    return <OutputPanel widget={widget} text={outputText} fitted={fitted} />
   }
 
   if (widget.kind === 'note') {
-    return <p className="note">{widget.display}</p>
+    const font = widget.fontSize > 0 ? widget.fontSize : 12
+    return (
+      <p className="note" style={fitted ? { ['--note-font' as string]: font } : undefined} {...tip}>
+        {widget.display}
+      </p>
+    )
   }
 
   if (widget.kind === 'plot') {
@@ -2046,13 +2256,13 @@ function WidgetView({
         </div>
       )
     }
-    return <PlotCard plot={plot} series={series} />
+    return <PlotCard plot={plot} series={series} hint={widget.description} />
   }
 
   return null
 }
 
-function OutputPanel({ widget, text }: { widget: Widget; text: string }) {
+function OutputPanel({ widget, text, fitted }: { widget: Widget; text: string; fitted?: boolean }) {
   const ref = useRef<HTMLPreElement>(null)
   useEffect(() => {
     const el = ref.current
@@ -2060,10 +2270,11 @@ function OutputPanel({ widget, text }: { widget: Widget; text: string }) {
   }, [text])
   const fontSize = widget.fontSize > 0 ? Math.min(28, Math.max(10, widget.fontSize)) : 12
   const height = widget.height > 0 ? Math.min(200, Math.max(72, widget.height)) : 120
+  const style = fitted ? { fontSize: `${fontSize / 12}em` } : { fontSize, maxHeight: height }
   return (
-    <div className="output-panel" aria-label="Output">
+    <div className="output-panel" aria-label="Output" title={widget.description || undefined}>
       <div className="label">Output</div>
-      <pre ref={ref} style={{ fontSize, maxHeight: height }}>
+      <pre ref={ref} style={style}>
         {text}
       </pre>
     </div>

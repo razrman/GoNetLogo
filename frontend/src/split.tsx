@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 
 export const sidebarStorageKey = 'gonetlogo.layout.sidebar'
-export const commandStorageKey = 'gonetlogo.layout.command'
+export const commandStorageKey = 'gonetlogo.layout.command.v2'
 
 export function useStoredSize(key: string, fallback: number) {
   const [size, setSize] = useState(() => readStoredSize(key, fallback))

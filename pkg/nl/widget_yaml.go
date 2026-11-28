@@ -22,19 +22,17 @@ func FormatWidgetYAML(w Widget) (string, error) {
 	return marshalPlain(doc)
 }
 
-// FormatWidgetsYAML is the Widgets tab document: a list of every widget,
-// in model order. Each entry has the same keys as FormatWidgetYAML.
-func FormatWidgetsYAML(widgets []Widget) (string, error) {
-	docs := make([]any, len(widgets))
-	for i, w := range widgets {
+// FormatWidgetsYAML is the Widgets tab document. The view is the first
+// entry. The model's widgets follow, in model order.
+func FormatWidgetsYAML(view ViewSpec, widgets []Widget) (string, error) {
+	docs := make([]any, 0, len(widgets)+1)
+	docs = append(docs, formatView(view))
+	for _, w := range widgets {
 		doc, err := widgetDocument(w)
 		if err != nil {
 			return "", err
 		}
-		docs[i] = doc
-	}
-	if len(docs) == 0 {
-		return "[]\n", nil
+		docs = append(docs, doc)
 	}
 	return marshalPlain(docs)
 }
@@ -66,56 +64,69 @@ func ApplyWidgetYAML(w Widget, text string) (Widget, error) {
 	return next, nil
 }
 
-// ApplyWidgetsYAML reads the Widgets tab list. Entries are matched to
-// existing widgets by kind and variable (or display, when the widget has
-// no variable). A match is edited and keeps fields the document does not
-// show, such as plot pens. Unmatched entries are added. Existing widgets
-// with no entry are removed. The result order is the document order.
-// Changing kind on a widget that still has the same variable or display
-// is rejected. Renaming variable or display and reordering that same
-// widget in one save is treated as removing it and adding a new one.
-func ApplyWidgetsYAML(existing []Widget, text string) ([]Widget, []int, error) {
+// ApplyWidgetsYAML reads the Widgets tab list. The list has exactly one
+// kind: view entry; it cannot be removed, duplicated, or given another
+// kind. The other entries are matched to existing widgets by kind and
+// variable (or display, when the widget has no variable). A match is
+// edited and keeps fields the document does not show, such as plot pens.
+// Unmatched entries are added. Existing widgets with no entry are
+// removed. The result order is the document order, with the view entry
+// skipped. Changing kind on a widget that still has the same variable or
+// display is rejected. Renaming variable or display and reordering that
+// same widget in one save is treated as removing it and adding a new one.
+func ApplyWidgetsYAML(view ViewSpec, existing []Widget, text string) (ViewSpec, []Widget, []int, error) {
 	if strings.TrimSpace(text) == "" {
-		return nil, nil, fmt.Errorf("the widget document is empty")
+		return view, nil, nil, fmt.Errorf("the widget document is empty")
 	}
 	dec := yaml.NewDecoder(strings.NewReader(text))
 	var doc yaml.Node
 	if err := dec.Decode(&doc); err != nil {
-		return nil, nil, friendlyYAMLError(err)
+		return view, nil, nil, friendlyYAMLError(err)
 	}
 	var extra yaml.Node
 	if err := dec.Decode(&extra); err != io.EOF {
-		return nil, nil, fmt.Errorf("the widget document must be a single list")
+		return view, nil, nil, fmt.Errorf("the widget document must be a single list")
 	}
 	root := &doc
 	if root.Kind == yaml.DocumentNode {
 		if len(root.Content) == 0 {
-			return []Widget{}, []int{}, nil
+			return view, nil, nil, fmt.Errorf("the view cannot be removed")
 		}
 		root = root.Content[0]
 	}
 	if root.Kind != yaml.SequenceNode {
-		return nil, nil, fmt.Errorf("the widget document must be a list of widgets")
+		return view, nil, nil, fmt.Errorf("the widget document must be a list of widgets")
 	}
 	type item struct {
+		index                   int
 		kind, display, variable string
 		node                    *yaml.Node
 	}
-	items := make([]item, len(root.Content))
+	var items []item
+	var viewNode *yaml.Node
+	viewAt := -1
 	seen := map[string]int{}
 	for i, node := range root.Content {
 		if node.Kind != yaml.MappingNode {
-			return nil, nil, fmt.Errorf("widget %d: each entry must be a map", i)
+			return view, nil, nil, fmt.Errorf("widget %d: each entry must be a map", i)
 		}
 		kind, display, variable, err := peekWidget(node)
 		if err != nil {
-			return nil, nil, fmt.Errorf("widget %d: %w", i, err)
+			return view, nil, nil, fmt.Errorf("widget %d: %w", i, err)
+		}
+		if kind == "view" {
+			if viewAt >= 0 {
+				return view, nil, nil, fmt.Errorf("widget %d (view): duplicates the view", i)
+			}
+			viewAt = i
+			viewNode = node
+			continue
 		}
 		id := stableID(kind, variable, display)
 		if id != "" {
 			key := kind + "\x00" + id
 			if prev, ok := seen[key]; ok {
-				return nil, nil, fmt.Errorf("widget %d (%s): duplicates widget %d", i, widgetLabel(display, variable, kind), prev)
+				return view, nil, nil, fmt.Errorf("widget %d (%s): duplicates widget %d", i, widgetLabel(display, variable, kind), prev)
 			}
 			seen[key] = i
 		}
@@ -124,10 +135,17 @@ func ApplyWidgetsYAML(existing []Widget, text string) ([]Widget, []int, error) {
 				continue
 			}
 			if old.Kind != kind {
-				return nil, nil, fmt.Errorf("widget %d (%s): kind cannot be changed from %s to %s", i, widgetLabel(display, variable, kind), old.Kind, kind)
+				return view, nil, nil, fmt.Errorf("widget %d (%s): kind cannot be changed from %s to %s", i, widgetLabel(display, variable, kind), old.Kind, kind)
 			}
 		}
-		items[i] = item{kind: kind, display: display, variable: variable, node: node}
+		items = append(items, item{index: i, kind: kind, display: display, variable: variable, node: node})
+	}
+	if viewAt < 0 {
+		return view, nil, nil, fmt.Errorf("the view cannot be removed, and its kind cannot be changed")
+	}
+	nextView, err := decodeView(view, viewNode)
+	if err != nil {
+		return view, nil, nil, fmt.Errorf("widget %d (view): %w", viewAt, err)
 	}
 	used := make([]bool, len(existing))
 	from := make([]int, len(items))
@@ -144,7 +162,7 @@ func ApplyWidgetsYAML(existing []Widget, text string) ([]Widget, []int, error) {
 			}
 			if stableID(old.Kind, old.Variable, old.Display) == id {
 				if match >= 0 {
-					return nil, nil, fmt.Errorf("widget %d (%s): matches more than one existing widget", i, widgetLabel(item.display, item.variable, item.kind))
+					return view, nil, nil, fmt.Errorf("widget %d (%s): matches more than one existing widget", item.index, widgetLabel(item.display, item.variable, item.kind))
 				}
 				match = j
 			}
@@ -175,11 +193,11 @@ func ApplyWidgetsYAML(existing []Widget, text string) ([]Widget, []int, error) {
 		}
 		next, err := decodeWidget(base, item.node)
 		if err != nil {
-			return nil, nil, fmt.Errorf("widget %d (%s): %w", i, widgetLabel(item.display, item.variable, item.kind), err)
+			return view, nil, nil, fmt.Errorf("widget %d (%s): %w", item.index, widgetLabel(item.display, item.variable, item.kind), err)
 		}
 		out[i] = next
 	}
-	return out, from, nil
+	return nextView, out, from, nil
 }
 
 func widgetLabel(display, variable, kind string) string {
@@ -216,8 +234,10 @@ func peekWidget(node *yaml.Node) (kind, display, variable string, err error) {
 	if !ok || strings.TrimSpace(kind) == "" {
 		return "", "", "", fmt.Errorf("kind is required")
 	}
-	if _, err := newWidgetDocument(kind); err != nil {
-		return "", "", "", fmt.Errorf("unknown kind %q", kind)
+	if kind != "view" {
+		if _, err := newWidgetDocument(kind); err != nil {
+			return "", "", "", fmt.Errorf("unknown kind %q", kind)
+		}
 	}
 	display, _ = mappingString(node, "display")
 	variable, _ = mappingString(node, "variable")
@@ -361,10 +381,64 @@ func WriteWidget(source string, index int, w Widget) (string, error) {
 	return ReplaceWidgetSection(source, next)
 }
 
-// WriteWidgets rewrites every widget in source to match widgets, in that
-// order. from[i] is the previous index of widgets[i], or -1 when it is new.
-// The graphics window and the other model sections stay in place.
-func WriteWidgets(source string, widgets []Widget, from []int) (string, error) {
+// RewriteViewGeometry writes the live world size back into the view
+// widget. Position, font, and the tick label are left as they are.
+func RewriteViewGeometry(source string, view ViewSpec) (string, error) {
+	section := ExtractWidgetSection(source)
+	var next string
+	var err error
+	if section.XML {
+		next, err = rewriteXMLView(section.Text, view)
+	} else {
+		next, err = rewriteClassicViewSection(section.Text, view)
+	}
+	if err != nil {
+		return "", err
+	}
+	return ReplaceWidgetSection(source, next)
+}
+
+func rewriteClassicViewSection(section string, view ViewSpec) (string, error) {
+	lines := strings.Split(strings.ReplaceAll(section, "\r\n", "\n"), "\n")
+	var blocks [][]string
+	var cur []string
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		blocks = append(blocks, cur)
+		cur = nil
+	}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			flush()
+			continue
+		}
+		cur = append(cur, line)
+	}
+	flush()
+	found := false
+	for i, block := range blocks {
+		if strings.EqualFold(strings.TrimSpace(block[0]), "GRAPHICS-WINDOW") {
+			blocks[i] = rewriteGraphicsWindow(block, view)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("model has no graphics window")
+	}
+	parts := make([]string, len(blocks))
+	for i, block := range blocks {
+		parts[i] = strings.Join(block, "\n")
+	}
+	return strings.Join(parts, "\n\n"), nil
+}
+
+// WriteWidgets rewrites the view and every widget in source. from[i] is
+// the previous index of widgets[i], or -1 when it is new. The graphics
+// window keeps the lines this editor does not show.
+func WriteWidgets(source string, view ViewSpec, widgets []Widget, from []int) (string, error) {
 	if len(widgets) != len(from) {
 		return "", fmt.Errorf("widget edit length mismatch")
 	}
@@ -372,9 +446,9 @@ func WriteWidgets(source string, widgets []Widget, from []int) (string, error) {
 	var next string
 	var err error
 	if section.XML {
-		next, err = writeXMLWidgets(section.Text, widgets, from)
+		next, err = writeXMLWidgets(section.Text, view, widgets, from)
 	} else {
-		next, err = writeClassicWidgets(section.Text, widgets, from)
+		next, err = writeClassicWidgets(section.Text, view, widgets, from)
 	}
 	if err != nil {
 		return "", err
@@ -482,6 +556,149 @@ type box struct {
 
 func boxOf(w Widget) box {
 	return box{X: w.X, Y: w.Y, Width: w.W, Height: w.H, Description: w.Description}
+}
+
+func formatView(v ViewSpec) viewDoc {
+	doc := viewDoc{
+		Kind: "view", PatchSize: v.PatchSize, FontSize: v.FontSize,
+		MinPxcor: v.MinPxcor, MaxPxcor: v.MaxPxcor, MinPycor: v.MinPycor, MaxPycor: v.MaxPycor,
+		WrapX: v.WrapX, WrapY: v.WrapY,
+		box: box{X: v.X, Y: v.Y, Width: v.W, Height: v.H, Description: v.Description},
+	}
+	if v.Is3D {
+		minZ, maxZ := v.MinPzcor, v.MaxPzcor
+		wrapZ := v.WrapZ
+		doc.MinPzcor, doc.MaxPzcor, doc.WrapZ = &minZ, &maxZ, &wrapZ
+	}
+	if v.UpdateModeStored {
+		mode := UpdateModeName(v.UpdateMode)
+		doc.UpdateMode = &mode
+	}
+	if v.TickLabel != "" {
+		label := v.TickLabel
+		doc.TicksLabel = &label
+	}
+	return doc
+}
+
+type viewDoc struct {
+	Kind       string  `yaml:"kind"`
+	PatchSize  float64 `yaml:"patchSize"`
+	FontSize   int     `yaml:"fontSize"`
+	MinPxcor   int     `yaml:"minPxcor"`
+	MaxPxcor   int     `yaml:"maxPxcor"`
+	MinPycor   int     `yaml:"minPycor"`
+	MaxPycor   int     `yaml:"maxPycor"`
+	MinPzcor   *int    `yaml:"minPzcor,omitempty"`
+	MaxPzcor   *int    `yaml:"maxPzcor,omitempty"`
+	WrapX      bool    `yaml:"wrapX"`
+	WrapY      bool    `yaml:"wrapY"`
+	WrapZ      *bool   `yaml:"wrapZ,omitempty"`
+	UpdateMode *string `yaml:"updateMode,omitempty"`
+	TicksLabel *string `yaml:"ticksLabel,omitempty"`
+	box        `yaml:",inline"`
+}
+
+func (d *viewDoc) apply(v ViewSpec) (ViewSpec, error) {
+	if strings.TrimSpace(d.Kind) != "view" {
+		got := strings.TrimSpace(d.Kind)
+		if got == "" {
+			return v, fmt.Errorf("kind is required")
+		}
+		return v, fmt.Errorf("kind cannot be changed from view to %s", got)
+	}
+	if d.PatchSize <= 0 || d.PatchSize > 100 {
+		return v, fmt.Errorf("patchSize must be positive and at most 100")
+	}
+	if d.FontSize < 0 {
+		return v, fmt.Errorf("fontSize must be zero or positive")
+	}
+	if d.Width < 0 || d.Height < 0 {
+		return v, fmt.Errorf("width and height must be zero or positive")
+	}
+	desc, err := cleanDescription(d.Description)
+	if err != nil {
+		return v, err
+	}
+	if v.Is3D {
+		if (d.MinPzcor == nil) != (d.MaxPzcor == nil) {
+			return v, fmt.Errorf("minPzcor and maxPzcor must both be set")
+		}
+	}
+	next := v
+	next.X, next.Y, next.W, next.H = d.X, d.Y, d.Width, d.Height
+	next.Description = desc
+	next.PatchSize = d.PatchSize
+	next.FontSize = d.FontSize
+	next.MinPxcor, next.MaxPxcor = d.MinPxcor, d.MaxPxcor
+	next.MinPycor, next.MaxPycor = d.MinPycor, d.MaxPycor
+	next.WrapX, next.WrapY = d.WrapX, d.WrapY
+	if v.Is3D {
+		if d.MinPzcor != nil {
+			next.MinPzcor, next.MaxPzcor = *d.MinPzcor, *d.MaxPzcor
+		}
+		if d.WrapZ != nil {
+			next.WrapZ = *d.WrapZ
+		}
+		if err := ValidWorld3D(next.MinPxcor, next.MaxPxcor, next.MinPycor, next.MaxPycor, next.MinPzcor, next.MaxPzcor); err != nil {
+			return v, fmt.Errorf("minPxcor: %w", err)
+		}
+	} else if err := ValidWorld(next.MinPxcor, next.MaxPxcor, next.MinPycor, next.MaxPycor); err != nil {
+		return v, fmt.Errorf("minPxcor: %w", err)
+	}
+	if d.UpdateMode != nil {
+		if !v.UpdateModeStored {
+			return v, fmt.Errorf("updateMode is not stored for this view")
+		}
+		mode, err := ParseUpdateMode(*d.UpdateMode)
+		if err != nil {
+			return v, fmt.Errorf("updateMode: %w", err)
+		}
+		next.UpdateMode = mode
+	}
+	if d.TicksLabel != nil {
+		label := strings.TrimSpace(*d.TicksLabel)
+		if strings.ContainsAny(label, "\r\n") {
+			return v, fmt.Errorf("ticksLabel must be a single line")
+		}
+		next.TickLabel = label
+	}
+	return next, nil
+}
+
+func decodeView(base ViewSpec, node *yaml.Node) (ViewSpec, error) {
+	allowed := viewKeys(base)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		if !allowed[key] {
+			return base, fmt.Errorf("unknown key %q", key)
+		}
+	}
+	var doc viewDoc
+	if err := node.Decode(&doc); err != nil {
+		return base, friendlyYAMLError(err)
+	}
+	return doc.apply(base)
+}
+
+func viewKeys(v ViewSpec) map[string]bool {
+	keys := []string{
+		"kind", "x", "y", "width", "height", "description",
+		"patchSize", "fontSize",
+		"minPxcor", "maxPxcor", "minPycor", "maxPycor",
+		"wrapX", "wrapY", "ticksLabel",
+	}
+	if v.Is3D {
+		keys = append(keys, "minPzcor", "maxPzcor", "wrapZ")
+	}
+	if v.UpdateModeStored {
+		keys = append(keys, "updateMode")
+	}
+	out := map[string]bool{}
+	for _, key := range keys {
+		out[key] = true
+	}
+	return out
 }
 
 func (b box) place(w Widget) (Widget, error) {
@@ -822,7 +1039,7 @@ func friendlyYAMLError(err error) error {
 	return fmt.Errorf("could not read the widget YAML: %s", strings.TrimSpace(msg))
 }
 
-func writeClassicWidgets(section string, widgets []Widget, from []int) (string, error) {
+func writeClassicWidgets(section string, view ViewSpec, widgets []Widget, from []int) (string, error) {
 	lines := strings.Split(strings.ReplaceAll(section, "\r\n", "\n"), "\n")
 	var blocks [][]string
 	var cur []string
@@ -842,12 +1059,22 @@ func writeClassicWidgets(section string, widgets []Widget, from []int) (string, 
 	}
 	flush()
 	var others, old [][]string
+	sawView := false
 	for _, block := range blocks {
-		if classicWidgetKind(strings.ToUpper(strings.TrimSpace(block[0]))) {
+		kind := strings.ToUpper(strings.TrimSpace(block[0]))
+		if kind == "GRAPHICS-WINDOW" {
+			others = append(others, rewriteGraphicsWindow(block, view))
+			sawView = true
+			continue
+		}
+		if classicWidgetKind(kind) {
 			old = append(old, block)
 			continue
 		}
 		others = append(others, block)
+	}
+	if !sawView {
+		return "", fmt.Errorf("model has no graphics window")
 	}
 	out := append([][]string{}, others...)
 	for i, w := range widgets {
@@ -868,6 +1095,102 @@ func writeClassicWidgets(section string, widgets []Widget, from []int) (string, 
 		return "", nil
 	}
 	return strings.Join(parts, "\n\n"), nil
+}
+
+func rewriteGraphicsWindow(lines []string, v ViewSpec) []string {
+	out := append([]string(nil), lines...)
+	set := func(i int, val string) {
+		for len(out) <= i {
+			out = append(out, "")
+		}
+		out[i] = val
+	}
+	if len(out) == 0 || !strings.EqualFold(strings.TrimSpace(out[0]), "GRAPHICS-WINDOW") {
+		out = []string{"GRAPHICS-WINDOW"}
+	}
+	set(1, strconv.Itoa(v.X))
+	set(2, strconv.Itoa(v.Y))
+	set(3, strconv.Itoa(v.X+v.W))
+	set(4, strconv.Itoa(v.Y+v.H))
+	set(7, formatWidgetNum(v.PatchSize))
+	set(9, strconv.Itoa(v.FontSize))
+	set(14, bit(v.WrapX))
+	set(15, bit(v.WrapY))
+	set(17, strconv.Itoa(v.MinPxcor))
+	set(18, strconv.Itoa(v.MaxPxcor))
+	set(19, strconv.Itoa(v.MinPycor))
+	set(20, strconv.Itoa(v.MaxPycor))
+	if v.Is3D {
+		set(21, strconv.Itoa(v.MinPzcor))
+		set(22, strconv.Itoa(v.MaxPzcor))
+	} else if v.UpdateModeStored {
+		set(21, strconv.Itoa(v.UpdateMode))
+	}
+	if v.TickLabel != "" || lineAt(out, 24) != "" {
+		label := v.TickLabel
+		if label == "" {
+			label = "NIL"
+		}
+		set(24, label)
+	}
+	kept := out[:0]
+	for _, line := range out {
+		if strings.HasPrefix(strings.TrimSpace(line), widgetDescriptionPrefix) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if v.Description != "" {
+		kept = append(kept, widgetDescriptionPrefix+" "+v.Description)
+	}
+	return kept
+}
+
+func bit(on bool) string {
+	if on {
+		return "1"
+	}
+	return "0"
+}
+
+func rewriteXMLView(section string, v ViewSpec) (string, error) {
+	loc := viewOpenTag.FindStringIndex(section)
+	if loc == nil {
+		return "", fmt.Errorf("model has no view")
+	}
+	tag := section[loc[0]:loc[1]]
+	tag = upsertAttr(tag, "x", strconv.Itoa(v.X))
+	tag = upsertAttr(tag, "y", strconv.Itoa(v.Y))
+	tag = upsertAttr(tag, "width", strconv.Itoa(v.W))
+	tag = upsertAttr(tag, "height", strconv.Itoa(v.H))
+	tag = upsertAttr(tag, "patchSize", formatWidgetNum(v.PatchSize))
+	tag = upsertAttr(tag, "fontSize", strconv.Itoa(v.FontSize))
+	tag = upsertAttr(tag, "minPxcor", strconv.Itoa(v.MinPxcor))
+	tag = upsertAttr(tag, "maxPxcor", strconv.Itoa(v.MaxPxcor))
+	tag = upsertAttr(tag, "minPycor", strconv.Itoa(v.MinPycor))
+	tag = upsertAttr(tag, "maxPycor", strconv.Itoa(v.MaxPycor))
+	tag = upsertAttr(tag, "wrappingAllowedX", strconv.FormatBool(v.WrapX))
+	tag = upsertAttr(tag, "wrappingAllowedY", strconv.FormatBool(v.WrapY))
+	tag = upsertAttr(tag, "description", v.Description)
+	if v.Is3D {
+		tag = upsertAttr(tag, "minPzcor", strconv.Itoa(v.MinPzcor))
+		tag = upsertAttr(tag, "maxPzcor", strconv.Itoa(v.MaxPzcor))
+		tag = upsertAttr(tag, "wrappingAllowedZ", strconv.FormatBool(v.WrapZ))
+	}
+	if v.UpdateModeStored {
+		tag = upsertAttr(tag, "updateMode", strconv.Itoa(v.UpdateMode))
+	}
+	if v.TickLabel == "" {
+		tag = removeAttr(tag, "tickCounterLabel")
+	} else {
+		tag = upsertAttr(tag, "tickCounterLabel", v.TickLabel)
+	}
+	return section[:loc[0]] + tag + section[loc[1]:], nil
+}
+
+func removeAttr(tag, name string) string {
+	re := regexp.MustCompile(`(?i)\s` + regexp.QuoteMeta(name) + `\s*=\s*("[^"]*"|'[^']*')`)
+	return re.ReplaceAllString(tag, "")
 }
 
 func classicKindLine(kind string) string {
@@ -895,7 +1218,11 @@ func classicKindLine(kind string) string {
 	}
 }
 
-func writeXMLWidgets(section string, widgets []Widget, from []int) (string, error) {
+func writeXMLWidgets(section string, view ViewSpec, widgets []Widget, from []int) (string, error) {
+	section, err := rewriteXMLView(section, view)
+	if err != nil {
+		return "", err
+	}
 	matches := xmlWidgetTag.FindAllStringIndex(section, -1)
 	spans := make([][2]int, len(matches))
 	for i, match := range matches {
