@@ -564,6 +564,40 @@ body.pane-row, body.pane-row * { cursor: row-resize !important; }
   color: var(--ivory);
 }
 
+.grid-pick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.grid-pick select {
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--ink);
+  font-size: 0.75rem;
+}
+
+.view-bar button.arrange {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--ink);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.view-bar button.arrange:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .iface-stage {
   position: relative;
   flex: 1 1 auto;

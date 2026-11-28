@@ -78,8 +78,8 @@ import { worldGeometryChanged, worldSizeLockedMessage } from './runLock'
 const WorldView3D = lazy(() => import('./WorldView3D'))
 import { PlotCard, absorbPlots, type PlotSeries } from './PlotWidget'
 import { HSplit, VSplit, commandStorageKey, sidebarStorageKey, useStoredSize } from './split'
-import { InterfaceCanvas, LayoutToggle } from './InterfaceCanvas'
-import { geometryUsable, layoutPaneWidth, readLayoutChoice, resolveLayout, writeLayoutChoice, type LayoutChoice } from './interfaceLayout'
+import { GridControl, InterfaceCanvas, LayoutToggle } from './InterfaceCanvas'
+import { arrangeWidgetDocument, geometryUsable, layoutPaneWidth, readGridSpacing, readLayoutChoice, resolveLayout, snapWidgetYAML, writeGridSpacing, writeLayoutChoice, type GridSpacing, type LayoutChoice } from './interfaceLayout'
 
 type CreateResult = { createSession: SessionInfo }
 type LoadResult = { loadModel: SessionInfo }
@@ -151,6 +151,8 @@ export function App() {
   const [tab, setTab] = useState<MainTab>('interface')
   const [sidebarW, setSidebarW] = useStoredSize(sidebarStorageKey, 300)
   const [layoutChoice, setLayoutChoice] = useState<LayoutChoice>(() => readLayoutChoice())
+  const [grid, setGrid] = useState<GridSpacing>(() => readGridSpacing())
+  const [arrangeAsk, setArrangeAsk] = useState(false)
   const [paneWidth, setPaneWidth] = useState(() => (typeof window === 'undefined' ? 1200 : window.innerWidth))
   const interfaceRef = useRef<HTMLDivElement>(null)
   const [commandH, setCommandH] = useStoredSize(commandStorageKey, 58)
@@ -503,7 +505,7 @@ export function App() {
 
   async function applyWidgets() {
     if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
-    const res = await setWidgetYamlMut({ id: sessionId, yaml: widgetDraft })
+    const res = await setWidgetYamlMut({ id: sessionId, yaml: snapWidgetYAML(widgetDraft, grid) })
     if (res.error) {
       setWidgetError(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
       return
@@ -918,6 +920,43 @@ export function App() {
     setLayoutChoice(next)
     writeLayoutChoice(next)
   }
+  const chooseGrid = (next: GridSpacing) => {
+    setGrid(next)
+    writeGridSpacing(next)
+  }
+  async function confirmArrange() {
+    setArrangeAsk(false)
+    if (!sessionId || !widgetsApplyEnabled(true, frame?.running ?? false)) return
+    const loaded = await client.query<{ widgetYaml: string }>(WidgetYAML, { id: sessionId }, { requestPolicy: 'network-only' }).toPromise()
+    if (loaded.error || !loaded.data) {
+      setBanner((loaded.error?.message ?? 'Could not read the widgets').replace(/^\[GraphQL\]\s*/i, '').trim())
+      return
+    }
+    const written = arrangeWidgetDocument(
+      loaded.data.widgetYaml,
+      widgets.map((widget) => ({ kind: widget.kind, box: { x: widget.x, y: widget.y, w: widget.width, h: widget.height } })),
+      viewBox,
+      grid,
+    )
+    if (written.error) {
+      setBanner(written.error)
+      return
+    }
+    const res = await setWidgetYamlMut({ id: sessionId, yaml: written.text })
+    if (res.error) {
+      setBanner(res.error.message.replace(/^\[GraphQL\]\s*/i, '').trim())
+      return
+    }
+    const applied = res.data?.setWidgetYaml
+    const settled = settleWidgetYAML(written.text, {
+      ok: applied?.ok ?? false,
+      error: applied?.error,
+      spec: applied?.spec,
+    })
+    setWidgetDraft(settled.draft)
+    setWidgetError(settled.error)
+    if (settled.error) setBanner(settled.error)
+  }
   const worldView = booting && !frame ? (
     <div className="loading">Opening the forest fire…</div>
   ) : frame && (frame.world.depth ?? 1) > 1 ? (
@@ -1264,6 +1303,16 @@ export function App() {
                     onChange={chooseLayout}
                     forcedColumn={frame != null && !positionsUsable}
                   />
+                  <GridControl spacing={grid} onChange={chooseGrid} />
+                  <button
+                    type="button"
+                    className="arrange"
+                    disabled={!widgetsApplyEnabled(!!sessionId, running)}
+                    title={running ? widgetsLockedMessage : 'Lay the view and widgets out on the grid'}
+                    onClick={() => setArrangeAsk(true)}
+                  >
+                    Arrange
+                  </button>
                   <div className="model-heading">
                     <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
                       {modelTitle}
@@ -1278,6 +1327,7 @@ export function App() {
                 <InterfaceCanvas
                   view={viewBox}
                   dropping={dropping}
+                  grid={grid}
                   world={worldView}
                   items={widgets.map((w) => ({
                     key: `${modelName}-${w.index}`,
@@ -1320,6 +1370,16 @@ export function App() {
                         onChange={chooseLayout}
                         forcedColumn={frame != null && !positionsUsable}
                       />
+                      <GridControl spacing={grid} onChange={chooseGrid} />
+                      <button
+                        type="button"
+                        className="arrange"
+                        disabled={!widgetsApplyEnabled(!!sessionId, running)}
+                        title={running ? widgetsLockedMessage : 'Lay the view and widgets out on the grid'}
+                        onClick={() => setArrangeAsk(true)}
+                      >
+                        Arrange
+                      </button>
                       <div className="model-heading">
                         <h1 className="model-title" data-model-title={modelTitle} title={modelTitle}>
                           {modelTitle}
@@ -1411,6 +1471,28 @@ export function App() {
             fileRef.current?.click()
           }}
         />
+      )}
+      {arrangeAsk && (
+        <div className="modal-back" onMouseDown={() => setArrangeAsk(false)}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="arrange-title"
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setArrangeAsk(false)
+            }}
+          >
+            <p id="arrange-title">Rearrange the interface? This replaces the view and widget positions.</p>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setArrangeAsk(false)}>Cancel</button>
+              <button type="button" className="apply" autoFocus onClick={() => void confirmArrange()}>
+                Arrange
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {leaveTo && (
         <div className="modal-back" onMouseDown={() => { if (!leaving) setLeaveTo(null) }}>

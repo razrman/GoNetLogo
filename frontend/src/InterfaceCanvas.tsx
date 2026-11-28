@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { layoutScale, placeInterface, readableFontPx, type Box, type LayoutChoice } from './interfaceLayout'
+import { gridDotOffset, layoutScale, placeInterface, readableFontPx, type Box, type GridSpacing, type LayoutChoice } from './interfaceLayout'
 
 export function InterfaceCanvas({
   view,
   items,
   world,
   dropping,
+  grid,
 }: {
   view: Box | null
   items: { key: string; box: Box; node: ReactNode }[]
   world: ReactNode
   dropping: boolean
+  grid: number
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [avail, setAvail] = useState({ w: 0, h: 0 })
@@ -35,6 +37,14 @@ export function InterfaceCanvas({
   )
   const scale = layoutScale(placed.width, placed.height, avail.w, avail.h)
   const ready = scale > 0
+  const dots =
+    grid > 0 && ready
+      ? {
+          backgroundImage: 'radial-gradient(circle, rgba(28, 25, 20, 0.35) 1px, transparent 1.2px)',
+          backgroundSize: `${grid * scale}px ${grid * scale}px`,
+          backgroundPosition: `${gridDotOffset(placed.originX, grid, scale)}px ${gridDotOffset(placed.originY, grid, scale)}px`,
+        }
+      : {}
   return (
     <div className="iface-stage" ref={ref}>
       {ready && (
@@ -45,6 +55,7 @@ export function InterfaceCanvas({
             height: placed.height * scale,
             fontSize: readableFontPx(scale),
             ['--iface-scale' as string]: scale,
+            ...dots,
           }}
         >
           {placed.view && (
@@ -65,6 +76,37 @@ export function InterfaceCanvas({
       )}
       {dropping && <div className="drop-hint">Drop a .nlogo, .nlogox, .nlogo3d, or .nlogox3d file</div>}
     </div>
+  )
+}
+
+const gridOptions: { id: GridSpacing; label: string }[] = [
+  { id: 0, label: 'Off' },
+  { id: 5, label: '5' },
+  { id: 10, label: '10' },
+  { id: 20, label: '20' },
+  { id: 40, label: '40' },
+]
+
+export function GridControl({
+  spacing,
+  onChange,
+}: {
+  spacing: GridSpacing
+  onChange: (next: GridSpacing) => void
+}) {
+  return (
+    <label className="grid-pick">
+      Grid
+      <select
+        aria-label="Grid spacing"
+        value={spacing}
+        onChange={(event) => onChange(Number(event.target.value) as GridSpacing)}
+      >
+        {gridOptions.map((opt) => (
+          <option key={opt.id} value={opt.id}>{opt.label}</option>
+        ))}
+      </select>
+    </label>
   )
 }
 
