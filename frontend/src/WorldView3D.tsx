@@ -192,7 +192,9 @@ class Scene3D {
   resize() {
     const w = Math.max(1, this.wrap.clientWidth)
     const h = Math.max(1, this.wrap.clientHeight)
-    this.renderer.setSize(w, h, true)
+    // CSS sizes the canvas to the view box. A true updateStyle would pin
+    // the element to these pixels and let it paint outside that box.
+    this.renderer.setSize(w, h, false)
     this.labels.setSize(w, h)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()

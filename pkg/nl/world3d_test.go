@@ -558,6 +558,10 @@ func TestLoad3DModels(t *testing.T) {
 	if !m.Is3D || !m.View.Is3D || m.View.MinPzcor != -2 || m.View.MaxPzcor != 5 || m.View.Depth() != 8 {
 		t.Fatalf("view %+v is3d=%v", m.View, m.Is3D)
 	}
+	// No width or height attribute: the box is the patch grid at patch size.
+	if m.View.W != 90 || m.View.H != 70 {
+		t.Fatalf("missing 3D box %+v", m.View)
+	}
 	vm, err := m.NewVM(1)
 	if err != nil {
 		t.Fatal(err)
@@ -577,6 +581,10 @@ func TestLoad3DModels(t *testing.T) {
 	}
 	if !m.Is3D || m.View.MinPzcor != -1 || m.View.MaxPzcor != 4 || m.View.MaxPxcor != 3 {
 		t.Fatalf("classic 3D view %+v", m.View)
+	}
+	// Lines 1-4 are left, top, right, bottom, the same as a 2D graphics window.
+	if m.View.X != 0 || m.View.Y != 0 || m.View.W != 100 || m.View.H != 100 {
+		t.Fatalf("classic 3D pixel box %+v", m.View)
 	}
 	if _, err := m.Compile(); err != nil {
 		t.Fatal(err)

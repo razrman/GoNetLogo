@@ -57,6 +57,18 @@ test('the canvas keeps model positions and scales with the pane', () => {
   assert.equal(placed.items[1]!.y - placed.items[0]!.y, setup.y - slider.y)
   assert.equal(placed.view!.w, view.w)
   assert.ok(placed.view!.x > placed.items[0]!.x)
+  const flocking = placeInterface({ x: 0, y: 0, w: 256, h: 276 }, [{ x: 17, y: 268, w: 172, h: 33 }])
+  assert.equal(flocking.width, 800)
+  assert.equal(flocking.height, 600)
+  assert.equal(flocking.view!.w, 256)
+  assert.equal(flocking.view!.h, 276)
+  const arranged3d = autoArrange({ x: 0, y: 0, w: 256, h: 276 }, [
+    { kind: 'button', box: { x: 107, y: 67, w: 87, h: 33 } },
+    { kind: 'slider', box: { x: 17, y: 268, w: 172, h: 33 } },
+  ], 10)
+  assert.ok(arranged3d.view.w <= 380 && arranged3d.view.h <= 520)
+  assert.ok(arranged3d.view.x + arranged3d.view.w <= 800)
+  assert.ok(arranged3d.view.y + arranged3d.view.h <= 600)
   const grown = placeInterface(view, [{ x: 760, y: 10, w: 80, h: 40 }])
   assert.equal(grown.width, 840)
   assert.equal(grown.height, 600)

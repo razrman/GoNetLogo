@@ -75,6 +75,16 @@ func TestMissingInterfaceBoxStaysZero(t *testing.T) {
 	}
 }
 
+func TestFlocking3DViewBox(t *testing.T) {
+	m := loadModel(t, "library/3D/Sample Models/Flocking 3D Alternate.nlogox3d")
+	if !m.View.Is3D || m.View.X != 0 || m.View.Y != 0 || m.View.W != 256 || m.View.H != 276 {
+		t.Fatalf("flocking view %+v", m.View)
+	}
+	if m.View.MinPxcor != -12 || m.View.MaxPxcor != 12 || m.View.MinPzcor != -12 || m.View.MaxPzcor != 12 {
+		t.Fatalf("flocking world %+v", m.View)
+	}
+}
+
 func TestRobbyNotesKeepTheirFont(t *testing.T) {
 	m := loadModel(t, "library/Sample Models/Computer Science/Robby the Robot.nlogox")
 	note := widgetBy(m, "note", "More similar\nto best strategy")

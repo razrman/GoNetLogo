@@ -306,6 +306,7 @@ func parseWidgetBlock(m *FileModel, lines []string) error {
 		}
 		v.TickLabel = tickLabelFromLines(lines)
 		v.Description = widgetDescription(lines)
+		ensure3DViewBox(&v)
 		m.View = v
 	case "BUTTON":
 		w, err := parseButtonLines(lines)
@@ -744,8 +745,24 @@ func viewFromXML(se xml.StartElement) ViewSpec {
 		v.MinPzcor = atoi(attr(se, "minPzcor"))
 		v.MaxPzcor = atoi(attr(se, "maxPzcor"))
 		v.WrapZ = attr(se, "wrappingAllowedZ") == "true"
+		ensure3DViewBox(&v)
 	}
 	return v
+}
+
+// ensure3DViewBox gives a 3D view with no pixel box the size of its
+// patch grid. The graphics window's left/top/right/bottom stay as written
+// when they are present. A zero box would drop the view off the canvas.
+func ensure3DViewBox(v *ViewSpec) {
+	if v == nil || !v.Is3D || v.PatchSize <= 0 || (v.W > 0 && v.H > 0) {
+		return
+	}
+	if v.W <= 0 && v.MaxPxcor >= v.MinPxcor {
+		v.W = int(float64(v.MaxPxcor-v.MinPxcor+1)*v.PatchSize + 0.5)
+	}
+	if v.H <= 0 && v.MaxPycor >= v.MinPycor {
+		v.H = int(float64(v.MaxPycor-v.MinPycor+1)*v.PatchSize + 0.5)
+	}
 }
 
 func buttonFromXML(se xml.StartElement, source string) Widget {
